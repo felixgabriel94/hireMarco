@@ -1,0 +1,16 @@
+# secrets live outside the repo, in ~/.config/hiremarco/env; nothing here holds one
+.env
+*.env
+env
+# python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+dist/
+build/
+*.egg-info/
+# local state and logs
+var/
+*.jsonl
+.DS_Store
