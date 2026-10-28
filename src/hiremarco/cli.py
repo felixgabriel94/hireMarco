@@ -399,7 +399,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("routing").set_defaults(func=cmd_routing)
 
     lg = sub.add_parser("logic")
-    lg.add_argument("action", choices=["play", "stop", "record", "go_to_start"])
+    lg.add_argument("action", choices=["play", "stop", "record", "go_to_start", "new_track"])
     lg.add_argument("--dry-run", action="store_true")
     lg.set_defaults(func=cmd_logic)
 

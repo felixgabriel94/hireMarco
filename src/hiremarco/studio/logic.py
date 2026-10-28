@@ -37,10 +37,10 @@ KEYMAP: dict[str, tuple[str, tuple[str, ...]]] = {
     "go_to_start": ("code:36", ()),                              # return
     "new_audio_track": ("a", ("option", "command")),
     "go_to_position": ("/", ()),                                 # opens Go to Position
-    "set_left_locator": ("l", ("control", "option", "command")),  # custom
-    "set_right_locator": ("k", ("control", "option", "command")), # custom
-    "autopunch_on": ("p", ("control", "option", "command")),      # custom
-    "record_arm": ("r", ("control", "option", "command")),        # custom
+    "set_left_locator": ("l", ("control", "option", "command")),  # custom, assigned 2026-10-28
+    "set_right_locator": ("k", ("control", "option", "command")), # custom, assigned 2026-10-28
+    "autopunch_on": ("p", ("control", "option", "command")),      # custom (Toggle Autopunch Mode), assigned 2026-10-28
+    "record_arm": ("r", ("control",)),                            # Toggle Track Record Enable, Logic's default
 }
 MARKERS_PATH_KEY = "HIREMARCO_MARKERS"   # json {"chorus": 33, "verse 2": 17} bars, per session
 
