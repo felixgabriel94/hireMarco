@@ -29,6 +29,15 @@ tool that reaches no person. A new destination is a new line.
 
 (none yet; every tool is off)
 
+## Read grants
+
+Marco opens mail only from a sender named here; absent means he reads none.
+One line each:
+
+    read: mail <- <address or @domain> ; <purpose> ; until <YYYY-MM-DD>
+
+(none yet)
+
 ## Money
 
 Caps in code: 10 minutes per call, 30 calls and 100 WhatsApp messages per

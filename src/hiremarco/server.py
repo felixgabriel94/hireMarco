@@ -13,6 +13,11 @@ from hiremarco.marco import Marco
 from hiremarco.whatsapp import Inbound, WhatsApp, make_app
 
 
+def listen_only(message: Inbound) -> str:
+    """Record that the Owner wrote (the webhook already did) and say nothing back."""
+    return Trace(f"heard: {(message.text or message.kind)[:60]}").done("listening only, no reply")
+
+
 def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None = None) -> str:
     wa = wa or WhatsApp()
     heard = message.text or f"[{message.kind}]"
@@ -30,9 +35,9 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         return trace.done(f"error: {type(exc).__name__}")
 
 
-def build_app():
+def build_app(*, reply: bool = True):
     return make_app(
-        handle,
+        handle if reply else listen_only,
         verify_token=config.require("WHATSAPP_VERIFY_TOKEN"),
         app_secret=config.require("WHATSAPP_APP_SECRET"),
         owner=config.require("OWNER_WHATSAPP"),

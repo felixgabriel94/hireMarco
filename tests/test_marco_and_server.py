@@ -83,3 +83,10 @@ def test_private_persona_never_goes_to_a_contributor_model(tmp_path, monkeypatch
     except gate.Refused:
         raised = True
     assert raised
+
+
+def test_listen_only_never_replies():
+    from hiremarco.server import listen_only
+
+    line = listen_only(Inbound(id="w", sender=OWNER, kind="text", text="Marco?"))
+    assert line.startswith("heard: Marco? > listening only, no reply")

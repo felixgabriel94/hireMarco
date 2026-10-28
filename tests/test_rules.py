@@ -40,3 +40,19 @@ def test_malformed_line_is_ignored(tmp_path):
 def test_repo_rules_file_has_no_live_switch_yet():
     # RULES.md in this repository ships with every switch off.
     assert rules.switches() == []
+
+
+def test_read_grants_exact_address_and_domain(tmp_path):
+    p = write(tmp_path, "read: mail <- lucie@example.com ; the dinner email ; until 2026-11-04\n"
+                        "read: mail <- @resy.com ; booking proof ; until 2026-11-04\n"
+                        "read: mail <- @old.com ; expired ; until 2026-10-01\n")
+    today = date(2026, 10, 28)
+    assert rules.may_read("Lucie@Example.com", p, today)
+    assert rules.may_read("no-reply@resy.com", p, today)
+    assert not rules.may_read("someone@example.com", p, today)
+    assert not rules.may_read("a@old.com", p, today)
+    assert not rules.may_read("x@resy.com.evil.io", p, today)
+
+
+def test_repo_rules_file_grants_no_mail_yet():
+    assert rules.read_grants() == []

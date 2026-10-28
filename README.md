@@ -28,9 +28,10 @@ below grows as the build does; `git log` carries the dates.
 | Oct 28 | `hiremarco.gate` | One gate for every action: send switches, Owner-only WhatsApp, the call's recording notice, kill switch, duplicate refusal, daily limits, model spend cap |
 | Oct 28 | `hiremarco.critic` | A second Muse Spark pass before anything irreversible; fails closed |
 | Oct 28 | `hiremarco.whatsapp` | Cloud API client and webhook: signature check, Owner only, retries skipped, 24-hour window respected |
+| Oct 28 | `hiremarco.google` | One Google sign-in (PKCE, loopback): Gmail read only from senders `RULES.md` grants, checked again by the From header; calendar check and add through the gate |
 | Oct 28 | `hiremarco.marco`, `server`, `livelog`, `cli` | Marco's voice through the gate, the running webhook, his on-screen log, the `marco` command |
 
-Planned, in order: the mail reader and the offer, the studio (voice
+Planned, in order: the offer, the studio (voice
 commands in Logic, three plugin knobs, take notes, the ready-to-mix export,
 the 6176 read), the call and its proof, the voice note.
 

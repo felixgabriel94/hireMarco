@@ -61,3 +61,39 @@ def require(tool: str, destination: str, today: date | None = None, path: Path |
         raise SendNotAllowed(
             f"no live send switch for {tool} -> {destination}; add a line to RULES.md (absent means off)"
         )
+
+
+# Read grants: which senders' mail Marco may open. One line each:
+#     read: mail <- <address or @domain> ; <purpose> ; until <YYYY-MM-DD>
+# Absent means Marco reads no mail at all.
+READ_LINE = re.compile(
+    r"^\s*read:\s*mail\s*<-\s*(?P<sender>@[\w.-]+\.\w+|[\w.+-]+@[\w.-]+\.\w+)\s*;\s*(?P<purpose>[^;]+?)\s*;"
+    r"\s*until\s+(?P<until>\d{4}-\d{2}-\d{2})\s*$"
+)
+
+
+@dataclass(frozen=True)
+class ReadGrant:
+    sender: str
+    purpose: str
+    until: date
+
+
+def read_grants(path: Path | None = None, today: date | None = None) -> list[ReadGrant]:
+    path = path or RULES_PATH
+    today = today or date.today()
+    if not path.exists():
+        return []
+    found = []
+    for raw in path.read_text().splitlines():
+        m = READ_LINE.match(raw)
+        if m and date.fromisoformat(m["until"]) >= today:
+            found.append(ReadGrant(m["sender"].lower(), m["purpose"].strip(), date.fromisoformat(m["until"])))
+    return found
+
+
+def may_read(sender: str, path: Path | None = None, today: date | None = None) -> bool:
+    """True when a live read grant names this exact address or its domain."""
+    sender = sender.strip().lower()
+    domain = "@" + sender.rpartition("@")[2]
+    return any(g.sender in (sender, domain) for g in read_grants(path, today))

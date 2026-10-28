@@ -5,9 +5,12 @@
     uv run marco gate kill on|off        stop or resume everything
     uv run marco demo first-answer       Marco's first live answer on Muse Spark
     uv run marco serve                   the WhatsApp webhook on 127.0.0.1:8787
+    uv run marco serve --listen-only     hear the Owner, reply to nothing (opens the 24-hour window)
     uv run marco whatsapp send "text"    one message to the Owner (manual trigger)
     uv run marco whatsapp verify-token   make the webhook token, copy it to the clipboard
     uv run marco whatsapp subscribe      point the WhatsApp account's webhooks at the app
+    uv run marco google signin           one Google sign-in for mail (read) and calendar
+    uv run marco mail check              granted senders' mail from the last two days
 """
 
 from __future__ import annotations
@@ -67,7 +70,7 @@ def cmd_serve(args) -> int:
 
     from hiremarco.server import build_app
 
-    uvicorn.run(build_app(), host="127.0.0.1", port=args.port, log_level="warning")
+    uvicorn.run(build_app(reply=not args.listen_only), host="127.0.0.1", port=args.port, log_level="warning")
     return 0
 
 
@@ -103,6 +106,26 @@ def cmd_whatsapp(args) -> int:
     return 0
 
 
+def cmd_google(args) -> int:
+    from hiremarco.google.auth import signin
+
+    signin()
+    print("Google signed in; refresh token stored in the secrets file")
+    return 0
+
+
+def cmd_mail(args) -> int:
+    from hiremarco.google import Mail
+
+    items = Mail().recent()
+    if not items:
+        Trace("mail: checked").done("nothing from a granted sender")
+        return 0
+    for item in items:
+        Trace(f"mail: {item.sender_name or item.sender}").done(item.subject[:60])
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -121,12 +144,21 @@ def main(argv: list[str] | None = None) -> int:
 
     s = sub.add_parser("serve")
     s.add_argument("--port", type=int, default=8787)
+    s.add_argument("--listen-only", action="store_true")
     s.set_defaults(func=cmd_serve)
 
     w = sub.add_parser("whatsapp")
     w.add_argument("action", choices=["send", "verify-token", "subscribe"])
     w.add_argument("text", nargs="*")
     w.set_defaults(func=cmd_whatsapp)
+
+    gg = sub.add_parser("google")
+    gg.add_argument("action", choices=["signin"])
+    gg.set_defaults(func=cmd_google)
+
+    m = sub.add_parser("mail")
+    m.add_argument("action", choices=["check"])
+    m.set_defaults(func=cmd_mail)
 
     args = parser.parse_args(argv)
     if args.command == "gate" and args.action == "kill" and not args.state:

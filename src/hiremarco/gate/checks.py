@@ -29,6 +29,7 @@ CHANNEL_TOOLS = {
     "voice": "calls",
     "logic": "logic",
     "files": "export",
+    "calendar": "calendar",
 }
 PERSON_CHANNELS = {"whatsapp", "voice"}
 

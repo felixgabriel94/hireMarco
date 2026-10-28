@@ -21,6 +21,9 @@ KNOWN_KEYS = (
     "WHATSAPP_VERIFY_TOKEN",    # webhook verification handshake
     "WHATSAPP_APP_SECRET",      # webhook signature check
     "OWNER_WHATSAPP",           # the Owner's number, E.164 without plus
+    "GOOGLE_CLIENT_ID",         # the Internal Workspace OAuth client (desktop)
+    "GOOGLE_CLIENT_SECRET",
+    "GOOGLE_REFRESH_TOKEN",     # written by `marco google signin`
 )
 
 
