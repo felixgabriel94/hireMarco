@@ -41,8 +41,17 @@ the 6176 read), the call and its proof, the voice note.
 
 ## Setup used, not built here
 
-These existed before the event or are products used as they are. They are
-labelled the same way in the video.
+These existed before the event. They are labelled the same way in the video.
+
+**Ours, from before the event**
+
+- Marco's personality files, kept private and read at runtime from a folder
+  outside this repository; never published
+- The hireMarco design that the gate and the critic follow, from the private
+  hireMarco product; none of its code is in this repository, and everything
+  here was written new for the event
+
+**Products used as they are**
 
 - Meta Model API and its models (Muse Spark, Muse Voice Transcribe)
 - Meta glasses as the camera and the voice interface
@@ -50,12 +59,6 @@ labelled the same way in the video.
 - The voice (ElevenLabs)
 - Google Calendar and Resy
 - Logic Pro
-- Marco's personality files, written before the event, kept private and
-  read at runtime from a folder outside this repository; never published
-
-hireMarco is also the name of a private product in development by the same
-author. None of its code is in this repository. The gate here follows the
-same design and entry points, written new for the event.
 
 ## Run
 
