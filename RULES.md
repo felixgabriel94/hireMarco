@@ -22,12 +22,13 @@ Grammar, one line each, under the heading that follows:
     send: <tool> -> <destination> ; <purpose> ; until <YYYY-MM-DD>
 
 `<tool>` is the package that acts (`whatsapp`, `calls`, `logic`, `export`);
-`<destination>` is a phone number in E.164 without the plus, or `*` for a
-tool that reaches no person. A new destination is a new line.
+`<destination>` is a phone number in E.164 without the plus, `owner` for the
+Owner's own number (kept in the private env file, not in this repository),
+or `*` for a tool that reaches no person. A new destination is a new line.
 
 ## Send switches
 
-(none yet; every tool is off)
+    send: whatsapp -> owner ; Marco's replies and the first-whatsapp take ; until 2026-11-04
 
 ## Read grants
 

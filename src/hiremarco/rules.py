@@ -7,8 +7,10 @@ grammar, one per line under the "Send switches" heading::
     send: <tool> -> <destination> ; <purpose> ; until <YYYY-MM-DD>
 
 ``<tool>`` is a package name such as ``whatsapp`` or ``calls``;
-``<destination>`` is a phone number in E.164 without the plus, or ``*`` for
-a tool that reaches no person (not used for messages or calls).
+``<destination>`` is a phone number in E.164 without the plus, ``owner`` for
+the Owner's own number (read from OWNER_WHATSAPP in the private env file, so
+it stays out of this public repository), or ``*`` for a tool that reaches no
+person (not used for messages or calls).
 """
 
 from __future__ import annotations
@@ -18,8 +20,10 @@ from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
+from hiremarco import config
+
 RULES_PATH = Path(__file__).resolve().parents[2] / "RULES.md"
-LINE = re.compile(r"^\s*send:\s*(?P<tool>[\w-]+)\s*->\s*(?P<dest>\*|\d{7,15})\s*;\s*(?P<purpose>[^;]+?)\s*;\s*until\s+(?P<until>\d{4}-\d{2}-\d{2})\s*$")
+LINE = re.compile(r"^\s*send:\s*(?P<tool>[\w-]+)\s*->\s*(?P<dest>\*|owner|\d{7,15})\s*;\s*(?P<purpose>[^;]+?)\s*;\s*until\s+(?P<until>\d{4}-\d{2}-\d{2})\s*$")
 
 
 @dataclass(frozen=True)
@@ -46,10 +50,14 @@ def allowed(tool: str, destination: str, today: date | None = None, path: Path |
     """True only when a live switch line names this tool and this destination."""
     today = today or date.today()
     destination = destination.lstrip("+")
-    return any(
-        s.tool == tool and s.destination == destination and s.until >= today
-        for s in switches(path)
-    )
+    owner = (config.get("OWNER_WHATSAPP") or "").lstrip("+")
+
+    def names(s: Switch) -> bool:
+        if s.destination == "owner":
+            return owner != "" and destination == owner
+        return s.destination == destination
+
+    return any(s.tool == tool and names(s) and s.until >= today for s in switches(path))
 
 
 class SendNotAllowed(PermissionError):

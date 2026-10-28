@@ -37,9 +37,26 @@ def test_malformed_line_is_ignored(tmp_path):
     assert rules.switches(p) == []
 
 
-def test_repo_rules_file_has_no_live_switch_yet():
-    # RULES.md in this repository ships with every switch off.
-    assert rules.switches() == []
+def test_owner_destination_matches_only_the_owner_number(tmp_path, monkeypatch):
+    p = write(tmp_path, "send: whatsapp -> owner ; replies to the Owner ; until 2026-11-04\n")
+    today = date(2026, 10, 28)
+    monkeypatch.setattr(rules.config, "get", lambda key: "+15551234567" if key == "OWNER_WHATSAPP" else None)
+    assert rules.allowed("whatsapp", "15551234567", today, p) is True
+    assert rules.allowed("whatsapp", "15559999999", today, p) is False
+    assert rules.allowed("calls", "15551234567", today, p) is False
+    assert rules.allowed("whatsapp", "owner", today, p) is False
+
+
+def test_owner_destination_is_off_while_owner_unset(tmp_path, monkeypatch):
+    p = write(tmp_path, "send: whatsapp -> owner ; replies to the Owner ; until 2026-11-04\n")
+    monkeypatch.setattr(rules.config, "get", lambda key: None)
+    assert rules.allowed("whatsapp", "", date(2026, 10, 28), p) is False
+    assert rules.allowed("whatsapp", "15551234567", date(2026, 10, 28), p) is False
+
+
+def test_repo_rules_file_switches_only_whatsapp_to_the_owner():
+    # RULES.md in this repository turns on one switch: WhatsApp to the Owner.
+    assert [(s.tool, s.destination) for s in rules.switches()] == [("whatsapp", "owner")]
 
 
 def test_read_grants_exact_address_and_domain(tmp_path):
