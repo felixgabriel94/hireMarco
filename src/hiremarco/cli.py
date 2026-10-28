@@ -14,6 +14,7 @@
     uv run marco relay token             make the call relay's token, copy it to the clipboard for ElevenLabs
     uv run marco say "text"              one talkback line in the headphones, kept as a WAV
     uv run marco say --tone              a one-second tone on the talkback output, to test the routing
+    uv run marco say --fresh "text"      a new take of a line Marco has said before
     uv run marco voicenote prepare "t"   make the voice note (OGG/OPUS) and keep it, no send
     uv run marco voicenote send FILE     send a prepared voice note to the Owner on Return
     uv run marco film devices            the audio devices and their channel counts
@@ -167,10 +168,13 @@ def cmd_say(args) -> int:
         print("tone played on the talkback output")
         return 0
     text = " ".join(args.text)
-    trace = Trace(f"say: {text}")
+    trace = Trace(f"say: {text}" + (" (fresh take)" if args.fresh else ""))
+    talkback = Talkback(lambda: False)
+    if args.fresh:
+        talkback._cache_path(text).unlink(missing_ok=True)  # a new take of the line; the old WAVs stay in capture
     # Standalone, nothing is rolling; in the booth the studio loop passes Logic's transport state.
     try:
-        path = Talkback(lambda: False).say(text)
+        path = talkback.say(text)
     except (gate.Refused, TakeRolling) as refused:
         trace.done(f"held: {refused.reason}")
         return 1
@@ -427,6 +431,7 @@ def main(argv: list[str] | None = None) -> int:
 
     sy = sub.add_parser("say")
     sy.add_argument("--tone", action="store_true")
+    sy.add_argument("--fresh", action="store_true")
     sy.add_argument("text", nargs="*")
     sy.set_defaults(func=cmd_say)
 
