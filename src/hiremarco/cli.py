@@ -21,6 +21,7 @@
     uv run marco export-dialog FOLDER    Muse Wonder fills Logic's export dialog (--dry-run: looks, clicks nothing)
     uv run marco booth                   the session by voice: mic, commands, Logic, talkback (--dry-run: plans only)
     uv run marco routing                 tone and mic test of the interface's virtual channels and inputs
+    uv run marco logic play|stop|...     one transport key command into Logic, no model call
 """
 
 from __future__ import annotations
@@ -267,6 +268,25 @@ def cmd_routing(args) -> int:
     return 0 if ok else 1
 
 
+def cmd_logic(args) -> int:
+    """One transport command into Logic, no model call: the live key-command test."""
+    from hiremarco.studio.commands import Command
+    from hiremarco.studio.logic import Logic
+
+    command = Command(args.action)
+    trace = Trace(f"logic: {command.describe()}" + (" (dry run)" if args.dry_run else ""))
+    try:
+        result = Logic(dry_run=args.dry_run).do(command)
+    except gate.Refused as refused:
+        trace.done(f"held: {refused.reason}")
+        return 1
+    except subprocess.CalledProcessError as failed:
+        trace.done(f"osascript failed (exit {failed.returncode}); check Accessibility for this terminal")
+        return 1
+    trace.done(result)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -329,6 +349,11 @@ def main(argv: list[str] | None = None) -> int:
     bo.set_defaults(func=cmd_booth)
 
     sub.add_parser("routing").set_defaults(func=cmd_routing)
+
+    lg = sub.add_parser("logic")
+    lg.add_argument("action", choices=["play", "stop", "record", "go_to_start"])
+    lg.add_argument("--dry-run", action="store_true")
+    lg.set_defaults(func=cmd_logic)
 
     args = parser.parse_args(argv)
     if args.command == "say" and not (args.tone or args.text):
