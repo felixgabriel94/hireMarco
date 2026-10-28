@@ -16,6 +16,8 @@
     uv run marco say --tone              a one-second tone on the talkback output, to test the routing
     uv run marco voicenote prepare "t"   make the voice note (OGG/OPUS) and keep it, no send
     uv run marco voicenote send FILE     send a prepared voice note to the Owner on Return
+    uv run marco film devices            the audio devices and their channel counts
+    uv run marco film record             the booth on one clock until Ctrl+C, in 15-minute segments
 """
 
 from __future__ import annotations
@@ -195,6 +197,30 @@ def cmd_voicenote(args) -> int:
     return 0
 
 
+def cmd_film(args) -> int:
+    if args.action == "devices":
+        import sounddevice as sd
+
+        for i, d in enumerate(sd.query_devices()):
+            print(f"{i:>2}  in {d['max_input_channels']:>2}  out {d['max_output_channels']:>2}  {d['name']}")
+        return 0
+    import time
+
+    from hiremarco.film import FilmRecorder
+
+    rec = FilmRecorder()
+    rec.start()
+    print(f"film recording {len(rec.channels)} channels at {rec.rate} Hz into {rec.segmenter.folder}; Ctrl+C stops")
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        pass
+    files = rec.stop()
+    print(f"stopped: {rec.seconds:.0f} s in {len(files)} segment(s), {rec.dropped} overflow(s)")
+    return 0 if rec.dropped == 0 else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -242,6 +268,10 @@ def main(argv: list[str] | None = None) -> int:
     vn.add_argument("action", choices=["prepare", "send"])
     vn.add_argument("text", nargs="+")
     vn.set_defaults(func=cmd_voicenote)
+
+    fm = sub.add_parser("film")
+    fm.add_argument("action", choices=["devices", "record"])
+    fm.set_defaults(func=cmd_film)
 
     args = parser.parse_args(argv)
     if args.command == "say" and not (args.tone or args.text):
