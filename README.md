@@ -28,8 +28,10 @@ only once the code that calls it is committed.
 |---|---|---|
 | `muse-spark-1.3` | His answers | live |
 | `muse-wonder-1.0` | The critic: approves or holds anything that cannot be taken back, so only high-stakes calls use the top-tier model | live |
-| `muse-spark-1.3` | Turning a spoken studio command into one Logic action; reading the 6176 from a photo; the brain on the restaurant call | this week |
-| `muse-voice-transcribe-1.0` | Hearing studio commands and take notes from the mic; the call transcript behind the proof card | this week |
+| `muse-wonder-1.0` | Computer use: clicks through Logic's export dialog for the ready-to-mix folder | this week |
+| `muse-spark-1.3` | Turning a spoken studio command into one Logic action (structured output, minimal reasoning); reading the 6176 from a photo; the brain on the restaurant call; checking the restaurant's hours with search grounding before it dials | this week |
+| `muse-spark-1.2` | "Marco, how was that take?": listens to the take and gives a producer's note (Meta's recommended version for audio input) | this week |
+| `muse-voice-transcribe-1.0` | Hearing studio commands and take notes live from the mic (keyword biasing, endpointing); the call transcript with speaker labels behind the proof card | this week |
 | `sam-3.1` | Isolating the 6176's knobs in the glasses photo before Muse Spark reads them; the clothes on the bed for Dress me | this week |
 | `muse-image-1.0` | The look board for Dress me | this week |
 
