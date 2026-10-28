@@ -135,7 +135,8 @@ def check_outbound(
         if row:
             raise Refused("already done (same idempotency key)")
         since = datetime.fromtimestamp(time.time() - DUPLICATE_WINDOW_S, timezone.utc).isoformat()
-        row = conn.execute(
+        # Repeating "record" in the studio is normal; repeating a message to a person is not.
+        row = channel in PERSON_CHANNELS and conn.execute(
             "select 1 from effects where ok = 1 and channel = ? and target = ? and message_hash = ? and ts >= ?",
             (channel, target, _hash(message), since),
         ).fetchone()
