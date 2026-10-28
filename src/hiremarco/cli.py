@@ -335,6 +335,34 @@ def cmd_knobs(args) -> int:
     return 0
 
 
+def cmd_preset(args) -> int:
+    """Test: a MIDI program change on "Marco Knobs", which Logic maps to a saved Performance."""
+    import time
+
+    import mido
+
+    if not 0 <= args.number <= 127:
+        print("a performance number is 0 to 127")
+        return 1
+    def run() -> None:
+        mido.set_backend("mido.backends.rtmidi")
+        port = mido.open_output("Marco Knobs", virtual=True)
+        time.sleep(1.0)  # let Logic see the port
+        port.send(mido.Message("program_change", program=args.number))
+        time.sleep(0.5)
+        port.close()
+
+    try:
+        gate.execute_effect(gate.connect(), run, tenant_id="owner", idempotency_key=f"preset:{time.time_ns()}",
+                            capability="preset", channel="logic", target="*",
+                            message=f"performance {args.number:03d}", department="studio")
+    except gate.Refused as refused:
+        print(f"held: {refused.reason}")
+        return 1
+    print(f"sent program change {args.number}; Logic should load performance {args.number:03d} on the selected track")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -407,6 +435,10 @@ def main(argv: list[str] | None = None) -> int:
     kn.add_argument("action", choices=["learn", "up", "down"])
     kn.add_argument("knob", choices=["tuning", "reverb", "delay"])
     kn.set_defaults(func=cmd_knobs)
+
+    pr = sub.add_parser("preset")
+    pr.add_argument("number", type=int)
+    pr.set_defaults(func=cmd_preset)
 
     args = parser.parse_args(argv)
     if args.command == "say" and not (args.tone or args.text):
