@@ -58,6 +58,7 @@ below grows as the build does; `git log` carries the dates.
 | Oct 28 | `hiremarco.hearing` | Marco's ears on Muse Voice Transcribe: the booth mic streamed in realtime with model endpointing and studio keywords; the call transcribed in speaker-labelled turns |
 | Oct 28 | `hiremarco.voice` | Marco's voice in the booth: ElevenLabs speech played into the headphones between takes only (checked again just before it plays), every line kept as a timestamped WAV for the film; the closing voice note as a WhatsApp voice message, mono OGG/OPUS, through the gate and the critic, sent on the Owner's Return |
 | Oct 28 | `hiremarco.film` | The film's sound on one clock: the mic and the interface's virtual channels (Logic's output, Marco's voice) recorded the whole session long in 15-minute 24-bit segments, each one's first sample logged so the edit lines them up; overflows counted, not hidden |
+| Oct 28 | `hiremarco.studio.feedback` | "Marco, how was that take?": Muse Spark 1.2 listens to the take and gives one producer's note in structured output; when one spot would fix it, the note ends "Want to punch it?" and Marco waits for the answer |
 | Oct 28 | `hiremarco.marco`, `server`, `livelog`, `cli` | Marco's voice through the gate, the running webhook, his on-screen log, the `marco` command |
 
 Planned, in order: the studio (voice
