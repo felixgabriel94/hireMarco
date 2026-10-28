@@ -126,14 +126,28 @@ class Talkback:
             channel="talkback", target="*", message=text, department="studio", rules_path=self.rules_path,
         )
 
+    def play_clip(self, pcm: np.ndarray, label: str) -> Path:
+        """Play a clip Marco made himself (the guide melody), held to the same rules as speech."""
+        if self.is_rolling():
+            raise TakeRolling("a take is rolling")
+        stamp = datetime.now().astimezone()
+        return gate.execute_effect(
+            self.conn, lambda: self._play_and_keep(Speech(label, pcm), stamp, 0, "_guide.wav"),
+            tenant_id=TENANT, idempotency_key=f"talkback:{time.time_ns()}", capability="play_guide",
+            channel="talkback", target="*", message=label, department="studio", rules_path=self.rules_path,
+        )
+
     def _speak_and_play(self, text: str, stamp: datetime) -> Path:
         began = time.monotonic()
         speech = self._ready(text)
         ready_ms = int((time.monotonic() - began) * 1000)
+        return self._play_and_keep(speech, stamp, ready_ms, "_marco.wav")
+
+    def _play_and_keep(self, speech: Speech, stamp: datetime, ready_ms: int, suffix: str) -> Path:
         if self.is_rolling():
             raise TakeRolling("a take started while Marco was getting the line ready")
         self.folder.mkdir(parents=True, exist_ok=True)
-        name = stamp.strftime("%Y-%m-%dT%H-%M-%S.%f")[:-3] + "_marco.wav"
+        name = stamp.strftime("%Y-%m-%dT%H-%M-%S.%f")[:-3] + suffix
         path = self.folder / name
         sf.write(path, speech.pcm, RATE, subtype="PCM_16")
         started = datetime.now().astimezone()

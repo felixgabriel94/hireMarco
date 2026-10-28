@@ -29,7 +29,8 @@ TAPE_SECONDS = 10 * 60
 NOTED = "That's in the mix notes."
 LISTENING = "Let me listen."
 # Lines Marco says often, made once at the start so they play the moment they are needed.
-STOCK = ["Rolling", NOTED, LISTENING, "Morning. Your session's up. Where do you want to start?"]
+STOCK = ["Rolling", NOTED, LISTENING, "Here's how it goes.", "What key are we in?",
+         "Morning. Your session's up. Where do you want to start?"]
 
 
 class Tape:
@@ -79,6 +80,10 @@ class Booth:
     notes: list[str] = field(default_factory=list)
     producer_notes: list[str] = field(default_factory=list)
     pending_punch: str = ""
+    key: str = ""
+    transcribe: Callable[[np.ndarray, int], list] | None = None
+    play_clip: Callable[[np.ndarray, str], object] | None = None
+    last_run: list = field(default_factory=list)
 
     def _speak(self, text: str) -> None:
         try:
@@ -105,6 +110,36 @@ class Booth:
         self.log(text)
         return text
 
+    def _run_check(self, lyric: str) -> str:
+        from hiremarco.studio import pitch
+
+        if self.rolling:
+            return "holding the run check until the take stops"
+        if not self.key:
+            self._speak("What key are we in?")
+            return "asked for the key"
+        take = self.tape.last_take()
+        if take.size == 0:
+            return "no take on the tape yet"
+        window = None
+        if lyric and self.transcribe is not None:
+            window = pitch.locate(lyric, self.transcribe(take, self.tape.rate))
+            if window is None:
+                self._speak(f"I couldn't find {lyric} in that take.")
+                return f"lyric not found: {lyric}"
+        run = pitch.run_in(take, self.tape.rate, self.key, window)
+        self.last_run = run
+        line = pitch.describe(run)
+        self._speak(line)
+        if run and self.play_clip is not None:
+            self._speak("Here's how it goes.")
+            try:
+                self.play_clip(pitch.guide(run), f"guide: {' '.join(n.name for n in run)}")
+            except gate.Refused as held:
+                self.log(f"   (held guide: {held.reason})")
+        where = f"{window[0]:.1f}-{window[1]:.1f} s (estimate)" if window else "whole take"
+        return f"run check, {where}: {line}"
+
     def handle(self, command: Command) -> str:
         a = command.action
         if a == "unknown":
@@ -125,6 +160,18 @@ class Booth:
             self.pending_punch = note.punch_where if note.punch else ""
             self._speak(note.spoken)
             return f"take note: {note.spoken}"
+        if a == "set_key":
+            from hiremarco.studio.pitch import parse_key
+
+            key = command.text.replace(" sharp", "#").replace(" flat", "b")
+            try:
+                parse_key(key)
+            except ValueError:
+                return f"didn't catch a key in {command.text!r}"
+            self.key = key
+            return f"key set: {key}"
+        if a == "run_check":
+            return self._run_check(command.text)
         if a == "preset" and self.rolling:
             return "holding the preset until the take stops"
         if a == "export":
@@ -182,7 +229,13 @@ def run_booth(*, dry_run: bool = False) -> int:
             return None
         return talkback.say(text)
 
-    booth = Booth(understand=understand, logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(rate))
+    from hiremarco.hearing import transcribe
+
+    booth = Booth(understand=understand, logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(rate),
+                  key=config.get("HIREMARCO_SONG_KEY") or "",
+                  transcribe=lambda audio, r: transcribe(audio, r, diarize=False),
+                  play_clip=(lambda pcm, label: print(f"   (guide, dry run: {label})")) if dry_run
+                  else (lambda pcm, label: talkback.play_clip(pcm, label)))
 
     async def main() -> None:
         loop = asyncio.get_running_loop()

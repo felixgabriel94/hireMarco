@@ -25,6 +25,8 @@
     uv run marco knobs learn reverb      open "Marco Knobs" and send its CC for Logic's Learn mode
     uv run marco knobs up|down reverb    one bounded knob step, through the gate
     uv run marco preset my chain         load a saved Performance on the selected track (--list shows them)
+    uv run marco run-check FILE --key "F minor" [--start S --end S] [--play] [--midi out.mid]
+                                         the notes of a vocal run, cents off each, and the corrected guide
 """
 
 from __future__ import annotations
@@ -360,6 +362,31 @@ def cmd_preset(args) -> int:
     return 0
 
 
+def cmd_run_check(args) -> int:
+    """Measure a vocal run from a file: the notes, how far off, and the guide in the headphones."""
+    import soundfile as sf
+
+    from hiremarco.studio import pitch
+
+    audio, rate = sf.read(args.file, dtype="float32")
+    if args.start is not None or args.end is not None:
+        window = (args.start or 0.0, args.end if args.end is not None else len(audio) / rate)
+    else:
+        window = None
+    run = pitch.run_in(audio, rate, args.key, window)
+    for i, n in enumerate(run, 1):
+        print(f"  {i:>2}  {n.start:7.2f}-{n.end:7.2f} s  {n.name:>4}  {n.cents_off:+4d} cents")
+    print(pitch.describe(run))
+    if args.play and run:
+        from hiremarco.voice import Talkback
+
+        Talkback(lambda: False).play_clip(pitch.guide(run), "guide from file")
+    if args.midi and run:
+        pitch.to_midi(run, args.midi, bpm=args.bpm)
+        print(f"MIDI written: {args.midi}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -438,6 +465,16 @@ def main(argv: list[str] | None = None) -> int:
     pr.add_argument("--list", action="store_true")
     pr.add_argument("--dry-run", action="store_true")
     pr.set_defaults(func=cmd_preset)
+
+    rc = sub.add_parser("run-check")
+    rc.add_argument("file")
+    rc.add_argument("--key", required=True)
+    rc.add_argument("--start", type=float)
+    rc.add_argument("--end", type=float)
+    rc.add_argument("--play", action="store_true")
+    rc.add_argument("--midi")
+    rc.add_argument("--bpm", type=float, default=120.0)
+    rc.set_defaults(func=cmd_run_check)
 
     args = parser.parse_args(argv)
     if args.command == "say" and not (args.tone or args.text):

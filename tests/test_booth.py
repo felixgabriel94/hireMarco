@@ -96,3 +96,35 @@ def test_tape_keeps_only_the_take_and_wraps():
     tape.mark_stop()
     take = tape.last_take()
     assert take.size == 1200 and take[0] == 1 and take[-1] == 1200
+
+
+def test_run_check_measures_the_take_and_plays_the_guide():
+    from hiremarco.hearing import Turn
+    from tests.test_pitch import sung
+
+    b, said, _, _ = booth()
+    rate = 24000
+    b.tape = Tape(rate, seconds=5)
+    clips = []
+    b.play_clip = lambda pcm, label: clips.append(label)
+    b.transcribe = lambda audio, r: [Turn(0, 1200, "let me love you")]
+    b.understand = lambda line: Command("run_check", text="love you") if "run" in line else (
+        Command("set_key", text="A minor") if "minor" in line else understand(line))
+    b.hear("Marco, record.")
+    b.tape.write(sung([(None, 0.5), (69, 0.3), (71.7, 0.3), (None, 0.1)], rate))
+    b.hear("Marco, stop.")
+    assert "asked for the key" in b.hear("Marco, how's the run on love you")
+    assert said[-1] == "What key are we in?"
+    b.hear("Marco, we're in A minor")
+    result = b.hear("Marco, how's the run on love you")
+    assert "estimate" in result
+    assert said[-2].startswith("The second note is") and said[-1] == "Here's how it goes."
+    assert clips == ["guide: A4 C5"]
+
+
+def test_spoken_key_and_run_commands_skip_the_model():
+    from hiremarco.studio.commands import understand as real
+
+    assert real("Marco, we're in F sharp minor", client=None) == Command("set_key", text="f sharp minor")
+    assert real("Marco, how's the run on love you", client=None) == Command("run_check", text="love you")
+    assert real("Marco, check the pitch", client=None) == Command("run_check", text="")
