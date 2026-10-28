@@ -134,9 +134,11 @@ class Plugin:
         client = self.client or MuseSpark()
         gate.check_model_call(TENANT, model=MODEL, system=INSTRUCTIONS, prompt=prompt, joblog=client.joblog)
         reply = client.ask(prompt, developer=INSTRUCTIONS, job="sound_design", model=MODEL,
-                           max_completion_tokens=400, reasoning_effort="low",
+                           max_completion_tokens=2000, reasoning_effort="low",
                            response_format={"type": "json_schema",
                                             "json_schema": {"name": "sound", "schema": SCHEMA, "strict": True}})
+        if reply.finish_reason == "length":
+            raise PluginError("the sound design ran out of room before it finished")
         try:
             data = json.loads(reply.text)
             changes = {c["parameter"]: float(c["value"]) for c in data["changes"]}

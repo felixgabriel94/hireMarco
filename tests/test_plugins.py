@@ -108,3 +108,14 @@ def test_design_turns_words_into_real_parameters_and_put_back_restores(tmp_path)
 ])
 def test_sound_lines_skip_the_model(line, command):
     assert understand(line, client=None) == command
+
+
+def test_a_cut_off_answer_says_so(tmp_path):
+    def handler(request):
+        return httpx.Response(200, json={"model": "muse-spark-1.3", "choices": [{"message": {"content": "{\\"chan"},
+                              "finish_reason": "length"}], "usage": {"prompt_tokens": 400, "completion_tokens": 2000}})
+
+    client = MuseSpark(api_key="k", joblog=JobLog(tmp_path / "j.jsonl"), transport=httpx.MockTransport(handler))
+    plugin = Plugin(run=FakeLogic(), conn=gate.connect(":memory:"), rules_path=rules(tmp_path), client=client)
+    with pytest.raises(PluginError, match="ran out of room"):
+        plugin.design("more spacey")
