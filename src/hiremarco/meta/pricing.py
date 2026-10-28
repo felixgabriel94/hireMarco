@@ -52,3 +52,10 @@ PRICES_PER_THOUSAND_CHARS: dict[str, float] = {
 def speech_cost_usd(model: str, characters: int) -> float:
     """Raises KeyError for an unpriced model, like ``cost_usd``."""
     return round(PRICES_PER_THOUSAND_CHARS[model] * characters / 1000, 8)
+
+
+# Segmentation is priced per image (pricing page, read 2026-10-28): 2.50 USD
+# per 1,000 images for SAM 3.1.
+PRICES_PER_IMAGE: dict[str, float] = {
+    "sam-3.1": 2.50 / 1000,
+}
