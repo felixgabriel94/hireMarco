@@ -56,11 +56,12 @@ below grows as the build does; `git log` carries the dates.
 | Oct 28 | `hiremarco.studio.commands`, `studio.logic` | A spoken line becomes one command: the common ones by rule, instantly; the rest by Muse Spark with structured output, held to a fixed list. Logic's key commands for transport and punch-ins, a virtual MIDI port for three bounded plugin knobs, all through the gate, with a dry run that touches nothing |
 | Oct 28 | `hiremarco.relay` | The call's brain: an OpenAI-style endpoint on the Mac for the voice agent, token-checked, gated, pinned to Muse Spark, streaming, cost-logged; the Meta key never leaves the machine |
 | Oct 28 | `hiremarco.hearing` | Marco's ears on Muse Voice Transcribe: the booth mic streamed in realtime with model endpointing and studio keywords; the call transcribed in speaker-labelled turns |
+| Oct 28 | `hiremarco.voice` | Marco's voice in the booth: ElevenLabs speech played into the headphones between takes only (checked again just before it plays), every line kept as a timestamped WAV for the film; the closing voice note as a WhatsApp voice message, mono OGG/OPUS, through the gate and the critic, sent on the Owner's Return |
 | Oct 28 | `hiremarco.marco`, `server`, `livelog`, `cli` | Marco's voice through the gate, the running webhook, his on-screen log, the `marco` command |
 
 Planned, in order: the studio (voice
 commands in Logic, three plugin knobs, take notes, the ready-to-mix export,
-the 6176 read), the call and its proof, the voice note, then Dress me.
+the 6176 read), the call and its proof, then Dress me.
 
 ## Setup used, not built here
 

@@ -12,6 +12,10 @@
     uv run marco google signin           one Google sign-in for mail (read) and calendar
     uv run marco mail check              granted senders' mail from the last two days
     uv run marco relay token             make the call relay's token, copy it to the clipboard for ElevenLabs
+    uv run marco say "text"              one talkback line in the headphones, kept as a WAV
+    uv run marco say --tone              a one-second tone on the talkback output, to test the routing
+    uv run marco voicenote prepare "t"   make the voice note (OGG/OPUS) and keep it, no send
+    uv run marco voicenote send FILE     send a prepared voice note to the Owner on Return
 """
 
 from __future__ import annotations
@@ -138,6 +142,59 @@ def cmd_relay(args) -> int:
     return 0
 
 
+def cmd_say(args) -> int:
+    """One talkback line in the headphones. ``--tone`` tests the routing with no speech and no cost."""
+    from hiremarco.voice import Talkback, TakeRolling
+    from hiremarco.voice.talkback import device_player
+    from hiremarco.voice.tts import RATE
+
+    if args.tone:
+        import numpy as np
+
+        t = np.arange(RATE) / RATE
+        device_player()((np.sin(2 * np.pi * 440 * t) * 6000).astype("<i2"), RATE)
+        print("tone played on the talkback output")
+        return 0
+    text = " ".join(args.text)
+    trace = Trace(f"say: {text}")
+    # Standalone, nothing is rolling; in the booth the studio loop passes Logic's transport state.
+    try:
+        path = Talkback(lambda: False).say(text)
+    except (gate.Refused, TakeRolling) as refused:
+        trace.done(f"held: {refused.reason}")
+        return 1
+    trace.done(f"spoke, kept {path.name}")
+    return 0
+
+
+def cmd_voicenote(args) -> int:
+    from pathlib import Path
+
+    from hiremarco.voice import VoiceNote, prepare_voice_note
+
+    if args.action == "prepare":
+        note = prepare_voice_note(" ".join(args.text))
+        print(f"ready: {note.ogg} ({note.seconds:.1f} s). Listen to the .wav beside it before sending.")
+        return 0
+    from hiremarco.critic import Critic
+    from hiremarco.whatsapp import WhatsApp
+
+    note = VoiceNote.load(Path(args.text[0]))
+    owner = config.require("OWNER_WHATSAPP")
+    print(f"voice note, {note.seconds:.1f} s: {note.text}")
+    input("Press Return to send it to you on WhatsApp (Ctrl+C to stop) ")
+    trace = Trace("voice note")
+    key = "voicenote:" + hashlib.sha256(note.ogg.read_bytes()).hexdigest()[:16]
+    try:
+        message_id = WhatsApp().send_voice(owner, note.ogg.read_bytes(), note.text, idempotency_key=key,
+                                           critic=Critic())
+    except gate.Refused as refused:
+        trace.done(f"held: {refused.reason}")
+        return 1
+    trace.done(f"sent {message_id[-6:]}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -176,7 +233,19 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("action", choices=["token"])
     r.set_defaults(func=cmd_relay)
 
+    sy = sub.add_parser("say")
+    sy.add_argument("--tone", action="store_true")
+    sy.add_argument("text", nargs="*")
+    sy.set_defaults(func=cmd_say)
+
+    vn = sub.add_parser("voicenote")
+    vn.add_argument("action", choices=["prepare", "send"])
+    vn.add_argument("text", nargs="+")
+    vn.set_defaults(func=cmd_voicenote)
+
     args = parser.parse_args(argv)
+    if args.command == "say" and not (args.tone or args.text):
+        parser.error("say needs the text, or --tone")
     if args.command == "gate" and args.action == "kill" and not args.state:
         parser.error("gate kill needs on or off")
     if args.command == "whatsapp" and args.action == "send" and not args.text:

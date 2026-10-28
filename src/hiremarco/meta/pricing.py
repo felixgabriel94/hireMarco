@@ -39,3 +39,16 @@ PRICES_PER_HOUR: dict[str, float] = {
 def audio_cost_usd(model: str, milliseconds: int) -> float:
     """Raises KeyError for an unpriced model, like ``cost_usd``."""
     return round(PRICES_PER_HOUR[model] * milliseconds / 3_600_000, 8)
+
+
+# Text to speech is priced by characters, USD per 1,000. ElevenLabs is not a
+# Meta model; it is Marco's voice. These are estimates from third-party
+# summaries (2026-10-28); replace them with the rate on the Owner's own plan.
+PRICES_PER_THOUSAND_CHARS: dict[str, float] = {
+    "eleven_flash_v2_5": 0.05,
+}
+
+
+def speech_cost_usd(model: str, characters: int) -> float:
+    """Raises KeyError for an unpriced model, like ``cost_usd``."""
+    return round(PRICES_PER_THOUSAND_CHARS[model] * characters / 1000, 8)

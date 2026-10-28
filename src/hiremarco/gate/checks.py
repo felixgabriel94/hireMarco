@@ -18,7 +18,7 @@ from typing import TypeVar
 from hiremarco import config, rules
 from hiremarco.gate.kill import kill_switch_on
 from hiremarco.joblog import JobLog
-from hiremarco.meta.pricing import PRICES_PER_HOUR, PRICES_PER_MILLION
+from hiremarco.meta.pricing import PRICES_PER_HOUR, PRICES_PER_MILLION, PRICES_PER_THOUSAND_CHARS
 
 T = TypeVar("T")
 
@@ -30,6 +30,7 @@ CHANNEL_TOOLS = {
     "logic": "logic",
     "files": "export",
     "calendar": "calendar",
+    "talkback": "talkback",
 }
 PERSON_CHANNELS = {"whatsapp", "voice"}
 
@@ -232,7 +233,7 @@ def check_model_call(
     """Raise ``Refused`` unless this model call may be made now."""
     if kill_switch_on():
         raise Refused("kill switch is on")
-    if model not in PRICES_PER_MILLION and model not in PRICES_PER_HOUR:
+    if model not in PRICES_PER_MILLION and model not in PRICES_PER_HOUR and model not in PRICES_PER_THOUSAND_CHARS:
         raise Refused(f"{model} has no price, so its cost cannot be counted")
     if SECRET_SHAPES.search(system or "") or SECRET_SHAPES.search(prompt or ""):
         raise Refused("the prompt holds something shaped like a secret")

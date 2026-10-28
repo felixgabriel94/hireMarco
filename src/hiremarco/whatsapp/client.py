@@ -110,6 +110,45 @@ class WhatsApp:
         return self._send(to, {"type": "text", "text": {"body": body}}, text_for_gate=body,
                           idempotency_key=idempotency_key, capability="send_message", critic=critic, now=now)
 
+    def upload_media(self, data: bytes, mime_type: str, filename: str) -> str:
+        """Upload a file to the phone number's media store. Returns the media id."""
+        try:
+            response = self._http.post(
+                f"/{self.phone_number_id}/media",
+                data={"messaging_product": "whatsapp", "type": mime_type},
+                files={"file": (filename, data, mime_type)},
+            )
+        except httpx.HTTPError as exc:
+            raise WhatsAppError(f"upload failed: {type(exc).__name__}") from exc
+        if response.status_code >= 400:
+            raise WhatsAppError(f"media upload returned HTTP {response.status_code}")
+        media_id = response.json().get("id")
+        if not media_id:
+            raise WhatsAppError("media upload returned no id")
+        return media_id
+
+    def send_voice(self, to: str, ogg: bytes, spoken_text: str, *, idempotency_key: str, critic=None,
+                   now: datetime | None = None) -> str:
+        """A voice message: mono OGG/OPUS, uploaded and sent inside one gated action.
+
+        The gate and the critic judge the words spoken, so the voice note is
+        held to the same rules as a text.
+        """
+        if not self._inside_window(to, now):
+            raise gate.Refused("outside the 24-hour window; a template would cost money, so asking the Owner first")
+
+        def run() -> dict[str, Any]:
+            media_id = self.upload_media(ogg, "audio/ogg", "marco.ogg")
+            return self._post_message({"to": to.lstrip("+"), "type": "audio",
+                                       "audio": {"id": media_id, "voice": True}})
+
+        data = gate.execute_effect(
+            self.conn, run, tenant_id=TENANT, idempotency_key=idempotency_key, capability="send_voice_note",
+            channel="whatsapp", target=to, message=f"voice note: {spoken_text}", department="assistant",
+            critic=critic, rules_path=self.rules_path,
+        )
+        return (data.get("messages") or [{}])[0].get("id", "")
+
     def react(self, to: str, message_id: str, emoji: str, *, now: datetime | None = None) -> str:
         return self._send(to, {"type": "reaction", "reaction": {"message_id": message_id, "emoji": emoji}},
                           text_for_gate=f"reaction {emoji} on {message_id}",

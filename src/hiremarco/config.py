@@ -25,6 +25,8 @@ KNOWN_KEYS = (
     "GOOGLE_CLIENT_SECRET",
     "GOOGLE_REFRESH_TOKEN",     # written by `marco google signin`
     "RELAY_TOKEN",              # what ElevenLabs sends to reach the call relay; made by `marco relay token`
+    "ELEVENLABS_API_KEY",       # Marco's voice: text to speech
+    "ELEVENLABS_VOICE_ID",      # the voice he speaks in
 )
 
 
