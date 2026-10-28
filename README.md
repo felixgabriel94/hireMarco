@@ -1,6 +1,9 @@
 # hireMarco
 
-Marco is a personal assistant for an artist. He lives in WhatsApp, which the
+**Meet your new COO.** Marco is an AI operator. This repository is one
+slice of him, built in ten days for one artist's world.
+
+Here he works for an artist. He lives in WhatsApp, which the
 Meta glasses read aloud and answer by voice, and he runs the technical side
 of a recording session so the artist can stay on the mic: "Marco, take me to
 the chorus. New track. Record." He reads the email that matters, offers to
@@ -71,6 +74,12 @@ Secrets go in `~/.config/hiremarco/env` as `KEY=value` lines (see
 committed send-switch line, spend is logged and capped, secrets stay outside
 the repository. The gate enforces the first two; the check script enforces
 the third.
+
+## About hireMarco
+
+This demo shows what was built during the event. Marco does more in the
+hireMarco product, which is private and in development:
+[hiremarco.ai](https://hiremarco.ai).
 
 ## License
 
