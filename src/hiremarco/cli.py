@@ -18,6 +18,7 @@
     uv run marco voicenote send FILE     send a prepared voice note to the Owner on Return
     uv run marco film devices            the audio devices and their channel counts
     uv run marco film record             the booth on one clock until Ctrl+C, in 15-minute segments
+    uv run marco export-dialog FOLDER    Muse Wonder fills Logic's export dialog (--dry-run: looks, clicks nothing)
 """
 
 from __future__ import annotations
@@ -221,6 +222,24 @@ def cmd_film(args) -> int:
     return 0 if rec.dropped == 0 else 1
 
 
+def cmd_export_dialog(args) -> int:
+    from hiremarco.studio.export_cu import HandBack, export_by_computer_use
+
+    trace = Trace(f"export dialog: {args.folder}" + (" (dry run)" if args.dry_run else ""))
+    try:
+        run = export_by_computer_use(args.folder, dry_run=args.dry_run)
+    except HandBack as stop:
+        trace.done(f"handed back: {stop.reason}")
+        return 1
+    except gate.Refused as refused:
+        trace.done(f"held: {refused.reason}")
+        return 1
+    for action in run.actions:
+        print("  ", action)
+    trace.done(f"{run.steps} step(s): {run.final_text or 'no closing word'}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -272,6 +291,11 @@ def main(argv: list[str] | None = None) -> int:
     fm = sub.add_parser("film")
     fm.add_argument("action", choices=["devices", "record"])
     fm.set_defaults(func=cmd_film)
+
+    ed = sub.add_parser("export-dialog")
+    ed.add_argument("folder")
+    ed.add_argument("--dry-run", action="store_true")
+    ed.set_defaults(func=cmd_export_dialog)
 
     args = parser.parse_args(argv)
     if args.command == "say" and not (args.tone or args.text):

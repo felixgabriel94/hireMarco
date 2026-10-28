@@ -61,6 +61,7 @@ below grows as the build does; `git log` carries the dates.
 | Oct 28 | `hiremarco.studio.feedback` | "Marco, how was that take?": Muse Spark 1.2 listens to the take and gives one producer's note in structured output; when one spot would fix it, the note ends "Want to punch it?" and Marco waits for the answer |
 | Oct 28 | `hiremarco.hours` | Before the call, Muse Spark with search grounding checks the restaurant is open at that hour; read-only by construction: the answer is reduced to OPEN, CLOSED or UNSURE plus a cleaned hours line and the cited sources, so a web page can make Marco hold but never add an action, a number or a message |
 | Oct 28 | `hiremarco.sam`, `studio.six176` | The 6176 read: SAM 3.1 finds every knob in the photo, then Muse Spark reads each numbered knob's label and setting in structured output; a knob it cannot read is left out, not guessed, and the line goes into the mix notes |
+| Oct 28 | `hiremarco.studio.export_cu` | Logic's export dialog filled by Muse Wonder computer use on a short leash: dialog keys, clicks inside Logic's window and the one folder name only; a safety check, a stray action or twenty steps hands it back to Felix; every action through the gate |
 | Oct 28 | `hiremarco.marco`, `server`, `livelog`, `cli` | Marco's voice through the gate, the running webhook, his on-screen log, the `marco` command |
 
 Planned, in order: the studio (voice
