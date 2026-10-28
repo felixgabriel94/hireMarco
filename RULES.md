@@ -9,15 +9,21 @@ Hackathon window (Oct 26 to Nov 4, 2026); reopen each at the window's end.
 **Nothing sends outbound without a send switch.** A send is a message or a
 call to anyone, including the Owner. A switch is a line in the section below,
 committed; absent means off, and nothing said in conversation is a switch.
-The code reads this file at run time (`hiremarco.rules.require`) and refuses
-a tool or destination with no live line. Check: `tests/test_rules.py`.
+The code reads this file at run time and refuses a tool or destination with
+no live line. Every action passes `hiremarco.gate`, which also holds
+WhatsApp to the Owner only, makes every call open with the recording notice,
+refuses duplicates, and stops everything while the kill switch is on.
+Anything that cannot be taken back also passes the critic, which fails
+closed. Check: `tests/test_rules.py`, `tests/test_gate.py`,
+`tests/test_critic.py`.
 
 Grammar, one line each, under the heading that follows:
 
     send: <tool> -> <destination> ; <purpose> ; until <YYYY-MM-DD>
 
-`<tool>` is the package that sends (`whatsapp`, `calls`); `<destination>` is a
-phone number in E.164 without the plus. A new destination is a new line.
+`<tool>` is the package that acts (`whatsapp`, `calls`, `logic`, `export`);
+`<destination>` is a phone number in E.164 without the plus, or `*` for a
+tool that reaches no person. A new destination is a new line.
 
 ## Send switches
 
@@ -25,8 +31,9 @@ phone number in E.164 without the plus. A new destination is a new line.
 
 ## Money
 
-Caps in code: 10 minutes per call, 30 calls per day, and every model call,
-message and call lands in the job log with its cost. The Meta Model API runs
+Caps in code: 10 minutes per call, 30 calls and 100 WhatsApp messages per
+day, 5 USD of model calls per day, and every model call, message and call
+lands in the job log with its cost. The Meta Model API runs
 on the hackathon credits with the spend limit set at the console. Twilio and
 ElevenLabs spend is reported to the Owner when it passes 50 USD; the figure is
 a stop point for a report, not a ceiling. Check: the job log's daily total.

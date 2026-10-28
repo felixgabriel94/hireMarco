@@ -1,15 +1,15 @@
 # hireMarco
 
-Marco is a personal assistant who lives in your texts. A message comes in
-while you are at the keys ("Saturday? We still need a reservation"), Marco
-reads it, checks your calendar, and asks on WhatsApp: "Want me to book 7:30
-for two?" You say yes. Marco calls the restaurant, books it, and sends you the
-proof: the transcript card and the calendar entry. Then he asks whether you
-also want him to check if Guitar Center has that pedal in stock.
+Marco is a personal assistant for an artist. He lives in WhatsApp, which the
+Meta glasses read aloud and answer by voice, and he runs the technical side
+of a recording session so the artist can stay on the mic: "Marco, take me to
+the chorus. New track. Record." He reads the email that matters, offers to
+handle it, books the table by phone, and sends the proof.
 
-Marco's brain is [Muse Spark](https://dev.meta.ai) on the Meta Model API. He
-talks to you over WhatsApp, which the Meta glasses read aloud and answer by
-voice, so the whole exchange happens without touching a phone.
+Marco's brain is [Muse Spark](https://dev.meta.ai) on the Meta Model API.
+Every action he takes passes one gate first, and anything that cannot be
+taken back also passes a critic, a second Muse Spark pass that checks the
+plan against `RULES.md`. If either says no, Marco holds and asks.
 
 Built for the **Meta Global AI Developer Hackathon**, Oct 26 to Nov 4, 2026
 (Indie track, theme "Build for Your World").
@@ -25,12 +25,14 @@ below grows as the build does; `git log` carries the dates.
 | Oct 26 | `hiremarco.joblog` | Append-only job log, one JSON line per call with its cost |
 | Oct 26 | `hiremarco.rules` | Send switches read from `RULES.md`; absent means off |
 | Oct 26 | `hiremarco.config` | Secrets from one file outside the repo; values never printed |
+| Oct 28 | `hiremarco.gate` | One gate for every action: send switches, Owner-only WhatsApp, the call's recording notice, kill switch, duplicate refusal, daily limits, model spend cap |
+| Oct 28 | `hiremarco.critic` | A second Muse Spark pass before anything irreversible; fails closed |
+| Oct 28 | `hiremarco.whatsapp` | Cloud API client and webhook: signature check, Owner only, retries skipped, 24-hour window respected |
+| Oct 28 | `hiremarco.marco`, `server`, `livelog`, `cli` | Marco's voice through the gate, the running webhook, his on-screen log, the `marco` command |
 
-Planned, in order: `whatsapp` (Cloud API client and webhook), `offer` (Marco
-finds the task, checks the calendar, asks), `calls` (the voice agent with
-Muse Spark as its brain), `proof` (Muse Voice Transcribe, the transcript
-card, the calendar entry). Stretches after Oct 30: the studio effect written
-live by Muse Code, and a browser booking.
+Planned, in order: the mail reader and the offer, the studio (voice
+commands in Logic, three plugin knobs, take notes, the ready-to-mix export,
+the 6176 read), the call and its proof, the voice note.
 
 ## Setup used, not built here
 
@@ -38,14 +40,17 @@ These existed before the event or are products used as they are. They are
 labelled the same way in the video.
 
 - Meta Model API and its models (Muse Spark, Muse Voice Transcribe)
-- WhatsApp Cloud API, with Marco's phone number registered as the sender
 - Meta glasses as the camera and the voice interface
-- Twilio (a phone number for outbound calls) and ElevenLabs (the voice)
-- The developer's own phone, calendar and contacts
+- WhatsApp (Cloud API), with Marco's own number registered as the sender
+- The phone line (Twilio) and the voice (ElevenLabs)
+- Google Calendar and Resy
+- Logic Pro, FabFilter and the Universal Audio 6176
+- Marco's personality files, written before the event, kept private and
+  read at runtime from a folder outside this repository; never published
 
 hireMarco is also the name of a private product in development by the same
-author. None of its code is in this repository; the demo's Marco, his voice
-and every package here were written new for the event.
+author. None of its code is in this repository. The gate here follows the
+same design and entry points, written new for the event.
 
 ## Run
 
@@ -53,7 +58,8 @@ Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
     uv sync
     uv run pytest
-    uv run python -m hiremarco.meta.ping "Say hello in five words."
+    uv run marco env
+    uv run marco demo first-answer
 
 Secrets go in `~/.config/hiremarco/env` as `KEY=value` lines (see
 `src/hiremarco/config.py` for the key names). The file is never committed.
@@ -62,8 +68,8 @@ Secrets go in `~/.config/hiremarco/env` as `KEY=value` lines (see
 
 `RULES.md` governs what this code may do: nothing sends outbound without a
 committed send-switch line, spend is logged and capped, secrets stay outside
-the repository. The code enforces the first; the check script enforces the
-third.
+the repository. The gate enforces the first two; the check script enforces
+the third.
 
 ## License
 

@@ -17,6 +17,7 @@ KNOWN_KEYS = (
     "MODEL_API_KEY",            # Meta Model API, https://api.meta.ai/v1
     "WHATSAPP_TOKEN",           # WhatsApp Cloud API system-user token
     "WHATSAPP_PHONE_NUMBER_ID", # the business phone number id Marco sends from
+    "WHATSAPP_WABA_ID",         # the WhatsApp Business Account that holds the number
     "WHATSAPP_VERIFY_TOKEN",    # webhook verification handshake
     "WHATSAPP_APP_SECRET",      # webhook signature check
     "OWNER_WHATSAPP",           # the Owner's number, E.164 without plus
@@ -57,3 +58,28 @@ def require(key: str, path: Path | None = None) -> str:
 def describe(path: Path | None = None) -> dict[str, bool]:
     """Which known keys are present. Values are never returned."""
     return {k: bool(get(k, path)) for k in KNOWN_KEYS}
+
+
+def set_value(key: str, value: str, path: Path | None = None) -> None:
+    """Write one ``KEY=value`` line, replacing the key if present, keeping mode 600.
+
+    The value is never printed. Used for values the code makes itself (the
+    webhook verify token) and for ids that are not secret; secrets typed by
+    the Owner go in through the guarded paste instead.
+    """
+    if not key.isidentifier() or "\n" in value:
+        raise ValueError("bad key or value")
+    path = path or env_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = path.read_text().splitlines() if path.exists() else []
+    out, replaced = [], False
+    for line in lines:
+        if line.split("=", 1)[0].strip() == key:
+            out.append(f"{key}={value}")
+            replaced = True
+        else:
+            out.append(line)
+    if not replaced:
+        out.append(f"{key}={value}")
+    path.write_text("\n".join(out) + "\n")
+    path.chmod(0o600)
