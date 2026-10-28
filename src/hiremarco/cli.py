@@ -20,6 +20,7 @@
     uv run marco film record             the booth on one clock until Ctrl+C, in 15-minute segments
     uv run marco export-dialog FOLDER    Muse Wonder fills Logic's export dialog (--dry-run: looks, clicks nothing)
     uv run marco booth                   the session by voice: mic, commands, Logic, talkback (--dry-run: plans only)
+    uv run marco routing                 tone and mic test of the interface's virtual channels and inputs
 """
 
 from __future__ import annotations
@@ -247,6 +248,25 @@ def cmd_booth(args) -> int:
     return run_booth(dry_run=args.dry_run)
 
 
+def cmd_routing(args) -> int:
+    import sounddevice as sd
+
+    from hiremarco.routing import mic_levels, probe
+
+    device = config.get("HIREMARCO_TALKBACK_DEVICE") or "Universal Audio Thunderbolt"
+    info = sd.query_devices(device)
+    ins, outs = info["max_input_channels"], info["max_output_channels"]
+    print(f"{device}: {ins} in, {outs} out. A quiet tone plays for one second per pair.")
+    ok = True
+    for label, pair in (("Marco's voice", (7, 8)), ("Logic's output", (5, 6))):
+        heard = probe(device, pair, outs, ins)
+        print(f"  {label}, out {pair[0]}-{pair[1]}: heard on inputs {heard or 'none'}")
+        ok = ok and set(pair) <= set(heard)
+    input("Now say a few words into the vocal mic for three seconds. Press Return to start. ")
+    print(f"  mic: inputs with signal {mic_levels(device, ins) or 'none'}")
+    return 0 if ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -307,6 +327,8 @@ def main(argv: list[str] | None = None) -> int:
     bo = sub.add_parser("booth")
     bo.add_argument("--dry-run", action="store_true")
     bo.set_defaults(func=cmd_booth)
+
+    sub.add_parser("routing").set_defaults(func=cmd_routing)
 
     args = parser.parse_args(argv)
     if args.command == "say" and not (args.tone or args.text):

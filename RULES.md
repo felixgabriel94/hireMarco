@@ -29,6 +29,8 @@ or `*` for a tool that reaches no person. A new destination is a new line.
 ## Send switches
 
     send: whatsapp -> owner ; Marco's replies and the first-whatsapp take ; until 2026-11-04
+    send: talkback -> * ; Marco's voice in the Owner's headphones, between takes ; until 2026-11-04
+    send: logic -> * ; key commands, knobs and the export dialog in the Owner's Logic ; until 2026-11-04
 
 ## Read grants
 

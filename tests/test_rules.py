@@ -55,8 +55,9 @@ def test_owner_destination_is_off_while_owner_unset(tmp_path, monkeypatch):
 
 
 def test_repo_rules_file_switches_only_whatsapp_to_the_owner():
-    # RULES.md in this repository turns on one switch: WhatsApp to the Owner.
-    assert [(s.tool, s.destination) for s in rules.switches()] == [("whatsapp", "owner")]
+    # RULES.md in this repository turns on WhatsApp to the Owner, talkback and Logic; nothing reaches anyone else.
+    assert [(s.tool, s.destination) for s in rules.switches()] == [
+        ("whatsapp", "owner"), ("talkback", "*"), ("logic", "*")]
 
 
 def test_read_grants_exact_address_and_domain(tmp_path):
