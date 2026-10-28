@@ -112,7 +112,7 @@ def test_sound_lines_skip_the_model(line, command):
 
 def test_a_cut_off_answer_says_so(tmp_path):
     def handler(request):
-        return httpx.Response(200, json={"model": "muse-spark-1.3", "choices": [{"message": {"content": "{\\"chan"},
+        return httpx.Response(200, json={"model": "muse-spark-1.3", "choices": [{"message": {"content": '{"chan'},
                               "finish_reason": "length"}], "usage": {"prompt_tokens": 400, "completion_tokens": 2000}})
 
     client = MuseSpark(api_key="k", joblog=JobLog(tmp_path / "j.jsonl"), transport=httpx.MockTransport(handler))
