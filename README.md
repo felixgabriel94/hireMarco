@@ -1,8 +1,8 @@
 # hireMarco
 
-**Meet your new COO.** Marco is an AI operator. This repository shows him
-in one role, built in ten days for one artist's world. hireMarco is built to
-run the whole operation.
+**Meet your new COO.** Marco is an AI operator you text. This repository
+shows him in one role, built in ten days for one artist's world. hireMarco is
+built to run the whole operation, business and personal.
 
 Here he works for an artist. He lives in WhatsApp, which the
 Meta glasses read aloud and answer by voice, and he runs the technical side
