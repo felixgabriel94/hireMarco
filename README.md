@@ -1,7 +1,7 @@
 # hireMarco
 
-**Meet your new COO.** Marco is an AI operator. This repository is one
-slice of him, built in ten days for one artist's world.
+**Meet your new COO.** Marco is an AI operator. This repository shows a few
+of his departments, built in ten days for one artist's world.
 
 Here he works for an artist. He lives in WhatsApp, which the
 Meta glasses read aloud and answer by voice, and he runs the technical side
