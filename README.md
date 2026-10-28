@@ -47,9 +47,9 @@ labelled the same way in the video.
 - Meta Model API and its models (Muse Spark, Muse Voice Transcribe)
 - Meta glasses as the camera and the voice interface
 - WhatsApp (Cloud API), with Marco's own number registered as the sender
-- The phone line (Twilio) and the voice (ElevenLabs)
+- The voice (ElevenLabs)
 - Google Calendar and Resy
-- Logic Pro, FabFilter and the Universal Audio 6176
+- Logic Pro
 - Marco's personality files, written before the event, kept private and
   read at runtime from a folder outside this repository; never published
 
