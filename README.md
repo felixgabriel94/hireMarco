@@ -52,9 +52,10 @@ below grows as the build does; `git log` carries the dates.
 | Oct 28 | `hiremarco.google` | One Google sign-in (PKCE, loopback): Gmail read only from senders `RULES.md` grants, checked again by the From header; calendar check and add through the gate |
 | Oct 28 | `hiremarco.studio.export` | The ready-to-mix folder: copies Logic's exported tracks, names them in order, checks one sample rate and one length, reads peaks, flags clipping and silence, writes mix notes, zips it |
 | Oct 28 | `hiremarco.proof` | Resy's email, read by Muse Spark into fixed fields, checked against what Marco asked for; only a match becomes the proof card and the calendar entry |
+| Oct 28 | `hiremarco.offer` | An email that matters becomes one WhatsApp question: Muse Spark reads the task, picks a place only from the Owner's own list, the calendar says if the time is clear |
 | Oct 28 | `hiremarco.marco`, `server`, `livelog`, `cli` | Marco's voice through the gate, the running webhook, his on-screen log, the `marco` command |
 
-Planned, in order: the offer, the studio (voice
+Planned, in order: the studio (voice
 commands in Logic, three plugin knobs, take notes, the ready-to-mix export,
 the 6176 read), the call and its proof, the voice note, then Dress me.
 
