@@ -29,7 +29,7 @@ TAPE_SECONDS = 10 * 60
 NOTED = "That's in the mix notes."
 LISTENING = "Let me listen."
 # Lines Marco says often, made once at the start so they play the moment they are needed.
-STOCK = ["Rolling", NOTED, LISTENING, "Here's how it goes.", "What key are we in?",
+STOCK = ["Rolling", NOTED, LISTENING, "Here's how it goes.", "What key are we in?", "Put it back.",
          "Morning. Your session's up. Where do you want to start?"]
 
 
@@ -84,6 +84,7 @@ class Booth:
     transcribe: Callable[[np.ndarray, int], list] | None = None
     play_clip: Callable[[np.ndarray, str], object] | None = None
     last_run: list = field(default_factory=list)
+    plugin: object | None = None
 
     def _speak(self, text: str) -> None:
         try:
@@ -172,6 +173,18 @@ class Booth:
             return f"key set: {key}"
         if a == "run_check":
             return self._run_check(command.text)
+        if a in ("sound", "put_back"):
+            if self.rolling:
+                return "holding the sound change until the take stops"
+            if self.plugin is None:
+                return "no plugin window to work on"
+            if a == "put_back":
+                self.plugin.put_back()
+                self._speak("Put it back.")
+                return "sound put back"
+            state, said = self.plugin.design(command.text)
+            self._speak(said)
+            return f"sound on {state.plugin}: {said}"
         if a == "preset" and self.rolling:
             return "holding the preset until the take stops"
         if a == "export":
@@ -211,6 +224,7 @@ def run_booth(*, dry_run: bool = False) -> int:
     from hiremarco.studio.commands import understand
     from hiremarco.studio.feedback import how_was_that_take
     from hiremarco.studio.logic import Logic
+    from hiremarco.studio.plugins import Plugin
     from hiremarco.voice import Talkback
 
     device = config.get("HIREMARCO_MIC_DEVICE") or None
@@ -233,6 +247,7 @@ def run_booth(*, dry_run: bool = False) -> int:
 
     booth = Booth(understand=understand, logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(rate),
                   key=config.get("HIREMARCO_SONG_KEY") or "",
+                  plugin=None if dry_run else Plugin(),
                   transcribe=lambda audio, r: transcribe(audio, r, diarize=False),
                   play_clip=(lambda pcm, label: print(f"   (guide, dry run: {label})")) if dry_run
                   else (lambda pcm, label: talkback.play_clip(pcm, label)))

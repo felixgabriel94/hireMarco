@@ -27,6 +27,8 @@
     uv run marco knobs up|down reverb    one bounded knob step, through the gate
     uv run marco knobs set reverb 60     the knob to an exact percent
     uv run marco preset my chain         load a saved Performance on the selected track (--list shows them)
+    uv run marco sound more spacey       Muse Spark sets the open plugin (Controls view) from a description
+    uv run marco sound --read            every parameter of the open plugin and its value
     uv run marco run-check FILE --key "F minor" [--start S --end S] [--play] [--midi out.mid]
                                          the notes of a vocal run, cents off each, and the corrected guide
 """
@@ -399,6 +401,31 @@ def cmd_run_check(args) -> int:
     return 0
 
 
+def cmd_sound(args) -> int:
+    """Read the open plugin, or set it from a description (Controls view), or put the last change back."""
+    from hiremarco.studio.plugins import Plugin, PluginError
+
+    plugin = Plugin(args.plugin or "-")
+    try:
+        if args.read or not args.words:
+            state = plugin.read()
+            print(state.plugin)
+            for name, value in state.params.items():
+                print(f"  {name:<16} {value:g}")
+            return 0
+        trace = Trace(f"sound: {' '.join(args.words)}")
+        state, said = plugin.design(" ".join(args.words))
+    except (PluginError, gate.Refused) as stopped:
+        print(f"stopped: {getattr(stopped, 'reason', stopped)}")
+        return 1
+    for name, value in state.params.items():
+        before = plugin.before.params.get(name) if plugin.before else None
+        if before is not None and abs(before - value) > 0.05:
+            print(f"  {name:<16} {before:g} -> {value:g}")
+    trace.done(said)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -489,6 +516,12 @@ def main(argv: list[str] | None = None) -> int:
     rc.add_argument("--midi")
     rc.add_argument("--bpm", type=float, default=120.0)
     rc.set_defaults(func=cmd_run_check)
+
+    so = sub.add_parser("sound")
+    so.add_argument("words", nargs="*")
+    so.add_argument("--read", action="store_true")
+    so.add_argument("--plugin")
+    so.set_defaults(func=cmd_sound)
 
     args = parser.parse_args(argv)
     if args.command == "say" and not (args.tone or args.text):

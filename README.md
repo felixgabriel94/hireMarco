@@ -65,6 +65,7 @@ below grows as the build does; `git log` carries the dates.
 | Oct 28 | `hiremarco.studio.booth` | The session by voice, end to end: the mic feeds Voice Transcribe and a tape of the take at once; each sentence for Marco becomes one command; the loop keeps the transport state so talkback holds during a take; "how was that take?" hears the tape, and "punch it" punches the spot the note named |
 | Oct 28 | `hiremarco.studio.presets` | "Marco, my adlib preset": the saved Performances are read from Logic's own files, the spoken name matches one or none, and it loads through Logic's Setting menu by keyboard, the same keys every time, with the open menus counted before each typed step so a stray key never reaches Logic |
 | Oct 28 | `hiremarco.studio.pitch` | Marco's pitch ear, built here: a YIN pitch detector, note segmentation and key-aware correction measure every note of a run in cents; the transcript finds the lyric; the corrected run plays back as a guide in the headphones or goes to Logic as MIDI |
+| Oct 28 | `hiremarco.studio.plugins` | Full control of any open plugin with no knob learned: Logic's Controls view exposes every parameter by name, Marco reads and sets them and checks each value took; "make it spacey and a bit metallic" goes to Muse Spark with the plugin's real parameters in structured output, and "put it back" restores the exact settings before |
 | Oct 28 | `hiremarco.marco`, `server`, `livelog`, `cli` | Marco's voice through the gate, the running webhook, his on-screen log, the `marco` command |
 
 Planned, in order: the studio (voice

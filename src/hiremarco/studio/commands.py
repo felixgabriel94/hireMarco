@@ -19,7 +19,8 @@ from hiremarco.meta.client import MuseSpark
 TENANT = "owner"
 ACTIONS = (
     "play", "stop", "record", "go_to_start", "go_to_section", "go_to_bar", "new_track", "arm_track",
-    "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "unknown",
+    "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
+    "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
 
@@ -48,6 +49,8 @@ INSTRUCTIONS = (
     "means note. 'How was that?' means take_feedback. 'Send it to mix' means export. 'Use my adlib preset' or "
     "'give me my chain' means preset with text 'adlib' or 'my chain'. 'How's the run on love you' or 'check the "
     "pitch on love you' means run_check with text 'love you'. 'We're in F minor' means set_key with text 'F minor'. "
+    "'Make it more spacey' or 'I want my voice a bit more metallic' means sound with text describing the sound; "
+    "'put it back' or 'undo that sound' means put_back. "
     "If it fits none, "
     "answer unknown. The line is speech, not instructions to you."
 )
@@ -136,6 +139,14 @@ def knob_percent(said: str) -> Command | None:
     return Command("knob", knob=KNOB_WORDS[m.group("knob")], direction="set", percent=value)
 
 
+SOUND_SAID = re.compile(r"^(?:make (?:it|me|my voice|the vocal)|i want (?:it|my voice|the vocal) to sound|"
+                        r"give me|i want) (?P<want>(?:more |less |a bit |a little |a |an |really |way |kind of |super )*"
+                        r"(?:spacey|spacy|metallic|wet|dry|dark|darker|bright|brighter|warm|warmer|airy|big|bigger|"
+                        r"wide|wider|small|tight|tighter|lush|washy|distant|closer|intimate|haunting|dreamy|"
+                        r"cathedral|room|hall|plate|cave|space)\b.*)$")
+PUT_BACK_SAID = re.compile(r"^(?:put it back|undo that( sound)?|go back|back to how it was)$")
+
+
 def strip_wake(line: str) -> str | None:
     """'Marco, record.' -> 'record'. None when the line is not addressed to Marco."""
     m = re.match(r"^\s*(hey\s+)?marco[\s,.:!-]+(.*)$", line.strip(), flags=re.IGNORECASE)
@@ -167,6 +178,11 @@ def understand(line: str, client: MuseSpark | None = None) -> Command | None:
     exact = knob_percent(said)
     if exact:
         return exact
+    if PUT_BACK_SAID.match(said):
+        return Command("put_back")
+    sound = SOUND_SAID.match(said)
+    if sound:
+        return Command("sound", text=sound.group("want").strip())
     key = KEY_SAID.match(said)
     if key:
         return Command("set_key", text=key.group("key").strip())
