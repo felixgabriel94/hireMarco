@@ -18,6 +18,18 @@ plan against `RULES.md`. If either says no, Marco holds and asks.
 Built for the **Meta Global AI Developer Hackathon**, Oct 26 to Nov 4, 2026
 (Indie track, theme "Build for Your World").
 
+## Meta models in Marco
+
+Every judgment Marco makes runs on Meta's models through the Meta Model API
+(Standard mode). This table grows with the build: a model is listed as live
+only once the code that calls it is committed.
+
+| Model | What it does for Marco | Status |
+|---|---|---|
+| `muse-spark-1.3` | His answers; the critic that approves or holds anything irreversible | live |
+| `muse-spark-1.3` | Turning a spoken studio command into one Logic action; reading the 6176 from a photo; the brain on the restaurant call | this week |
+| `muse-voice-transcribe-1.0` | Hearing studio commands and take notes from the mic; the call transcript behind the proof card | this week |
+
 ## Built here
 
 Every line in this repository was written inside the event window. The log
