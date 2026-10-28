@@ -45,6 +45,7 @@ These existed before the event. They are labelled the same way in the video.
 
 **Ours, from before the event**
 
+- The hireMarco name, logo and brand
 - Marco's personality files, kept private and read at runtime from a folder
   outside this repository; never published
 - The hireMarco design that the gate and the critic follow, from the private
