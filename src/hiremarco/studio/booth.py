@@ -121,6 +121,8 @@ class Booth:
             self.pending_punch = note.punch_where if note.punch else ""
             self._speak(note.spoken)
             return f"take note: {note.spoken}"
+        if a == "preset" and self.rolling:
+            return "holding the preset until the take stops"
         if a == "export":
             return "export is its own step: marco export-dialog, then the ready-to-mix check"
         if a == "punch" and not (command.bar or command.section):

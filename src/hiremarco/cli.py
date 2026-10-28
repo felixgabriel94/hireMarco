@@ -24,6 +24,7 @@
     uv run marco logic play|stop|...     one transport key command into Logic, no model call
     uv run marco knobs learn reverb      open "Marco Knobs" and send its CC for Logic's Learn mode
     uv run marco knobs up|down reverb    one bounded knob step, through the gate
+    uv run marco preset my chain         load a saved Performance on the selected track (--list shows them)
 """
 
 from __future__ import annotations
@@ -336,30 +337,26 @@ def cmd_knobs(args) -> int:
 
 
 def cmd_preset(args) -> int:
-    """Test: a MIDI program change on "Marco Knobs", which Logic maps to a saved Performance."""
-    import time
+    """Load a saved Performance on Logic's selected track by name, or list them."""
+    from hiremarco.studio.commands import Command
+    from hiremarco.studio.logic import Logic
+    from hiremarco.studio.presets import PresetError, list_presets
 
-    import mido
-
-    if not 0 <= args.number <= 127:
-        print("a performance number is 0 to 127")
-        return 1
-    def run() -> None:
-        mido.set_backend("mido.backends.rtmidi")
-        port = mido.open_output("Marco Knobs", virtual=True)
-        time.sleep(1.0)  # let Logic see the port
-        port.send(mido.Message("program_change", program=args.number))
-        time.sleep(0.5)
-        port.close()
-
+    if args.list or not args.name:
+        for name in list_presets():
+            print(name)
+        return 0
+    said = " ".join(args.name)
+    trace = Trace(f"preset: {said}" + (" (dry run)" if args.dry_run else ""))
     try:
-        gate.execute_effect(gate.connect(), run, tenant_id="owner", idempotency_key=f"preset:{time.time_ns()}",
-                            capability="preset", channel="logic", target="*",
-                            message=f"performance {args.number:03d}", department="studio")
+        result = Logic(dry_run=args.dry_run).do(Command("preset", text=said))
     except gate.Refused as refused:
-        print(f"held: {refused.reason}")
+        trace.done(f"held: {refused.reason}")
         return 1
-    print(f"sent program change {args.number}; Logic should load performance {args.number:03d} on the selected track")
+    except PresetError as failed:
+        trace.done(f"stopped: {failed}")
+        return 1
+    trace.done(result)
     return 0
 
 
@@ -437,7 +434,9 @@ def main(argv: list[str] | None = None) -> int:
     kn.set_defaults(func=cmd_knobs)
 
     pr = sub.add_parser("preset")
-    pr.add_argument("number", type=int)
+    pr.add_argument("name", nargs="*")
+    pr.add_argument("--list", action="store_true")
+    pr.add_argument("--dry-run", action="store_true")
     pr.set_defaults(func=cmd_preset)
 
     args = parser.parse_args(argv)

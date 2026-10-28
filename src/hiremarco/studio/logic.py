@@ -158,8 +158,11 @@ def plan(command: Command) -> Plan:
 class Logic:
     def __init__(self, *, dry_run: bool = False, conn: sqlite3.Connection | None = None,
                  run_script: Callable[[str], None] | None = None, knobs: Knobs | None = None,
-                 rules_path: Path | None = None):
+                 rules_path: Path | None = None, preset_dir: Path | None = None,
+                 load_preset: Callable[[str], str] | None = None):
         self.dry_run = dry_run
+        self.preset_dir = preset_dir
+        self.load_preset = load_preset
         self.conn = conn
         self.run_script = run_script or _osascript
         self.knobs = knobs
@@ -167,6 +170,8 @@ class Logic:
         self.planned: list[str] = []
 
     def do(self, command: Command) -> str:
+        if command.action == "preset":
+            return self._preset(command)
         steps = plan(command)
         if self.dry_run:
             self.planned += [_script(press) for press in steps.presses]
@@ -183,8 +188,27 @@ class Logic:
                 return f"{command.describe()} ({value})"
             return command.describe()
 
+        return self._gated(run, command.action, command.describe())
+
+    def _preset(self, command: Command) -> str:
+        from hiremarco.studio import presets
+
+        name = presets.match(command.text, presets.list_presets(self.preset_dir))
+        if name is None:
+            raise gate.Refused(f"no saved preset matches {command.text!r}")
+        if self.dry_run:
+            self.planned.append(f"preset {name}")
+            return f"dry run: preset {name}"
+
+        def run() -> str:
+            (self.load_preset or presets.load)(name)
+            return f"preset {name}"
+
+        return self._gated(run, "preset", f"preset {name}")
+
+    def _gated(self, run, capability: str, message: str) -> str:
         return gate.execute_effect(
             self.conn or gate.connect(), run, tenant_id=TENANT, idempotency_key=f"logic:{uuid.uuid4()}",
-            capability=command.action, channel="logic", target="*", message=command.describe(),
+            capability=capability, channel="logic", target="*", message=message,
             department="studio", rules_path=self.rules_path,
         )
