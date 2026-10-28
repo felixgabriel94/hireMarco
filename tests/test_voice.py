@@ -216,3 +216,15 @@ def test_voice_settings_come_from_the_env_and_stay_in_range(monkeypatch):
     monkeypatch.setenv("HIREMARCO_VOICE_SPEED", "3")
     s = voice_settings()
     assert s["stability"] == 0.9 and s["speed"] == 1.2
+
+
+def test_lines_are_leveled_to_one_loudness_under_the_ceiling():
+    from hiremarco.voice.talkback import leveled
+
+    loud = (np.sin(np.arange(24000) / 4) * 32000).astype("<i2")   # about -3 dBFS RMS
+    quiet = (np.sin(np.arange(24000) / 4) * 800).astype("<i2")
+    for pcm in (loud, quiet):
+        out = leveled(pcm, target_db=-24).astype(np.float64) / 32768
+        assert 20 * np.log10(np.sqrt(np.mean(out ** 2))) == pytest.approx(-24, abs=0.3)
+        assert np.max(np.abs(out)) <= 10 ** (-6 / 20) + 1e-3
+    assert np.array_equal(leveled(np.zeros(10, dtype="<i2")), np.zeros(10, dtype="<i2"))

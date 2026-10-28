@@ -55,6 +55,25 @@ def channel_pair(raw: str | None) -> list[int] | None:
     return pair
 
 
+def leveled(pcm: np.ndarray, target_db: float | None = None, ceiling_db: float = -6.0) -> np.ndarray:
+    """Every line at the same loudness in the headphones: RMS to the target, peaks held under the ceiling.
+
+    HIREMARCO_TALKBACK_LEVEL_DB sets the target, -24 dBFS unless set. What plays is what is kept.
+    """
+    if target_db is None:
+        target_db = float(config.get("HIREMARCO_TALKBACK_LEVEL_DB") or -24.0)
+    data = pcm.astype(np.float64) / 32768.0
+    rms = float(np.sqrt(np.mean(data ** 2))) if data.size else 0.0
+    if rms == 0.0:
+        return pcm
+    gain = 10 ** (target_db / 20) / rms
+    peak = float(np.max(np.abs(data))) * gain
+    ceiling = 10 ** (ceiling_db / 20)
+    if peak > ceiling:
+        gain *= ceiling / peak
+    return (np.clip(data * gain, -1, 1) * 32767).astype("<i2")
+
+
 def device_player() -> Player:
     """Play through PortAudio on the configured device and channel pair."""
     device = config.get("HIREMARCO_TALKBACK_DEVICE") or None
@@ -145,6 +164,7 @@ class Talkback:
         return self._play_and_keep(speech, stamp, ready_ms, "_marco.wav")
 
     def _play_and_keep(self, speech: Speech, stamp: datetime, ready_ms: int, suffix: str) -> Path:
+        speech = Speech(speech.text, leveled(speech.pcm))
         if self.is_rolling():
             raise TakeRolling("a take started while Marco was getting the line ready")
         self.folder.mkdir(parents=True, exist_ok=True)
