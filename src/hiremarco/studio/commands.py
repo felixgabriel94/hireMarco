@@ -33,9 +33,10 @@ SCHEMA = {
         "knob": {"type": "string", "enum": [*KNOBS, ""]},
         "direction": {"type": "string", "enum": ["up", "down", ""]},
         "steps": {"type": "integer", "description": "1 for a little, 2 for more, 3 for a lot; 0 if no knob"},
+        "percent": {"type": "integer", "description": "an exact knob setting said as a percent, 0 to 100; -1 if none"},
         "text": {"type": "string", "description": "for a note, the note itself; for a preset, the preset's name as said; else empty"},
     },
-    "required": ["action", "section", "bar", "track", "knob", "direction", "steps", "text"],
+    "required": ["action", "section", "bar", "track", "knob", "direction", "steps", "percent", "text"],
     "additionalProperties": False,
 }
 
@@ -61,10 +62,13 @@ class Command:
     knob: str = ""
     direction: str = ""
     steps: int = 0
+    percent: int = -1  # an exact knob setting the Owner said, 0 to 100; -1 when he asked for a step
     text: str = ""
 
     def describe(self) -> str:
         """The middle of Marco's log line: 'reverb +1 step', 'punch bar 5 on second harmony'."""
+        if self.action == "knob" and self.percent >= 0:
+            return f"{self.knob} to {self.percent}%"
         if self.action == "knob":
             sign = "+" if self.direction == "up" else "-"
             return f"{self.knob} {sign}{self.steps} step{'s' if self.steps != 1 else ''}"
@@ -99,6 +103,39 @@ RUN_SAID = re.compile(r"^(?:how'?s|how is|check|look at) (?:the|that) (?:run|pit
 KEY_SAID = re.compile(r"^(?:we'?re|we are|it'?s|the song'?s|the song is) in (?P<key>[a-g](?:#| sharp| flat|b)?(?: major| minor|m)?)$")
 
 
+KNOB_WORDS = {"reverb": "reverb", "verb": "reverb", "delay": "delay", "tuning": "tuning", "tune": "tuning",
+              "auto-tune": "tuning", "autotune": "tuning"}
+NUMBER_WORDS = {"zero": 0, "five": 5, "ten": 10, "fifteen": 15, "twenty": 20, "thirty": 30, "forty": 40,
+                "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90, "hundred": 100,
+                "one hundred": 100, "a hundred": 100}
+
+
+def _percent(words: str) -> int | None:
+    words = words.strip().replace("-", " ")
+    if words.isdigit():
+        return int(words)
+    if words in NUMBER_WORDS:
+        return NUMBER_WORDS[words]
+    parts = words.split()
+    if len(parts) == 2 and parts[0] in NUMBER_WORDS and parts[1] in ("one", "two", "three", "four", "five", "six",
+                                                                      "seven", "eight", "nine"):
+        return NUMBER_WORDS[parts[0]] + ("one two three four five six seven eight nine".split().index(parts[1]) + 1)
+    return None
+
+
+def knob_percent(said: str) -> Command | None:
+    """'reverb at 60%', 'set the delay to twenty percent', '100 percent reverb' -> an exact knob setting."""
+    said = said.replace("%", " percent")
+    m = re.match(r"^(?:set |put |make )?(?:the )?(?P<knob>[a-z-]+) (?:to |at |on )?(?P<n>[a-z0-9 -]+?) percent$", said) \
+        or re.match(r"^(?P<n>[a-z0-9 -]+?) percent (?:of |on )?(?:the )?(?P<knob>[a-z-]+)$", said)
+    if not m or m.group("knob") not in KNOB_WORDS:
+        return None
+    value = _percent(m.group("n"))
+    if value is None or not 0 <= value <= 100:
+        return None
+    return Command("knob", knob=KNOB_WORDS[m.group("knob")], direction="set", percent=value)
+
+
 def strip_wake(line: str) -> str | None:
     """'Marco, record.' -> 'record'. None when the line is not addressed to Marco."""
     m = re.match(r"^\s*(hey\s+)?marco[\s,.:!-]+(.*)$", line.strip(), flags=re.IGNORECASE)
@@ -127,6 +164,9 @@ def understand(line: str, client: MuseSpark | None = None) -> Command | None:
     run = RUN_SAID.match(said)
     if run:
         return Command("run_check", text=(run.group("lyric") or "").strip(" '\""))
+    exact = knob_percent(said)
+    if exact:
+        return exact
     key = KEY_SAID.match(said)
     if key:
         return Command("set_key", text=key.group("key").strip())
@@ -142,6 +182,8 @@ def understand(line: str, client: MuseSpark | None = None) -> Command | None:
     if data.get("action") not in ACTIONS:
         return Command("unknown")
     command = Command(**{k: data.get(k, Command.__dataclass_fields__[k].default) for k in Command.__dataclass_fields__})
+    if command.action == "knob" and 0 <= command.percent <= 100 and command.knob in KNOBS:
+        return Command("knob", knob=command.knob, direction="set", percent=command.percent)
     if command.action == "knob" and (command.knob not in KNOBS or command.direction not in ("up", "down")):
         return Command("unknown")
     if command.action == "knob":

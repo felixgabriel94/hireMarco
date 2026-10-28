@@ -108,3 +108,26 @@ def test_knobs_stay_in_range(tmp_path):
         k.move("delay", "up", 3)
     assert sent[-1] == 100
     assert Knobs(send=lambda c, v: None, state_path=tmp_path / "k.json").values["delay"] == 100
+
+
+@pytest.mark.parametrize("line, knob, percent", [
+    ("Marco, reverb at 60%", "reverb", 60),
+    ("Marco, set the delay to twenty percent", "delay", 20),
+    ("Marco, 100 percent reverb", "reverb", 100),
+    ("Marco, put the verb at sixty five percent", "reverb", 65),
+    ("Marco, tuning to 0%", "tuning", 0),
+])
+def test_exact_knob_settings_skip_the_model(line, knob, percent):
+    assert understand(line, client=None) == Command("knob", knob=knob, direction="set", percent=percent)
+
+
+def test_exact_setting_maps_percent_to_the_full_cc_range(tmp_path):
+    from hiremarco.studio.logic import Knobs
+
+    sent = []
+    knobs = Knobs(send=lambda cc, value: sent.append((cc, value)), state_path=tmp_path / "k.json")
+    assert knobs.move("reverb", "set", 100) == 127  # an exact ask passes the soft step range
+    assert knobs.move("reverb", "set", 60) == 76
+    assert knobs.move("reverb", "up", 1) == 84       # steps continue from the exact setting
+    assert sent == [(21, 127), (21, 76), (21, 84)]
+    assert Command("knob", knob="reverb", direction="set", percent=60).describe() == "reverb to 60%"

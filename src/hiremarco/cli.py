@@ -25,6 +25,7 @@
     uv run marco logic play|stop|...     one transport key command into Logic, no model call
     uv run marco knobs learn reverb      open "Marco Knobs" and send its CC for Logic's Learn mode
     uv run marco knobs up|down reverb    one bounded knob step, through the gate
+    uv run marco knobs set reverb 60     the knob to an exact percent
     uv run marco preset my chain         load a saved Performance on the selected track (--list shows them)
     uv run marco run-check FILE --key "F minor" [--start S --end S] [--play] [--midi out.mid]
                                          the notes of a vocal run, cents off each, and the corrected guide
@@ -333,7 +334,14 @@ def cmd_knobs(args) -> int:
     knobs = Knobs()
     trace = Trace(f"knob: {args.knob} {args.action}")
     try:
-        result = Logic(knobs=knobs).do(Command("knob", knob=args.knob, direction=args.action, steps=1))
+        if args.action == "set":
+            if args.percent is None or not 0 <= args.percent <= 100:
+                trace.done("held: set needs a percent from 0 to 100")
+                return 1
+            command = Command("knob", knob=args.knob, direction="set", percent=args.percent)
+        else:
+            command = Command("knob", knob=args.knob, direction=args.action, steps=1)
+        result = Logic(knobs=knobs).do(command)
     except gate.Refused as refused:
         trace.done(f"held: {refused.reason}")
         return 1
@@ -461,8 +469,9 @@ def main(argv: list[str] | None = None) -> int:
     lg.set_defaults(func=cmd_logic)
 
     kn = sub.add_parser("knobs")
-    kn.add_argument("action", choices=["learn", "up", "down"])
+    kn.add_argument("action", choices=["learn", "up", "down", "set"])
     kn.add_argument("knob", choices=["tuning", "reverb", "delay"])
+    kn.add_argument("percent", nargs="?", type=int)
     kn.set_defaults(func=cmd_knobs)
 
     pr = sub.add_parser("preset")

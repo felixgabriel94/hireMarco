@@ -97,10 +97,14 @@ class Knobs:
         self._port.send(mido.Message("control_change", control=cc, value=value))
 
     def move(self, knob: str, direction: str, steps: int) -> int:
+        """A step up or down stays inside the knob's soft range; ``set`` goes exactly to the percent he said."""
         low, high = KNOB_RANGE[knob]
-        value = int(self.values.get(knob, 64))
-        value += KNOB_STEP * steps * (1 if direction == "up" else -1)
-        value = max(low, min(high, value))
+        if direction == "set":
+            value = max(0, min(127, round(steps / 100 * 127)))
+        else:
+            value = int(self.values.get(knob, 64))
+            value += KNOB_STEP * steps * (1 if direction == "up" else -1)
+            value = max(low, min(high, value))
         self._midi(KNOB_CC[knob], value)
         self.values[knob] = value
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -151,6 +155,8 @@ def plan(command: Command) -> Plan:
         return Plan([pos(bar), p("set_left_locator"), pos(bar + 1), p("set_right_locator"), p("autopunch_on"),
                      pos(start), p("record")])
     if a == "knob":
+        if command.direction == "set":
+            return Plan(knob=(command.knob, "set", command.percent))
         return Plan(knob=(command.knob, command.direction, command.steps))
     raise gate.Refused(f"{a} is not a Logic action")
 
