@@ -13,6 +13,7 @@ dependencies = [
   "soundfile>=0.12",
   "starlette>=0.40",
   "uvicorn>=0.30",
+  "websockets>=13",
 ]
 
 [project.scripts]

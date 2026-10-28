@@ -28,3 +28,14 @@ def cost_usd(model: str, prompt_tokens: int, completion_tokens: int, cached_toke
     fresh = prompt_tokens - cached
     cost = (cached * cached_price + fresh * input_price + completion_tokens * output_price) / 1_000_000
     return round(cost, 8)
+
+
+# Speech to text is priced by audio time, USD per hour (read 2026-10-26).
+PRICES_PER_HOUR: dict[str, float] = {
+    "muse-voice-transcribe-1.0": 0.18,
+}
+
+
+def audio_cost_usd(model: str, milliseconds: int) -> float:
+    """Raises KeyError for an unpriced model, like ``cost_usd``."""
+    return round(PRICES_PER_HOUR[model] * milliseconds / 3_600_000, 8)
