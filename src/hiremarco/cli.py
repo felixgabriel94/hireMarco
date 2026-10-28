@@ -264,7 +264,9 @@ def cmd_routing(args) -> int:
         print(f"  {label}, out {pair[0]}-{pair[1]}: heard on inputs {heard or 'none'}")
         ok = ok and set(pair) <= set(heard)
     input("Now say a few words into the vocal mic for three seconds. Press Return to start. ")
-    print(f"  mic: inputs with signal {mic_levels(device, ins) or 'none'}")
+    quiet = mic_levels(device, ins, threshold=-200)
+    print(f"  mic: inputs with signal {dict((k, v) for k, v in quiet.items() if v > -60) or 'none'}")
+    print("  every input, dBFS (below -90 is silence):", ", ".join(f"{k}: {v}" for k, v in quiet.items()))
     return 0 if ok else 1
 
 

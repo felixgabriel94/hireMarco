@@ -42,7 +42,7 @@ def probe(device: str, out_pair: tuple[int, int], outputs: int, inputs: int, *, 
 
 
 def mic_levels(device: str, inputs: int, seconds: float = 3.0, *, rate: int = 48000,
-               rec: Callable | None = None) -> dict[int, float]:
+               rec: Callable | None = None, threshold: float = HEARD_DB) -> dict[int, float]:
     if rec is None:
         import sounddevice as sd
 
@@ -52,4 +52,4 @@ def mic_levels(device: str, inputs: int, seconds: float = 3.0, *, rate: int = 48
             return data
 
     data = rec(int(seconds * rate), rate, device, list(range(1, inputs + 1)))
-    return {i + 1: db for i, db in enumerate(levels_db(np.asarray(data))) if db > HEARD_DB}
+    return {i + 1: db for i, db in enumerate(levels_db(np.asarray(data))) if db > threshold}
