@@ -40,6 +40,8 @@ def test_critic_sends_rules_and_action(tmp_path, monkeypatch):
     developer = seen["body"]["messages"][0]
     assert developer["role"] == "developer" and "Nothing sends outbound" in developer["content"]
     assert seen["body"]["messages"][1]["content"].startswith("call via voice")
+    assert seen["body"]["model"] == "muse-wonder-1.0"
+    assert client.joblog.rows()[-1]["model"] == "muse-wonder-1.0"
 
 
 def test_critic_refuses_when_kill_switch_on(tmp_path, monkeypatch):
