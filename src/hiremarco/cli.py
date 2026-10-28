@@ -261,7 +261,10 @@ def cmd_routing(args) -> int:
     # What matters: both reach the headphone mix (MON L/R, inputs 3-4) at about the same level.
     # Marco's voice is also kept clean as one WAV per line, so its own loopback is not needed.
     ok, mon = True, {}
-    for label, pair in (("Marco's voice", (7, 8)), ("Logic's output", (5, 6))):
+    from hiremarco.voice.talkback import channel_pair
+
+    marco = tuple(channel_pair(config.get("HIREMARCO_TALKBACK_CHANNELS")) or (5, 6))
+    for label, pair in (("Marco's voice", marco), ("Logic's output", (5, 6))):
         heard = probe(device, pair, outs, ins)
         print(f"  {label}, out {pair[0]}-{pair[1]}: heard on inputs {heard or 'none'}")
         ok = ok and {3, 4} <= set(heard)
