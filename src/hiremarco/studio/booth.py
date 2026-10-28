@@ -27,6 +27,9 @@ from hiremarco.studio.feedback import TakeNote
 ROLLING = {"record", "play", "punch"}
 TAPE_SECONDS = 10 * 60
 NOTED = "That's in the mix notes."
+LISTENING = "Let me listen."
+# Lines Marco says often, made once at the start so they play the moment they are needed.
+STOCK = ["Rolling", NOTED, LISTENING, "Morning. Your session's up. Where do you want to start?"]
 
 
 class Tape:
@@ -116,6 +119,7 @@ class Booth:
             take = self.tape.last_take()
             if take.size == 0:
                 return "no take on the tape yet"
+            self._speak(LISTENING)  # the note takes a few seconds; silence would feel like a dropped line
             note = self.feedback(take, self.tape.rate)
             self.producer_notes.append(note.note)
             self.pending_punch = note.punch_where if note.punch else ""
@@ -168,11 +172,15 @@ def run_booth(*, dry_run: bool = False) -> int:
     logic = Logic(dry_run=dry_run)
     booth: Booth
 
+    talkback = None if dry_run else Talkback(lambda: booth.rolling)
+    if talkback is not None:
+        print(f"voice: {talkback.warm(STOCK)} stock line(s) made, the rest already cached")
+
     def say(text: str) -> object:
-        if dry_run:
+        if talkback is None:
             print(f"   Marco (text only): {text}")
             return None
-        return Talkback(lambda: booth.rolling).say(text)
+        return talkback.say(text)
 
     booth = Booth(understand=understand, logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(rate))
 

@@ -82,7 +82,7 @@ def make_talkback(tmp_path, rolling, played, switch=True):
     lines = ["send: talkback -> * ; booth talkback ; until 2099-01-01"] if switch else []
     return Talkback(lambda: rolling[0], speak=stand_in, play=lambda pcm, rate: played.append((pcm, rate)),
                     folder=tmp_path / "capture", conn=gate.connect(":memory:"),
-                    rules_path=rules_file(tmp_path, *lines))
+                    rules_path=rules_file(tmp_path, *lines), cache_dir=tmp_path / "cache")
 
 
 def test_talkback_speaks_between_takes_and_keeps_the_line(tmp_path):
@@ -192,3 +192,16 @@ def test_send_voice_held_by_the_critic_uploads_nothing(tmp_path):
     with pytest.raises(gate.Refused, match="critic held it"):
         wa.send_voice(OWNER, b"OggS", "hi", idempotency_key="vn", critic=lambda d: (False, "not now"))
     assert calls == []
+
+
+def test_stock_lines_are_made_once_and_play_from_the_cache(tmp_path):
+    made, played = [], []
+    talk = make_talkback(tmp_path, [False], played)
+    talk.speak = lambda text: made.append(text) or stand_in(text)
+    assert talk.warm(["Rolling", "That's in the mix notes."]) == 2
+    assert talk.warm(["Rolling"]) == 0
+    talk.say("Rolling")
+    talk.say("Rolling")
+    assert made == ["Rolling", "That's in the mix notes."] and len(played) == 2
+    entries = [json.loads(line) for line in (tmp_path / "capture" / "talkback.jsonl").read_text().splitlines()]
+    assert all("ready_ms" in e for e in entries)

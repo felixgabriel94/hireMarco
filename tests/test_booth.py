@@ -51,7 +51,7 @@ def test_a_take_then_its_note_then_the_punch():
     assert not b.rolling
     b.hear("Marco, how was that take?")
     assert fed == [(1500, RATE)]
-    assert said[-1] == "Pitch dips on the last chorus line. Want to punch it?"
+    assert said[-2:] == ["Let me listen.", "Pitch dips on the last chorus line. Want to punch it?"]
     b.hear("Marco, punch it.")
     assert did[-1] == Command("punch", section="chorus") and b.rolling and b.pending_punch == ""
     assert said[-1] == "Rolling"

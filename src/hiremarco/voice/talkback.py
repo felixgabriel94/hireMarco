@@ -19,7 +19,9 @@ talkback -> *`` line in RULES.md must be live.
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import time
 from collections.abc import Callable
 from datetime import datetime
@@ -29,7 +31,7 @@ import numpy as np
 import soundfile as sf
 
 from hiremarco import config, gate
-from hiremarco.voice.tts import RATE, Speech, synthesize
+from hiremarco.voice.tts import MODEL, RATE, Speech, synthesize
 
 TENANT = "owner"
 
@@ -77,6 +79,7 @@ class Talkback:
         folder: Path | None = None,
         conn=None,
         rules_path: Path | None = None,
+        cache_dir: Path | None = None,
     ):
         self.is_rolling = is_rolling
         self.speak = speak
@@ -84,6 +87,33 @@ class Talkback:
         self.folder = folder or capture_dir()
         self.conn = conn or gate.connect()
         self.rules_path = rules_path
+        state = Path(os.environ.get("HIREMARCO_STATE", config.STATE_DIR))
+        self.cache_dir = cache_dir if cache_dir is not None else state / "voice-cache"
+
+    def _cache_path(self, text: str) -> Path:
+        voice = config.get("ELEVENLABS_VOICE_ID") or "default"
+        key = hashlib.sha256(f"{voice}|{MODEL}|{text}".encode()).hexdigest()[:24]
+        return self.cache_dir / f"{key}.wav"
+
+    def _ready(self, text: str) -> Speech:
+        """The line's audio: from the cache when Marco has said it before, made and kept otherwise."""
+        path = self._cache_path(text)
+        if path.exists():
+            pcm, _ = sf.read(path, dtype="int16")
+            return Speech(text, pcm)
+        speech = self.speak(text)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        sf.write(path, speech.pcm, RATE, subtype="PCM_16")
+        return speech
+
+    def warm(self, lines: list[str]) -> int:
+        """Make the session's stock lines ahead, so "Rolling" plays the instant it is needed."""
+        made = 0
+        for line in lines:
+            if not self._cache_path(line).exists():
+                self._ready(line)
+                made += 1
+        return made
 
     def say(self, text: str) -> Path:
         """Speak one line. Returns the WAV that played. Raises ``TakeRolling`` or ``gate.Refused``."""
@@ -97,7 +127,9 @@ class Talkback:
         )
 
     def _speak_and_play(self, text: str, stamp: datetime) -> Path:
-        speech = self.speak(text)
+        began = time.monotonic()
+        speech = self._ready(text)
+        ready_ms = int((time.monotonic() - began) * 1000)
         if self.is_rolling():
             raise TakeRolling("a take started while Marco was getting the line ready")
         self.folder.mkdir(parents=True, exist_ok=True)
@@ -108,5 +140,6 @@ class Talkback:
         self.play(speech.pcm, RATE)
         with (self.folder / "talkback.jsonl").open("a") as log:
             log.write(json.dumps({"played_at": started.isoformat(timespec="milliseconds"), "file": name,
-                                  "seconds": round(speech.seconds, 3), "text": speech.text}) + "\n")
+                                  "seconds": round(speech.seconds, 3), "ready_ms": ready_ms,
+                                  "text": speech.text}) + "\n")
         return path
