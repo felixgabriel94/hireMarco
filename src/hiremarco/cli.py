@@ -22,6 +22,8 @@
     uv run marco booth                   the session by voice: mic, commands, Logic, talkback (--dry-run: plans only)
     uv run marco routing                 tone and mic test of the interface's virtual channels and inputs
     uv run marco logic play|stop|...     one transport key command into Logic, no model call
+    uv run marco knobs learn reverb      open "Marco Knobs" and send its CC for Logic's Learn mode
+    uv run marco knobs up|down reverb    one bounded knob step, through the gate
 """
 
 from __future__ import annotations
@@ -299,6 +301,40 @@ def cmd_logic(args) -> int:
     return 0
 
 
+def cmd_knobs(args) -> int:
+    """Set up and test the three plugin knobs on the "Marco Knobs" MIDI port."""
+    import time
+
+    from hiremarco.studio.commands import Command
+    from hiremarco.studio.logic import KNOB_CC, KNOB_RANGE, Knobs, Logic
+
+    if args.action == "learn":
+        knobs = Knobs()
+        low, high = KNOB_RANGE[args.knob]
+        knobs._midi(KNOB_CC[args.knob], int(knobs.values.get(args.knob, 64)))  # opens the port
+        print(f'"Marco Knobs" is open. In Logic, start Learn on the {args.knob} parameter, then come back.')
+        input("Press Return to send the knob (CC %d) for Logic to learn " % KNOB_CC[args.knob])
+        middle = (low + high) // 2
+        for value in [*range(middle - 16, middle + 17, 4), middle]:
+            knobs._midi(KNOB_CC[args.knob], value)
+            time.sleep(0.15)
+        knobs.values[args.knob] = middle
+        knobs.state_path.parent.mkdir(parents=True, exist_ok=True)
+        knobs.state_path.write_text(__import__("json").dumps(knobs.values))
+        input("Sent. End Learn in Logic, then press Return to close the port ")
+        return 0
+    knobs = Knobs()
+    trace = Trace(f"knob: {args.knob} {args.action}")
+    try:
+        result = Logic(knobs=knobs).do(Command("knob", knob=args.knob, direction=args.action, steps=1))
+    except gate.Refused as refused:
+        trace.done(f"held: {refused.reason}")
+        return 1
+    time.sleep(0.5)  # let the message leave before the port closes
+    trace.done(result)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -366,6 +402,11 @@ def main(argv: list[str] | None = None) -> int:
     lg.add_argument("action", choices=["play", "stop", "record", "go_to_start"])
     lg.add_argument("--dry-run", action="store_true")
     lg.set_defaults(func=cmd_logic)
+
+    kn = sub.add_parser("knobs")
+    kn.add_argument("action", choices=["learn", "up", "down"])
+    kn.add_argument("knob", choices=["tuning", "reverb", "delay"])
+    kn.set_defaults(func=cmd_knobs)
 
     args = parser.parse_args(argv)
     if args.command == "say" and not (args.tone or args.text):

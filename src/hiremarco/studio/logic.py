@@ -93,6 +93,7 @@ class Knobs:
         if self._port is None:
             mido.set_backend("mido.backends.rtmidi")
             self._port = mido.open_output("Marco Knobs", virtual=True)
+            time.sleep(0.5)  # a new port needs a moment before Logic is listening to it
         self._port.send(mido.Message("control_change", control=cc, value=value))
 
     def move(self, knob: str, direction: str, steps: int) -> int:
