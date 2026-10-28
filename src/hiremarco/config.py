@@ -24,6 +24,7 @@ KNOWN_KEYS = (
     "GOOGLE_CLIENT_ID",         # the Internal Workspace OAuth client (desktop)
     "GOOGLE_CLIENT_SECRET",
     "GOOGLE_REFRESH_TOKEN",     # written by `marco google signin`
+    "RELAY_TOKEN",              # what ElevenLabs sends to reach the call relay; made by `marco relay token`
 )
 
 

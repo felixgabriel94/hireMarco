@@ -54,6 +54,7 @@ below grows as the build does; `git log` carries the dates.
 | Oct 28 | `hiremarco.proof` | Resy's email, read by Muse Spark into fixed fields, checked against what Marco asked for; only a match becomes the proof card and the calendar entry |
 | Oct 28 | `hiremarco.offer` | An email that matters becomes one WhatsApp question: Muse Spark reads the task, picks a place only from the Owner's own list, the calendar says if the time is clear |
 | Oct 28 | `hiremarco.studio.commands`, `studio.logic` | A spoken line becomes one command: the common ones by rule, instantly; the rest by Muse Spark with structured output, held to a fixed list. Logic's key commands for transport and punch-ins, a virtual MIDI port for three bounded plugin knobs, all through the gate, with a dry run that touches nothing |
+| Oct 28 | `hiremarco.relay` | The call's brain: an OpenAI-style endpoint on the Mac for the voice agent, token-checked, gated, pinned to Muse Spark, streaming, cost-logged; the Meta key never leaves the machine |
 | Oct 28 | `hiremarco.marco`, `server`, `livelog`, `cli` | Marco's voice through the gate, the running webhook, his on-screen log, the `marco` command |
 
 Planned, in order: the studio (voice

@@ -36,10 +36,15 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
 
 
 def build_app(*, reply: bool = True):
+    from starlette.routing import Route
+
+    from hiremarco.relay import make_relay
+
     return make_app(
         handle if reply else listen_only,
         verify_token=config.require("WHATSAPP_VERIFY_TOKEN"),
         app_secret=config.require("WHATSAPP_APP_SECRET"),
         owner=config.require("OWNER_WHATSAPP"),
         conn_factory=gate.connect,
+        extra_routes=[Route("/llm/v1/chat/completions", make_relay(), methods=["POST"])],
     )

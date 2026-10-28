@@ -11,6 +11,7 @@
     uv run marco whatsapp subscribe      point the WhatsApp account's webhooks at the app
     uv run marco google signin           one Google sign-in for mail (read) and calendar
     uv run marco mail check              granted senders' mail from the last two days
+    uv run marco relay token             make the call relay's token, copy it to the clipboard for ElevenLabs
 """
 
 from __future__ import annotations
@@ -126,6 +127,17 @@ def cmd_mail(args) -> int:
     return 0
 
 
+def cmd_relay(args) -> int:
+    if config.get("RELAY_TOKEN"):
+        token = config.require("RELAY_TOKEN")
+    else:
+        token = secrets.token_urlsafe(32)
+        config.set_value("RELAY_TOKEN", token)
+    subprocess.run(["pbcopy"], input=token.encode(), check=True)
+    print("RELAY_TOKEN copied to the clipboard; paste it as the custom LLM's API key secret in ElevenLabs")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -159,6 +171,10 @@ def main(argv: list[str] | None = None) -> int:
     m = sub.add_parser("mail")
     m.add_argument("action", choices=["check"])
     m.set_defaults(func=cmd_mail)
+
+    r = sub.add_parser("relay")
+    r.add_argument("action", choices=["token"])
+    r.set_defaults(func=cmd_relay)
 
     args = parser.parse_args(argv)
     if args.command == "gate" and args.action == "kill" and not args.state:

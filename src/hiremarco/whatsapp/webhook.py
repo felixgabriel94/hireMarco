@@ -71,6 +71,7 @@ def make_app(
     app_secret: str,
     owner: str,
     conn_factory: Callable[[], sqlite3.Connection],
+    extra_routes: list[Route] | None = None,
 ) -> Starlette:
     owner = owner.lstrip("+")
     stats = {"dropped_not_owner": 0, "retries": 0, "bad_signature": 0}
@@ -114,6 +115,7 @@ def make_app(
         Route("/webhook", verify, methods=["GET"]),
         Route("/webhook", receive, methods=["POST"]),
         Route("/health", health, methods=["GET"]),
+        *(extra_routes or []),
     ])
     app.state.stats = stats
     return app
