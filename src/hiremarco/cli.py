@@ -19,6 +19,7 @@
     uv run marco film devices            the audio devices and their channel counts
     uv run marco film record             the booth on one clock until Ctrl+C, in 15-minute segments
     uv run marco export-dialog FOLDER    Muse Wonder fills Logic's export dialog (--dry-run: looks, clicks nothing)
+    uv run marco booth                   the session by voice: mic, commands, Logic, talkback (--dry-run: plans only)
 """
 
 from __future__ import annotations
@@ -240,6 +241,12 @@ def cmd_export_dialog(args) -> int:
     return 0
 
 
+def cmd_booth(args) -> int:
+    from hiremarco.studio.booth import run_booth
+
+    return run_booth(dry_run=args.dry_run)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -296,6 +303,10 @@ def main(argv: list[str] | None = None) -> int:
     ed.add_argument("folder")
     ed.add_argument("--dry-run", action="store_true")
     ed.set_defaults(func=cmd_export_dialog)
+
+    bo = sub.add_parser("booth")
+    bo.add_argument("--dry-run", action="store_true")
+    bo.set_defaults(func=cmd_booth)
 
     args = parser.parse_args(argv)
     if args.command == "say" and not (args.tone or args.text):
