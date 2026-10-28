@@ -15,7 +15,8 @@ segments up without a gap; a clap per take checks it.
 Settings, read like the secrets (process environment first, then the env file):
 
     HIREMARCO_FILM_DEVICE    the input device name, e.g. "Universal Audio Thunderbolt"
-    HIREMARCO_FILM_CHANNELS  1-based input channels in file order, e.g. "1,9,10,11,12"
+    HIREMARCO_FILM_CHANNELS  1-based input channels in file order; on the Apollo Twin X
+                             "1,3,4,5,6": the mic dry, the headphone mix (MON L/R), Logic alone (Virtual 1-2)
     HIREMARCO_FILM_RATE      the interface's sample rate, 48000 unless set
 """
 

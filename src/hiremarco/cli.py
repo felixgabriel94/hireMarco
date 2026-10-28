@@ -258,11 +258,18 @@ def cmd_routing(args) -> int:
     info = sd.query_devices(device)
     ins, outs = info["max_input_channels"], info["max_output_channels"]
     print(f"{device}: {ins} in, {outs} out. A quiet tone plays for one second per pair.")
-    ok = True
+    # What matters: both reach the headphone mix (MON L/R, inputs 3-4) at about the same level.
+    # Marco's voice is also kept clean as one WAV per line, so its own loopback is not needed.
+    ok, mon = True, {}
     for label, pair in (("Marco's voice", (7, 8)), ("Logic's output", (5, 6))):
         heard = probe(device, pair, outs, ins)
         print(f"  {label}, out {pair[0]}-{pair[1]}: heard on inputs {heard or 'none'}")
-        ok = ok and set(pair) <= set(heard)
+        ok = ok and {3, 4} <= set(heard)
+        mon[label] = heard.get(3, -180.0)
+    gap = mon["Logic's output"] - mon["Marco's voice"]
+    print(f"  in the headphone mix Marco sits {gap:+.1f} dB below Logic for the same tone"
+          + (" (within 6 dB, good)" if abs(gap) <= 6 else "; move Console's Virtual 3-4 fader to close the gap"))
+    ok = ok and abs(gap) <= 6
     input("Now say a few words into the vocal mic for three seconds. Press Return to start. ")
     quiet = mic_levels(device, ins, threshold=-200)
     print(f"  mic: inputs with signal {dict((k, v) for k, v in quiet.items() if v > -60) or 'none'}")
