@@ -24,6 +24,23 @@ MODEL = "eleven_flash_v2_5"
 RATE = 24000
 TENANT = "owner"
 MAX_CHARS = 1000
+# Delivery, from the ElevenLabs voice settings: higher stability is calmer and steadier, lower style is less
+# dramatic, speed below 1 is slower. Each can be set in the env file; these are the calm defaults.
+VOICE_SETTINGS = {
+    "stability": ("HIREMARCO_VOICE_STABILITY", 0.65),
+    "similarity_boost": ("HIREMARCO_VOICE_SIMILARITY", 0.75),
+    "style": ("HIREMARCO_VOICE_STYLE", 0.0),
+    "speed": ("HIREMARCO_VOICE_SPEED", 0.95),
+}
+
+
+def voice_settings() -> dict[str, float]:
+    settings = {}
+    for field, (key, default) in VOICE_SETTINGS.items():
+        value = float(config.get(key) or default)
+        low, high = (0.7, 1.2) if field == "speed" else (0.0, 1.0)
+        settings[field] = min(max(value, low), high)
+    return settings
 
 
 class SpeechError(RuntimeError):
@@ -60,7 +77,7 @@ def synthesize(text: str, *, voice_id: str | None = None, api_key: str | None = 
                 f"/text-to-speech/{voice_id}",
                 params={"output_format": f"pcm_{RATE}"},
                 headers={"xi-api-key": api_key, "accept": "audio/pcm"},
-                json={"text": text, "model_id": MODEL},
+                json={"text": text, "model_id": MODEL, "voice_settings": voice_settings()},
             )
         if response.status_code >= 400:
             note = f"HTTP {response.status_code}"

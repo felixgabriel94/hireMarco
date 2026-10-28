@@ -53,7 +53,9 @@ def test_synthesize_asks_for_24k_pcm_and_logs_cost(tmp_path):
     assert req.url.path == "/v1/text-to-speech/v1"
     assert req.url.params["output_format"] == "pcm_24000"
     assert req.headers["xi-api-key"] == "k"
-    assert json.loads(req.content) == {"text": "Rolling", "model_id": "eleven_flash_v2_5"}
+    body = json.loads(req.content)
+    assert (body["text"], body["model_id"]) == ("Rolling", "eleven_flash_v2_5")
+    assert body["voice_settings"] == {"stability": 0.65, "similarity_boost": 0.75, "style": 0.0, "speed": 0.95}
     (row,) = log.rows()
     assert row["job"] == "speech" and row["ok"] and row["cost_usd"] > 0
 
@@ -205,3 +207,12 @@ def test_stock_lines_are_made_once_and_play_from_the_cache(tmp_path):
     assert made == ["Rolling", "That's in the mix notes."] and len(played) == 2
     entries = [json.loads(line) for line in (tmp_path / "capture" / "talkback.jsonl").read_text().splitlines()]
     assert all("ready_ms" in e for e in entries)
+
+
+def test_voice_settings_come_from_the_env_and_stay_in_range(monkeypatch):
+    from hiremarco.voice.tts import voice_settings
+
+    monkeypatch.setenv("HIREMARCO_VOICE_STABILITY", "0.9")
+    monkeypatch.setenv("HIREMARCO_VOICE_SPEED", "3")
+    s = voice_settings()
+    assert s["stability"] == 0.9 and s["speed"] == 1.2

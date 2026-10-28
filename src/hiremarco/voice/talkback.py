@@ -31,7 +31,7 @@ import numpy as np
 import soundfile as sf
 
 from hiremarco import config, gate
-from hiremarco.voice.tts import MODEL, RATE, Speech, synthesize
+from hiremarco.voice.tts import MODEL, RATE, Speech, synthesize, voice_settings
 
 TENANT = "owner"
 
@@ -92,7 +92,8 @@ class Talkback:
 
     def _cache_path(self, text: str) -> Path:
         voice = config.get("ELEVENLABS_VOICE_ID") or "default"
-        key = hashlib.sha256(f"{voice}|{MODEL}|{text}".encode()).hexdigest()[:24]
+        delivery = ",".join(f"{v:.2f}" for v in voice_settings().values())
+        key = hashlib.sha256(f"{voice}|{MODEL}|{delivery}|{text}".encode()).hexdigest()[:24]
         return self.cache_dir / f"{key}.wav"
 
     def _ready(self, text: str) -> Speech:
