@@ -41,16 +41,16 @@ the 6176 read), the call and its proof, the voice note.
 
 ## Setup used, not built here
 
-These existed before the event. They are labelled the same way in the video.
+These existed before the event; everything in the table above was built during it.
 
 **Ours, from before the event**
 
 - The hireMarco name, logo and brand
 - Marco's personality files, kept private and read at runtime from a folder
   outside this repository; never published
-- The hireMarco design that the gate and the critic follow, from the private
-  hireMarco product; none of its code is in this repository, and everything
-  here was written new for the event
+- The design of the gate, from the private hireMarco product: its entry
+  points and rules, not its code. The gate here, the critic and every other
+  package were written new for the event
 
 **Products used as they are**
 

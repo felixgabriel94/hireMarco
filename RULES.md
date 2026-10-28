@@ -43,8 +43,8 @@ One line each:
 Caps in code: 10 minutes per call, 30 calls and 100 WhatsApp messages per
 day, 5 USD of model calls per day, and every model call, message and call
 lands in the job log with its cost. The Meta Model API runs
-on the hackathon credits with the spend limit set at the console. Twilio and
-ElevenLabs spend is reported to the Owner when it passes 50 USD; the figure is
+on the hackathon credits with the spend limit set at the console. Calling and
+voice spend is reported to the Owner when it passes 50 USD; the figure is
 a stop point for a report, not a ceiling. Check: the job log's daily total.
 
 ## Secrets
@@ -58,11 +58,11 @@ for secret shapes; `.gitignore` excludes env files.
 ## What counts as built here
 
 Everything in this repository was written from Oct 26, 2026, inside the
-event. Pre-existing tools and accounts (the Meta glasses, a phone number, the
-Twilio and ElevenLabs accounts, the Meta Model API, the WhatsApp Cloud API) are
-setup, used and labelled as such in the README and the video, not presented
-as built. No code from any earlier private project is copied in. Check: the
-README's "Built here" and "Setup used" sections; `git log` dates.
+event. What existed before (the brand, the personality files, the gate's
+design, and the products used as they are) is listed once, in the README's
+"Setup used, not built here" section, and is never presented as built. No
+code from any earlier private project is copied in. Check: the README's
+"Built here" and "Setup used" sections; `git log` dates.
 
 ## Shape
 
