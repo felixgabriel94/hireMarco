@@ -38,7 +38,7 @@
     uv run marco hearing answer --song S --folder STEMS "the lead is right, 808 harder"   the artist's guardrails
     uv run marco hearing reference --song S [--file ref.wav] "Travis Scott"               the reference sound
     uv run marco show ["caption"]        a picture of Logic's window to the Owner's WhatsApp, for the ISO box
-    uv run marco app build|install|uninstall   Marco as a menu-bar app that starts with Logic (install: at login)
+    uv run marco app build|install|uninstall   hireMarco, the menu-bar app that starts with Logic (install: at login)
     uv run marco place booth|desk        where the running booth listens: the vocal mic, or the MacBook mic and speakers
     uv run marco halo                    Marco's halo over Logic: a short exchange, then a take (--preview DIR: pictures)
     uv run marco live                    Logic's window live on the phone, video with pictures as fallback; prints the link

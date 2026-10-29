@@ -38,7 +38,7 @@ final class Marco: NSObject, NSApplicationDelegate {
             tie.isTemplate = false
             item.button?.image = tie
         } else {
-            item.button?.image = NSImage(systemSymbolName: "waveform.circle", accessibilityDescription: "Marco")
+            item.button?.image = NSImage(systemSymbolName: "waveform.circle", accessibilityDescription: "hireMarco")
         }
         let menu = NSMenu()
         status.isEnabled = false

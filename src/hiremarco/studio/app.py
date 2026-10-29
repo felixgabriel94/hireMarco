@@ -1,7 +1,7 @@
 """Marco as a Mac app: build it, start it at login, or take it away again.
 
 ``app/MarcoApp.swift`` is the menu-bar app that starts the booth when Logic
-opens. ``build`` compiles it into ~/Applications/Marco.app, signs it for this
+opens. ``build`` compiles it into ~/Applications/hireMarco.app, signs it for this
 Mac only, and writes the repository and uv paths it runs the booth from.
 ``install`` adds the login item (a LaunchAgent) and opens the app;
 ``uninstall`` removes both. The login item is a setting on the Owner's Mac,
@@ -22,16 +22,16 @@ from hiremarco import config
 REPO = Path(__file__).resolve().parents[3]
 SOURCE = REPO / "app" / "MarcoApp.swift"
 ICON = REPO / "app" / "icon.jpg"  # the tie, the Owner's avatar for Marco
-APP = Path.home() / "Applications" / "Marco.app"
+APP = Path.home() / "Applications" / "hireMarco.app"
 AGENT = Path.home() / "Library" / "LaunchAgents" / "com.hiremarco.marco.plist"
 LABEL = "com.hiremarco.marco"
 
 INFO = {
     "CFBundleIdentifier": LABEL,
-    "CFBundleName": "Marco",
-    "CFBundleDisplayName": "Marco",
-    "CFBundleExecutable": "Marco",
-    "CFBundleIconFile": "Marco",
+    "CFBundleName": "hireMarco",
+    "CFBundleDisplayName": "hireMarco",
+    "CFBundleExecutable": "hireMarco",
+    "CFBundleIconFile": "hireMarco",
     "CFBundlePackageType": "APPL",
     "CFBundleShortVersionString": "0.1",
     "CFBundleVersion": "1",
@@ -49,11 +49,11 @@ def build(app: Path = APP, source: Path = SOURCE) -> Path:
     macos = app / "Contents" / "MacOS"
     macos.mkdir(parents=True, exist_ok=True)
     (app / "Contents" / "Info.plist").write_bytes(plistlib.dumps(INFO))
-    done = subprocess.run(["swiftc", "-O", "-swift-version", "5", str(source), "-o", str(macos / "Marco")],
+    done = subprocess.run(["swiftc", "-O", "-swift-version", "5", str(source), "-o", str(macos / "hireMarco")],
                           capture_output=True, text=True, timeout=300)
     if done.returncode != 0:
         raise RuntimeError(f"the app did not build: {done.stderr.strip()[-300:]}")
-    make_icon(ICON, app / "Contents" / "Resources" / "Marco.icns")
+    make_icon(ICON, app / "Contents" / "Resources" / "hireMarco.icns")
     for name in ("menubar.png", "menubar@2x.png"):  # the menu bar's tie, cut from the Owner's logo
         shutil.copyfile(REPO / "app" / name, app / "Contents" / "Resources" / name)
     signed = subprocess.run(["codesign", "--force", "--sign", "-", str(app)], capture_output=True, text=True)
@@ -88,7 +88,7 @@ def agent_plist(app: Path = APP) -> bytes:
 
 
 def install(app: Path = APP, agent: Path = AGENT) -> str:
-    if not (app / "Contents" / "MacOS" / "Marco").exists():
+    if not (app / "Contents" / "MacOS" / "hireMarco").exists():
         raise RuntimeError("build the app first: marco app build")
     agent.parent.mkdir(parents=True, exist_ok=True)
     agent.write_bytes(agent_plist(app))
@@ -98,12 +98,12 @@ def install(app: Path = APP, agent: Path = AGENT) -> str:
     if loaded.returncode != 0:
         raise RuntimeError(f"the login item did not load: {loaded.stderr.strip()[-200:]}")
     subprocess.run(["open", "-a", str(app)], check=True)
-    return f"Marco starts at login; the login item is {agent}"
+    return f"hireMarco starts at login; the login item is {agent}"
 
 
 def uninstall(agent: Path = AGENT) -> str:
     subprocess.run(["launchctl", "bootout", f"gui/{os.getuid()}", str(agent)], capture_output=True)
     if agent.exists():
         agent.unlink()
-    subprocess.run(["osascript", "-e", 'tell application "Marco" to quit'], capture_output=True)
-    return "Marco no longer starts at login, and the app is closed; it stays in ~/Applications until you move it"
+    subprocess.run(["osascript", "-e", 'tell application "hireMarco" to quit'], capture_output=True)
+    return "hireMarco no longer starts at login, and the app is closed; it stays in ~/Applications until you move it"
