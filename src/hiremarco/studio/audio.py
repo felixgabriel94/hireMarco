@@ -100,6 +100,16 @@ class DuplexAudio:
     def speaking(self) -> bool:
         return not self._drained.is_set()
 
+    def interrupt(self) -> None:
+        """Stop Marco mid-word: drop what is queued and what is playing. ``play`` returns at once."""
+        while True:
+            try:
+                self._pending.get_nowait()
+            except queue.Empty:
+                break
+        self._current = None
+        self._drained.set()
+
     def play(self, pcm: np.ndarray, rate: int) -> None:
         """Queue one line for the next callbacks and wait until it has gone out."""
         data = resample(np.asarray(pcm), rate, self.rate)

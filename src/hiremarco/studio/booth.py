@@ -475,6 +475,43 @@ def _song() -> str:
     return config.get("HIREMARCO_SONG") or "untitled"
 
 
+class Barge:
+    """Hearing the artist talk over Marco in the booth.
+
+    The first LEARN blocks of each of his lines measure how much of his voice the mic picks up from the
+    headphones (the artist is quiet then, almost always); after that, a mic level more than RATIO times that
+    bleed and above FLOOR, for HOLD blocks running, is the artist talking. The blocks muted meanwhile are kept,
+    so the first words of the interruption reach his hearing.
+    """
+
+    LEARN, RATIO, FLOOR, HOLD, KEEP = 3, 3.0, 0.01, 2, 5
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self) -> None:
+        self.blocks = 0
+        self.bleed = 0.0
+        self.loud = 0
+        self.kept: list = []
+
+    def hear(self, mic: float, voice: float, block) -> bool:
+        self.blocks += 1
+        self.kept = (self.kept + [block])[-self.KEEP:]
+        if self.blocks <= self.LEARN:
+            if voice > 1e-4:
+                self.bleed = max(self.bleed, mic / voice)
+            return False
+        expected = self.bleed * voice
+        self.loud = self.loud + 1 if mic > max(self.FLOOR, self.RATIO * expected) else 0
+        return self.loud >= self.HOLD
+
+    def release(self) -> list:
+        kept, self.kept = self.kept, []
+        self.reset()
+        return kept
+
+
 def _words(text: str) -> list[str]:
     return re.findall(r"[a-z0-9']+", text.lower())
 
@@ -618,18 +655,32 @@ def run_booth(*, dry_run: bool = False) -> int:
         chunks: asyncio.Queue[bytes] = asyncio.Queue()
 
         quiet_until = [0.0]
+        barge = Barge()
+
+        def send(block: np.ndarray) -> None:
+            loop.call_soon_threadsafe(chunks.put_nowait, to_pcm24k(block, audio.rate).tobytes())
 
         def on_input(mono: np.ndarray) -> None:
             if mono.size == 0:
                 return  # a glitch delivered nothing; sending an empty frame would break the hearing session
             booth.tape.write(mono)
             # While Marco talks, and a breath after, his hearing gets silence: the mic picks up his voice from the
-            # headphones, and he answered himself (live 2026-10-29). The stream keeps its pace with zeros.
+            # headphones, and he answered himself (live 2026-10-29). The stream keeps its pace with zeros. If the
+            # artist talks over him, clearly louder than that bleed, he stops mid-word and hears the artist,
+            # from the blocks held back while he was talking.
             now = time.monotonic()
             if audio.speaking:
                 quiet_until[0] = now + MIC_TAIL
-            heard = np.zeros_like(mono) if now < quiet_until[0] else mono
-            loop.call_soon_threadsafe(chunks.put_nowait, to_pcm24k(heard, audio.rate).tobytes())
+                if barge.hear(audio.in_level, audio.out_level, mono):
+                    audio.interrupt()
+                    quiet_until[0] = now
+                    for held in barge.release():
+                        send(held)
+                    booth.log("   (talked over: stopped and listening)")
+                    return
+            else:
+                barge.reset()
+            send(np.zeros_like(mono) if now < quiet_until[0] else mono)
 
         async def mic():
             while True:

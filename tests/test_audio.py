@@ -68,3 +68,39 @@ def test_an_out_channel_beyond_the_device_is_ignored_not_an_error():
     outdata = np.zeros((100, 4), dtype="float32")
     audio.callback(np.zeros((100, 4), dtype="float32"), outdata, 100, None, None)
     assert np.count_nonzero(outdata[:, 2]) == 10 and not np.any(outdata[:, 3])
+
+
+def test_interrupt_stops_marco_mid_word_and_play_returns():
+    audio, _ = make()
+    done = threading.Event()
+
+    def speak():
+        audio.play(np.full(5000, 8000, dtype="<i2"), audio.rate)  # five seconds at the device rate
+        done.set()
+
+    t = threading.Thread(target=speak)
+    t.start()
+    for _ in range(100):  # until the line is queued
+        if audio.speaking:
+            break
+        threading.Event().wait(0.01)
+    list(run_callbacks(audio, 2))
+    assert audio.speaking
+    audio.interrupt()
+    t.join(timeout=1)
+    assert done.is_set() and not audio.speaking
+    outs = list(run_callbacks(audio, 1))
+    assert not np.any(outs[0])  # nothing left to play
+
+
+def test_the_artist_talking_over_marco_is_told_from_his_own_bleed():
+    from hiremarco.studio.booth import Barge
+
+    b = Barge()
+    block = np.zeros(10)
+    for _ in range(3):
+        assert not b.hear(0.006, 0.06, block)  # he talks; the mic hears a tenth of him (bleed 0.1)
+    assert not b.hear(0.007, 0.06, block) and not b.hear(0.008, 0.06, block)  # just his bleed, a bit louder
+    assert not b.hear(0.05, 0.06, block)  # one loud block is a cough, not the artist
+    assert b.hear(0.06, 0.06, block)  # two running: the artist is talking
+    assert len(b.release()) == 5 and b.blocks == 0
