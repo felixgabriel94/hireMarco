@@ -18,6 +18,7 @@ dependencies = [
   "sounddevice>=0.5",
   "soundfile>=0.12",
   "starlette>=0.40",
+  "torchcrepe>=0.0.24",
   "uvicorn>=0.30",
   "websockets>=13",
 ]
