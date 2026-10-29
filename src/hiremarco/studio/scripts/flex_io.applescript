@@ -139,9 +139,16 @@ on run argv
 		tell application "System Events"
 			tell process "Logic Pro"
 				set regionItem to first UI element of contentsArea whose role is "AXLayoutItem"
-				set px to item 1 of (position of regionItem)
+				set regionPos to position of regionItem
 				set visible to value of attribute "AXParent" of contentsArea
-				set {vx, vy} to position of visible
+				set visiblePos to position of visible
+			end tell
+		end tell
+		set px to item 1 of regionPos
+		set vx to item 1 of visiblePos
+		set vy to item 2 of visiblePos
+		tell application "System Events"
+			tell process "Logic Pro"
 				set clickX to px + 12
 				if clickX < vx + 12 then set clickX to vx + 12
 				-- every note: one click inside the editor's visible note area gives it focus, then Select All
