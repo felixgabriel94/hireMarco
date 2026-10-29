@@ -538,6 +538,27 @@ def cmd_console(args) -> int:
     return 0
 
 
+def cmd_mcu(args) -> int:
+    """Marco as a Mackie Control surface: ``serve`` holds the ports, anything else is sent to the running surface."""
+    import os
+    from pathlib import Path
+
+    from hiremarco import config
+    from hiremarco.studio import mcu
+
+    state = Path(os.environ.get("HIREMARCO_STATE", config.STATE_DIR))
+    sock, log = state / "mcu.sock", state / "mcu.log"
+    if args.action == "serve":
+        mcu.serve(sock, log)
+        return 0
+    try:
+        print(mcu.ask(sock, " ".join([args.action, *args.words])), end="")
+    except OSError:
+        print("the surface is not running: start it with `marco mcu serve`")
+        return 1
+    return 0
+
+
 def cmd_ears(args) -> int:
     """Measure a folder of exported tracks, and the mix if given."""
     import json
@@ -899,6 +920,11 @@ def main(argv: list[str] | None = None) -> int:
     co.add_argument("--channel", type=int, default=0, help="Console input, 0 = ANALOG 1")
     co.add_argument("--slot", type=int, default=1, help="1 to 4 for inserts, 0 for Unison")
     co.set_defaults(func=cmd_console)
+
+    mc = sub.add_parser("mcu", help="Marco as a Mackie Control surface: serve | press NAME [I] | turn STRIP CLICKS | screen")
+    mc.add_argument("action", choices=["serve", "press", "turn", "screen", "seek", "confirm"])
+    mc.add_argument("words", nargs="*")
+    mc.set_defaults(func=cmd_mcu)
 
     ea = sub.add_parser("ears")
     ea.add_argument("folder")
