@@ -179,6 +179,89 @@ def seek(surface: Surface, strip: int, wanted: str, limit: int = 900) -> str:
     raise LookupError(f"{wanted!r} is not in Logic's plug-in list")
 
 
+def to_empty(surface: Surface, strip: int) -> None:
+    for _ in range(20):
+        surface.turn(strip, -63)
+        time.sleep(0.03)
+    time.sleep(0.3)
+
+
+def scan(surface: Surface, strip: int, limit: int = 2000) -> list[str]:
+    """Logic's whole plug-in list, in V-Pot order, one waited step at a time; nothing is confirmed."""
+    to_empty(surface, strip)
+    names: list[str] = []
+    for _ in range(limit):
+        name = step(surface, strip)
+        if name is None:
+            break
+        names.append(name)
+    to_empty(surface, strip)
+    return names
+
+
+def pick(names: list[str], words: str) -> int:
+    """The one index whose name holds every word ("la-2a silver"); an exact name wins, then a stereo one."""
+    wanted = words.lower().split()
+    exact = [i for i, n in enumerate(names) if n.lower() in (words.lower(), f"{words.lower()} (s/s)")]
+    if exact:
+        return exact[0]
+    hits = [i for i, n in enumerate(names) if all(w in n.lower() for w in wanted)]
+    if len(hits) > 1:
+        current = [i for i in hits if "legacy" not in names[i].lower() and "(m)" not in names[i].lower()]
+        hits = current if current else hits
+    if len(hits) == 1:
+        return hits[0]
+    if not hits:
+        raise LookupError(f"{words!r} is not in Logic's plug-in list (scan again if it was just installed)")
+    raise LookupError(f"{words!r} matches {len(hits)}: " + ", ".join(names[i] for i in hits[:8]))
+
+
+def heal(surface: Surface, strip: int, names: list[str], limit: int = 40) -> None:
+    """The display shows a name the scan missed (a retried click can land twice): step back to a known
+    name, then forward to the next known one, and write what lies between into the index."""
+    where = {n: i for i, n in enumerate(names)}
+    for _ in range(limit):
+        shown = slot_text(surface.screen, strip)
+        if shown.startswith("--") or shown in where:
+            break
+        if step(surface, strip, -1) is None:
+            break
+    shown = slot_text(surface.screen, strip)
+    at = -1 if shown.startswith("--") else where.get(shown)
+    if at is None:
+        raise LookupError(f"lost in the plug-in list at {shown!r}: scan again")
+    found: list[str] = []
+    for _ in range(limit):
+        name = step(surface, strip, 1)
+        if name is None or name in where:
+            break
+        found.append(name)
+    names[at + 1:at + 1] = found
+
+
+def jump(surface: Surface, strip: int, names: list[str], target_name: str, rounds: int = 160) -> str:
+    """Preselect target_name by read-back: Logic moves a V-Pot turn by a varying amount (a 63-click turn
+    moved 42 or 43 entries, a 10-click turn 5, live 2026-10-29), so each turn is sized from the distance
+    left, the display is read, and the last entries are single steps. A name the index lacks is learned on
+    the way (``heal``). Nothing is confirmed."""
+    for _ in range(rounds):
+        where = {n: i for i, n in enumerate(names)}
+        target = where[target_name]
+        shown = slot_text(surface.screen, strip)
+        at = -1 if shown.startswith("--") else where.get(shown)
+        if at is None:
+            heal(surface, strip, names)
+            continue
+        distance = target - at
+        if distance == 0:
+            return shown
+        sign = 1 if distance > 0 else -1
+        clicks = 1 if abs(distance) <= 2 else min(63, max(2, round(abs(distance) * 1.4)))
+        if step(surface, strip, sign * clicks) is None and at in (-1, len(names) - 1):
+            raise LookupError("the V-Pot stopped moving before the target")
+    raise LookupError(f"did not reach {target_name!r} in {rounds} moves")
+
+
 def serve(sock_path, log_path) -> None:
     """Hold the ports open and take one command per connection on a Unix socket:
     ``press NAME [INDEX]``, ``turn STRIP CLICKS``, ``screen``. Every reply ends with the screen as it stands."""
@@ -207,6 +290,26 @@ def serve(sock_path, log_path) -> None:
                         surface.turn(int(words[1]), int(words[2]))
                     elif words and words[0] == "seek":
                         answer = f"preselected {seek(surface, int(words[1]), ' '.join(words[2:]))}"
+                    elif words and words[0] == "jump":
+                        import json as _json
+
+                        index = Path(log_path).with_name("maps") / "logic_plugins.json"
+                        names = _json.loads(index.read_text())
+                        started = time.monotonic()
+                        before = len(names)
+                        shown = jump(surface, int(words[1]), names, names[pick(names, " ".join(words[2:]))])
+                        if len(names) != before:
+                            index.write_text(_json.dumps(names, indent=0))
+                        answer = (f"preselected {shown} in {time.monotonic() - started:.1f} s"
+                                  + (f"; learned {len(names) - before} name(s)" if len(names) != before else ""))
+                    elif words and words[0] == "scan":
+                        import json as _json
+
+                        names = scan(surface, int(words[1]))
+                        index = Path(log_path).with_name("maps") / "logic_plugins.json"
+                        index.parent.mkdir(parents=True, exist_ok=True)
+                        index.write_text(_json.dumps(names, indent=0))
+                        answer = f"scanned {len(names)} plug-ins into {index}"
                     elif words and words[0] == "confirm":
                         surface.press("vpot", int(words[1]))
                     elif words and words[0] != "screen":

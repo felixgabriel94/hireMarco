@@ -76,3 +76,42 @@ def test_seek_reports_a_name_logic_does_not_have(monkeypatch):
         assert "Melodyne" in str(missing)
     else:
         raise AssertionError("seek found a plug-in that is not there")
+
+
+class JumpyLogic(FakeLogic):
+    """Moves a turn of n clicks by about two thirds of n, like Logic's V-Pot acceleration (live 2026-10-29)."""
+
+    def hear(self, message):
+        if message.type != "control_change":
+            return
+        clicks = message.value & 0x3F
+        moved = clicks if clicks <= 2 else max(1, round(clicks * 0.66))
+        self.at += -moved if message.value & 0x40 else moved
+        self.at = max(0, min(len(self.names) - 1, self.at))
+        self.surface.receive(lcd(56 + 7, self.names[self.at].ljust(49)))
+
+
+def test_pick_prefers_exact_then_stereo_current_versions():
+    names = ["CLA-76 (m) (s/s)", "CLA-76 (s) (s/s)", "UAD Neve 1073 Legacy (s/s)", "UAD Neve 1073 (s/s)", "Pro-Q 3 (s/s)"]
+    assert names[mcu.pick(names, "neve 1073")] == "UAD Neve 1073 (s/s)"
+    assert names[mcu.pick(names, "cla-76")] == "CLA-76 (s) (s/s)"
+    assert names[mcu.pick(names, "Pro-Q 3")] == "Pro-Q 3 (s/s)"
+
+
+def test_jump_converges_despite_uneven_turns(monkeypatch):
+    monkeypatch.setattr(mcu.time, "sleep", lambda s: None)
+    names = [f"Plug {i:04d} (s/s)" for i in range(1200)]
+    logic = JumpyLogic(names)
+    assert mcu.jump(logic.surface, 1, names, "Plug 1039 (s/s)") == "Plug 1039 (s/s)"
+    assert mcu.jump(logic.surface, 1, names, "Plug 0234 (s/s)") == "Plug 0234 (s/s)"
+
+
+def test_jump_learns_a_name_the_index_missed(monkeypatch):
+    monkeypatch.setattr(mcu.time, "sleep", lambda s: None)
+    real = [f"Plug {i:04d} (s/s)" for i in range(300)]
+    logic = JumpyLogic(real)
+    index = [n for n in real if n != "Plug 0150 (s/s)"]
+    logic.at = 151  # the display sits on the missing name ("--" is entry 0)
+    logic.surface.receive(lcd(56 + 7, "Plug 0150 (s/s)".ljust(49)))
+    assert mcu.jump(logic.surface, 1, index, "Plug 0200 (s/s)") == "Plug 0200 (s/s)"
+    assert index == real
