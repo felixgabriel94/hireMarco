@@ -45,21 +45,30 @@ struct Orb: View {
         let scale = breathe + (mode == "speaking" ? 0.08 : 0.03) * level
         let light = mode == "listening" ? 0.55 + 0.45 * level : (mode == "speaking" ? 0.7 + 0.3 * level : 0.6)
         let swell = mode == "speaking" ? 6 + 26 * level : (mode == "thinking" ? 10 : 4 + 8 * level)
-        let w = 240.0, h = 190.0
+        let w = 180.0, h = 142.0
         return ZStack {
-            // a soft blue light under him, on whatever is behind
+            // the glow all around him, so he floats: wide and faint, brighter as the voice rises
             Ellipse()
-                .fill(RadialGradient(colors: [sky.opacity(0.30 * light), deep.opacity(0.18 * light), .clear],
-                                     center: .center, startRadius: 0, endRadius: 150))
-                .frame(width: 300, height: 230)
-                .offset(y: 40)
-                .blur(radius: 30)
-            // the glass: dark inside, a faint blue at the bottom where the light pools
+                .fill(RadialGradient(colors: [sky.opacity(0.34 * light), deep.opacity(0.22 * light), .clear],
+                                     center: .center, startRadius: w * 0.30, endRadius: w * 0.80))
+                .frame(width: w * 1.7, height: h * 1.75)
+                .blur(radius: 22)
             Ellipse()
-                .fill(LinearGradient(colors: [.black.opacity(0.72), Color(red: 0.02, green: 0.05, blue: 0.16).opacity(0.62),
-                                              deep.opacity(0.30)],
+                .fill(RadialGradient(colors: [ice.opacity(0.22 * light), .clear], center: .center,
+                                     startRadius: 0, endRadius: w * 0.5))
+                .frame(width: w * 1.1, height: h * 0.8)
+                .offset(y: h * 0.32)
+                .blur(radius: 18)
+                .blendMode(.plusLighter)
+            // the glass: dark inside, a faint blue at the bottom; its edge feathered into the glow, not a line
+            Ellipse()
+                .fill(LinearGradient(colors: [.black.opacity(0.70), Color(red: 0.02, green: 0.05, blue: 0.16).opacity(0.60),
+                                              deep.opacity(0.32)],
                                      startPoint: .top, endPoint: .bottom))
                 .frame(width: w, height: h)
+                .mask(Ellipse().fill(RadialGradient(colors: [.black, .black, .clear], center: .center,
+                                                    startRadius: 0, endRadius: w * 0.52))
+                      .frame(width: w, height: h))
             // the ribbon of light across the middle: white at its core, sky blue, then deep blue at the edges
             Canvas { ctx, size in
                 let mid = size.height * 0.50
@@ -97,24 +106,27 @@ struct Orb: View {
             }
             .frame(width: w, height: h)
             .blendMode(.plusLighter)
-            .mask(Ellipse().frame(width: w - 4, height: h - 4))
-            // the rim: a thin edge of light, brightest at the top, and a glow pooling at the bottom
+            .mask(Ellipse().fill(RadialGradient(colors: [.black, .black, .clear], center: .center,
+                                                startRadius: 0, endRadius: w * 0.52))
+                  .frame(width: w, height: h))
+            // the rim: a soft edge of light, blurred so it reads as glow, brightest at the top
             Ellipse()
-                .strokeBorder(LinearGradient(colors: [.white.opacity(0.55), sky.opacity(0.10), sky.opacity(0.45)],
-                                             startPoint: .top, endPoint: .bottom), lineWidth: 1.2)
+                .strokeBorder(LinearGradient(colors: [.white.opacity(0.40), sky.opacity(0.08), sky.opacity(0.35)],
+                                             startPoint: .top, endPoint: .bottom), lineWidth: 2)
                 .frame(width: w, height: h)
+                .blur(radius: 2.5)
             Ellipse()
-                .fill(RadialGradient(colors: [ice.opacity(0.35 * light), .clear], center: .center,
-                                     startRadius: 0, endRadius: 70))
-                .frame(width: 160, height: 40)
-                .offset(y: h / 2 - 22)
-                .blur(radius: 10)
+                .fill(RadialGradient(colors: [ice.opacity(0.30 * light), .clear], center: .center,
+                                     startRadius: 0, endRadius: 52))
+                .frame(width: 120, height: 30)
+                .offset(y: h / 2 - 16)
+                .blur(radius: 9)
                 .blendMode(.plusLighter)
         }
         .scaleEffect(scale)
         .opacity(mode == "idle" ? 0.0 : 1.0)
         .animation(.easeInOut(duration: 0.6), value: mode)
-        .frame(width: 320, height: 320)
+        .frame(width: 300, height: 300)
     }
 
 }
@@ -186,7 +198,7 @@ if args.count > 2, args[1] == "--preview" {
 
 let app = NSApplication.shared
 app.setActivationPolicy(.accessory)  // no Dock icon, never takes focus from Logic
-let size = CGSize(width: 320, height: 320)
+let size = CGSize(width: 300, height: 300)
 let panel = NSPanel(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless, .nonactivatingPanel],
                     backing: .buffered, defer: false)
 panel.isOpaque = false
