@@ -414,6 +414,8 @@ def run_booth(*, dry_run: bool = False) -> int:
         chunks: asyncio.Queue[bytes] = asyncio.Queue()
 
         def callback(indata, frames, time_info, status) -> None:
+            if frames <= 0:
+                return  # a glitch delivered nothing; sending an empty frame would break the hearing session
             mono = np.asarray(indata)[:, channel - 1].copy()
             booth.tape.write(mono)
             loop.call_soon_threadsafe(chunks.put_nowait, to_pcm24k(mono, rate).tobytes())
@@ -429,8 +431,17 @@ def run_booth(*, dry_run: bool = False) -> int:
             if session is not None:
                 print(f"session: {len(session.tracks)} track(s), {session.mode} mode"
                       + (f" (track scan failed: {session.scan_error})" if session.scan_error else ""))
-            async for line in Listener().sentences(mic()):
-                await asyncio.to_thread(booth.hear, line)
+            # His hearing is one realtime session; if the service drops it, open another and keep listening.
+            while True:
+                try:
+                    async for line in Listener().sentences(mic()):
+                        await asyncio.to_thread(booth.hear, line)
+                    break  # the mic closed
+                except RuntimeError as dropped:
+                    print(f"   (hearing dropped: {dropped}; reconnecting)")
+                    while not chunks.empty():  # audio from the dead session would arrive out of context
+                        chunks.get_nowait()
+                    await asyncio.sleep(0.5)
 
     try:
         asyncio.run(main())

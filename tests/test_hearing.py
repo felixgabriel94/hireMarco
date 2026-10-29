@@ -105,3 +105,24 @@ def test_listener_respects_the_kill_switch(tmp_path, monkeypatch):
     with pytest.raises(gate.Refused):
         asyncio.run(run())
     gate.set_kill_switch(False)
+
+
+def test_an_error_event_carries_the_servers_message_and_empty_frames_are_never_sent(tmp_path, monkeypatch):
+    monkeypatch.setenv("MODEL_API_KEY", "k")
+    sock = FakeSocket([{"type": "speechComplete", "turnId": 0, "transcript": "Marco, record."},
+                       {"type": "error", "errorType": "invalid_request_error", "message": "audio frame was empty"}])
+
+    async def chunks():
+        for chunk in (b"\x00\x01" * 100, b"", b"\x00\x01" * 100):
+            yield chunk
+
+    async def run():
+        listener = Listener(joblog=JobLog(tmp_path / "j.jsonl"), connect=lambda url: sock)
+        heard = []
+        async for line in listener.sentences(chunks()):
+            heard.append(line)
+        return heard
+
+    with pytest.raises(RuntimeError, match="invalid_request_error: audio frame was empty"):
+        asyncio.run(run())
+    assert b"" not in sock.sent and sum(1 for s in sock.sent if isinstance(s, bytes)) == 2

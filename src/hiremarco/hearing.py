@@ -136,6 +136,8 @@ class Listener:
             async def pump() -> None:
                 nonlocal sent_bytes
                 async for chunk in chunks:
+                    if not chunk:
+                        continue  # a device glitch can hand the callback zero frames; an empty frame is rejected
                     await ws.send(chunk)
                     sent_bytes += len(chunk)
                 await ws.send(json.dumps({"type": "endStream"}))
@@ -150,7 +152,9 @@ class Listener:
                     if kind == "speechComplete" and event.get("transcript", "").strip():
                         yield event["transcript"].strip()
                     elif kind == "error":
-                        raise RuntimeError(f"Voice Transcribe error: {event.get('errorType') or 'unknown'}")
+                        detail = event.get("message") or event.get("error") or ""
+                        raise RuntimeError(f"Voice Transcribe error: {event.get('errorType') or 'unknown'}"
+                                           + (f": {detail}" if detail else ""))
             finally:
                 sender.cancel()
                 _log(self.joblog, "listen", int(sent_bytes / 2 / RATE * 1000), started, True)
