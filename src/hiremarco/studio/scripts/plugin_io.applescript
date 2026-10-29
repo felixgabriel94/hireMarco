@@ -35,24 +35,50 @@ on run argv
 	set out to {"plugin" & tab & pluginName}
 	tell application "System Events"
 		tell process "Logic Pro"
-			repeat with r in (every row of table 1 of scroll area 1 of w)
-				set c to UI element 1 of r
-				set label to value of static text 1 of c
+			-- One request for all labels and one for all values: a plugin like Pro-Q 3 has hundreds of rows,
+			-- and asking row by row took over a minute (live, 2026-10-28).
+			set t to table 1 of scroll area 1 of w
+			set labels to value of static text 1 of UI element 1 of every row of t
+			set n to count of labels
+			repeat with pair in wanted
+				repeat with i from 1 to n
+					set label to item i of labels
+					if label ends with ":" then set label to text 1 thru -2 of label
+					if label is (item 1 of pair) then set value of slider 1 of UI element 1 of row i of t to (item 2 of pair)
+				end repeat
+			end repeat
+			-- "every slider" gives an empty list for a row with none, so one request covers mixed rows too.
+			set sliderVals to value of every slider of UI element 1 of every row of t
+			set vals to {}
+			set needText to false
+			repeat with i from 1 to n
+				set v to item i of sliderVals
+				if (count of v) > 0 then
+					set end of vals to item 1 of v
+				else
+					set end of vals to missing value
+					set needText to true
+				end if
+			end repeat
+			if needText then
+				set popVals to value of every pop up button of UI element 1 of every row of t
+				set boxVals to value of every checkbox of UI element 1 of every row of t
+				repeat with i from 1 to n
+					if item i of vals is missing value then
+						set shown to ""
+						if (count of item i of popVals) > 0 then
+							set shown to (item 1 of item i of popVals) as text
+						else if (count of item i of boxVals) > 0 then
+							set shown to (item 1 of item i of boxVals) as text
+						end if
+						set item i of vals to "~" & shown
+					end if
+				end repeat
+			end if
+			repeat with i from 1 to n
+				set label to item i of labels
 				if label ends with ":" then set label to text 1 thru -2 of label
-				try
-					set sl to slider 1 of c
-					repeat with pair in wanted
-						if item 1 of pair is label then set value of sl to (item 2 of pair)
-					end repeat
-					set end of out to label & tab & ((value of sl) as text)
-				on error
-					-- not a slider (a menu or a switch): reported as text after "~", read only for now
-					set shown to ""
-					try
-						set shown to (value of (UI element 2 of c)) as text
-					end try
-					set end of out to label & tab & "~" & shown
-				end try
+				set end of out to label & tab & ((item i of vals) as text)
 			end repeat
 		end tell
 	end tell

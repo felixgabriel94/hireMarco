@@ -84,8 +84,11 @@ def parse(report: str) -> PluginState:
 
 
 def _osascript(args: list[str]) -> str:
-    done = subprocess.run(["osascript", str(SCRIPTS / "plugin_io.applescript"), *args],
-                          capture_output=True, text=True, timeout=30)
+    try:
+        done = subprocess.run(["osascript", str(SCRIPTS / "plugin_io.applescript"), *args],
+                              capture_output=True, text=True, timeout=120)
+    except subprocess.TimeoutExpired as exc:
+        raise PluginError("Logic took over two minutes to answer") from exc
     if done.returncode != 0:
         raise PluginError(done.stderr.strip()[-200:] or f"osascript exit {done.returncode}")
     return done.stdout
