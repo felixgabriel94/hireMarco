@@ -135,6 +135,19 @@ class Talkback:
                 made += 1
         return made
 
+    def say_stock(self, text: str) -> bool:
+        """Play a line Marco has already made, from the cache only: no gate, no network, no cost.
+
+        The one use is the kill path: "Stopped." must be heard after the switch goes on, and the gate
+        rightly refuses everything else then. A line not in the cache is not played; False says so.
+        """
+        path = self._cache_path(text)
+        if not path.exists():
+            return False
+        pcm, _ = sf.read(path, dtype="int16")
+        self.play(leveled(pcm), RATE)
+        return True
+
     def say(self, text: str) -> Path:
         """Speak one line. Returns the WAV that played. Raises ``TakeRolling`` or ``gate.Refused``."""
         if self.is_rolling():

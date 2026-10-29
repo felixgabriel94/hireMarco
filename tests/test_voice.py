@@ -228,3 +228,11 @@ def test_lines_are_leveled_to_one_loudness_under_the_ceiling():
         assert 20 * np.log10(np.sqrt(np.mean(out ** 2))) == pytest.approx(-24, abs=0.3)
         assert np.max(np.abs(out)) <= 10 ** (-6 / 20) + 1e-3
     assert np.array_equal(leveled(np.zeros(10, dtype="<i2")), np.zeros(10, dtype="<i2"))
+
+
+def test_say_stock_plays_only_what_is_cached_with_no_gate(tmp_path):
+    played = []
+    talk = make_talkback(tmp_path, [False], played, switch=False)  # no talkback switch at all
+    assert talk.say_stock("Stopped.") is False and played == []
+    talk.warm(["Stopped."])  # warming goes through synthesis, not the gate
+    assert talk.say_stock("Stopped.") is True and len(played) == 1

@@ -29,8 +29,10 @@ TAPE_SECONDS = 10 * 60
 NOTED = "That's in the mix notes."
 LISTENING = "Let me listen."
 DIALING = "Let me dial that in."
+MISSED = "I missed that. Say it again?"
+STOPPED = "Stopped. Everything's held until you clear it from the desk."
 # Lines Marco says often, made once at the start so they play the moment they are needed.
-STOCK = ["Rolling", NOTED, LISTENING, DIALING, "Here's how it goes.", "What key are we in?", "Put it back.",
+STOCK = ["Rolling", NOTED, LISTENING, DIALING, MISSED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
          "Morning. Your session's up. Where do you want to start?"]
 
 
@@ -100,6 +102,7 @@ class Booth:
     session: object | None = None         # studio.tracks.SessionState, from the scan at start
     mix_pass: Callable[[str], str] | None = None
     show: Callable[[str], str] | None = None
+    say_stopped: Callable[[], bool] | None = None     # the cache-only player for STOPPED, after the switch is on
     hearing: Callable[[], str] | None = None          # the full read, spoken, then the question
     reference: Callable[[str], str] | None = None     # "sound like X" -> the signature, spoken short
 
@@ -127,6 +130,31 @@ class Booth:
         text = f"{first} > {last} > {time.monotonic() - started:.1f} s"
         self.log(text)
         return text
+
+    def _kill(self) -> str:
+        """Everything stops and stays stopped: the gate's kill switch goes on, and only the desk clears it."""
+        gate.set_kill_switch(True, "said in the booth")
+        stopped = ""
+        if self.rolling:
+            try:
+                self.logic(Command("stop"))
+                stopped = ", transport stopped"
+            except Exception as exc:  # the switch is already on; the stop is best effort
+                stopped = f", transport stop failed ({type(exc).__name__})"
+            self.rolling = False
+            self.tape.mark_stop()
+        heard = False
+        if self.say_stopped is not None:
+            try:
+                heard = self.say_stopped()  # cache only: the gate refuses talkback once the switch is on
+            except Exception as exc:
+                self.log(f"   (say_stopped failed: {type(exc).__name__})")
+        if not heard:
+            try:
+                self.say(STOPPED)
+            except Exception:
+                self.log(f"   Marco (text only): {STOPPED}")
+        return f"kill switch on{stopped}; clear it from the desk with: marco gate kill off"
 
     def _tidy(self, command: Command) -> str:
         from hiremarco.studio.tracks import NotMapped, SessionState
@@ -204,8 +232,12 @@ class Booth:
 
     def handle(self, command: Command) -> str:
         a = command.action
+        if a == "kill":
+            return self._kill()
         if a == "unknown":
-            return "not a studio command, nothing done"
+            # He heard his name but could not place the line: say so, never guess and never go quiet.
+            self._speak(MISSED)
+            return "not a studio command, nothing done; asked him to say it again"
         if a == "note":
             self.notes.append(command.text)
             self._speak(NOTED)
@@ -365,6 +397,7 @@ def run_booth(*, dry_run: bool = False) -> int:
     booth = Booth(understand=understand, logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(rate),
                   tracks=tracks, session=session,
                   show=None if dry_run else __import__("hiremarco.studio.show", fromlist=["show"]).show,
+                  say_stopped=None if talkback is None else (lambda: talkback.say_stock(STOPPED)),
                   hearing=None if dry_run else _booth_hearing, reference=None if dry_run else _booth_reference,
                   key=config.get("HIREMARCO_SONG_KEY") or "",
                   plugin=None if dry_run else Channel(),

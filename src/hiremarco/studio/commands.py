@@ -21,7 +21,7 @@ ACTIONS = (
     "play", "stop", "record", "go_to_start", "go_to_section", "go_to_bar", "new_track", "arm_track",
     "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
     "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "hearing", "reference",
-    "unknown",
+    "kill", "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
 
@@ -160,6 +160,7 @@ MIX_SAID = re.compile(r"^(?:give me |do |run |let'?s do )?(?:a |the )?(?:quick )
                       r"^(?:clean up|balance) (?:the mix|what we have(?: so far)?|the session)$")
 WATCH_SAID = re.compile(r"^keep (?:it|things|the mix|the frequencies) balanced(?: as we (?:go|work|record))?$|"
                         r"^(?:stop|no more) (?:watching|balancing)(?: the mix)?$")
+KILL_SAID = re.compile(r"^(?:stop everything|stop it all|kill (?:it|switch|everything)|hands off|freeze|abort)$")
 HEARING_SAID = re.compile(r"^(?:how does it sound|how'?s it sounding|give me (?:a |the )?(?:hearing|read)(?: of the mix| on the mix)?|"
                           r"read the (?:mix|session)|what do you hear|how'?s the mix)$")
 REFERENCE_SAID = re.compile(r"^(?:i want (?:it |this |my vocal |my voice )?to sound like|make (?:it|me) sound like|"
@@ -223,6 +224,8 @@ def understand(line: str, client: MuseSpark | None = None) -> Command | None:
     said = strip_wake(line)
     if said is None:
         return None
+    if KILL_SAID.match(said):
+        return Command("kill")  # checked before anything else: the one line that must never be misheard as a command
     quick = fast_match(said)
     if quick:
         return quick
