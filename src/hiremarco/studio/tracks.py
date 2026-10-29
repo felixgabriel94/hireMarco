@@ -155,6 +155,19 @@ class Tracks:
 
         return parse_where(self.run(["where"]).strip())
 
+    def regions(self) -> list[str]:
+        """The selected track's region names, as Logic shows them."""
+        return [line.strip() for line in self.run(["regions"]).splitlines() if line.strip()]
+
+    def set_tempo(self, bpm: float) -> str:
+        def run() -> str:
+            got = float(self.run(["tempo", f"{bpm:.2f}"]).strip() or 0)
+            if abs(got - bpm) > 0.05:
+                raise RuntimeError(f"the tempo did not take (reads {got})")
+            return f"tempo set to {got:g}"
+
+        return self._gated(run, "set_tempo", f"set the project tempo to {bpm:g}")
+
     def solo(self, on: bool) -> str:
         message = f"solo {'on' if on else 'off'} on the selected track"
 

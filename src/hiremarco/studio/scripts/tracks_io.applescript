@@ -209,6 +209,40 @@ on run argv
 		set AppleScript's text item delimiters to ""
 		return (b as text) & " " & (bt as text) & " " & (dv as text) & " " & (tk as text) & " " & (tempo as text) & " " & beatsPerBar
 	end if
+	if mode is "regions" then
+		-- the selected track's region names, one per line, from its lane in the Tracks area
+		set header to part(main, "Tracks header")
+		set lanes to part(main, "Tracks contents")
+		tell application "System Events"
+			set picked to missing value
+			repeat with trk in (every UI element of header whose role is "AXLayoutItem")
+				try
+					if (value of (first radio button of trk whose description is "Has Focus")) is 1 then set picked to description of trk
+				end try
+			end repeat
+			if picked is missing value then error "no track is selected"
+			set lane to first UI element of lanes whose role is "AXLayoutArea" and description is picked
+			set names to description of (every UI element of lane whose role is "AXLayoutItem")
+		end tell
+		set AppleScript's text item delimiters to linefeed
+		return names as text
+	end if
+	if mode is "tempo" then
+		-- set the project tempo on the Control Bar's Tempo control, then read it back
+		set want to (item 2 of argv) as real
+		set bar to part(main, "Control Bar")
+		tell application "System Events"
+			repeat with g in (every group of bar)
+				try
+					set t to (first slider of g whose description is "Tempo")
+					set value of t to want
+					delay 0.3
+					return (value of t) as text
+				end try
+			end repeat
+		end tell
+		error "the Control Bar's Tempo is not showing"
+	end if
 	if mode is "solo" then
 		-- the selected track's own Solo button: "solo on" or "solo off"; read back
 		set want to (item 2 of argv) is "on"

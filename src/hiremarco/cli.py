@@ -39,6 +39,7 @@
     uv run marco hearing reference --song S [--file ref.wav] "Travis Scott"               the reference sound
     uv run marco show ["caption"]        a picture of Logic's window to the Owner's WhatsApp, for the ISO box
     uv run marco app build|install|uninstall   hireMarco, the menu-bar app that starts with Logic (install: at login)
+    uv run marco beat FILE               the key and tempo of a beat or loop (an estimate)
     uv run marco place booth|desk        where the running booth listens: the vocal mic, or the MacBook mic and speakers
     uv run marco halo                    Marco's halo over Logic: a short exchange, then a take (--preview DIR: pictures)
     uv run marco live                    Logic's window live on the phone, video with pictures as fallback; prints the link
@@ -631,6 +632,16 @@ def cmd_app(args) -> int:
     return 0
 
 
+def cmd_beat(args) -> int:
+    from pathlib import Path
+
+    from hiremarco.studio import analyze
+
+    reading = analyze.read(Path(args.file))
+    print(f"{reading.spoken()} (estimate; next most likely key {reading.runner_up}, strength {reading.key_strength})")
+    return 0
+
+
 def cmd_place(args) -> int:
     """Tell the running booth where you are, the same as the menu bar's Listen in the booth / at the desk."""
     import socket
@@ -877,6 +888,10 @@ def main(argv: list[str] | None = None) -> int:
     ap = sub.add_parser("app")
     ap.add_argument("action", choices=["build", "install", "uninstall"])
     ap.set_defaults(func=cmd_app)
+
+    bt = sub.add_parser("beat")
+    bt.add_argument("file")
+    bt.set_defaults(func=cmd_beat)
 
     pl = sub.add_parser("place")
     pl.add_argument("where", choices=["booth", "desk"])

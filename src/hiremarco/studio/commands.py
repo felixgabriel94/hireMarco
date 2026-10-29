@@ -22,7 +22,7 @@ ACTIONS = (
     "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
     "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "live_view", "hearing", "reference",
     "kill", "summon", "dismiss", "chat", "play_take", "play_from_lyric", "solo", "unsolo", "play_from",
-    "go_again", "next_part", "a_cappella", "unknown",
+    "go_again", "next_part", "a_cappella", "read_beat", "accept", "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
 
@@ -199,6 +199,13 @@ SOLO_SAID = re.compile(r"^(?:solo (?:it|that|this|the track|my vocals?|the vocal
                        r"|let me hear (?:just )?(?:my vocals?|the vocals?|my take)(?: alone| by itself| solo)?)$")
 UNSOLO_SAID = re.compile(r"^(?:unsolo(?: it| that| the track| me)?|take (?:it|the track|me) off solo|"
                          r"(?:turn |take )?(?:the )?solo off|bring everything back)$")
+READ_BEAT_SAID = re.compile(r"^(?:what(?:'s| is) the (?:key|tempo|bpm)(?: and (?:the )?(?:key|tempo|bpm))?(?: of| on)?"
+                            r"(?: (?:the|this|that) (?:beat|track|song|instrumental))?|what key is (?:the|this|that) "
+                            r"(?:beat|track|song|instrumental)(?: in)?|(?:find|detect|get|check) the (?:key|tempo|bpm)"
+                            r"(?: and (?:the )?(?:key|tempo|bpm))?(?: of| for)?(?: (?:the|this|that) (?:beat|track|song|"
+                            r"instrumental))?)$")
+ACCEPT_SAID = re.compile(r"^(?:yes|yeah|yep|yup|sure|do it|set it|go for it|please|yes please|let'?s do it|"
+                         r"set (?:it|that|the session)(?: up)?|sounds good|perfect|bet)$")
 GO_AGAIN_SAID = re.compile(r"^(?:(?:all right|alright|okay|ok|cool|bet),? )?(?:let'?s )?(?:go|run it|do it|try it|take it)"
                            r" (?:again|one more time|from the top)$|^(?:one more|again|another one|next take|let'?s do another"
                            r"(?: one| take)?)$")
@@ -288,6 +295,10 @@ def understand(line: str, client: MuseSpark | None = None, context: list[str] | 
         return None
     if not said:
         return Command("summon")  # "Marco." or "Hey Marco" alone: he answers and waits, like a name called in a room
+    if READ_BEAT_SAID.match(said):
+        return Command("read_beat")
+    if ACCEPT_SAID.match(said):
+        return Command("accept")  # a yes to what he just offered; with nothing offered he answers in conversation
     if GO_AGAIN_SAID.match(said):
         return Command("go_again")
     if NEXT_PART_SAID.match(said):

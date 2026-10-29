@@ -85,3 +85,28 @@ def test_moving_to_a_different_part_takes_the_solo_off_and_asks_where():
     b.hear("Marco, solo it")
     assert "next part" in b.hear("Marco, let's record a different part")
     assert b.tracks.calls == [True, False] and said[-1] == "Where do you want to pick it up?"
+
+
+def test_reading_the_beat_offers_the_key_and_tempo_and_a_yes_sets_them(monkeypatch, tmp_path):
+    from hiremarco.studio import analyze
+
+    b, did, said = booth()
+    b.tracks.regions = lambda: ["Dreamy Keys 140BPM #01"]
+    b.tracks.set_tempo = lambda bpm: f"tempo set to {bpm:g}"
+    beat = tmp_path / "Dreamy Keys 140BPM.wav"
+    monkeypatch.setattr(analyze, "find_audio", lambda region: beat)
+    monkeypatch.setattr(analyze, "read", lambda path: analyze.Reading("F minor", 0.8, "G# major", 140.0, 70.0))
+    assert understand("Marco, what key is the beat in?", client=None) == Command("read_beat")
+    result = b.hear("Marco, what key is the beat in?")
+    assert "F minor, 140 BPM" in result and "Want me to set the session" in said[-1]
+    assert "tempo set to 140" in b.hear("Marco, yes") and b.key == "F minor"
+    assert b.offer is None
+
+
+def test_a_region_finds_its_file_without_logics_marks():
+    from hiremarco.studio.analyze import find_audio, label
+
+    hits = ["/x/Dreamy Keys 140BPM.wav", "/x/Dreamy Keys 140BPM.asd", "/y/Dreamy Keys 140BPM copy.wav"]
+    assert str(find_audio("Dreamy Keys 140BPM #01", search=lambda name: hits)) == "/x/Dreamy Keys 140BPM.wav"
+    assert label("BOI1DA_melodic_loop_piano_4bar_90_F#min") == ("F# minor", 90.0)
+    assert label("SLS_CSP_92_electric_bass_soul_needyou_Bbmin") == ("A# minor", 92.0)

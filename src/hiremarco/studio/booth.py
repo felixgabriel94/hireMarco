@@ -143,6 +143,7 @@ class Booth:
     spoken: list = field(default_factory=list)        # (when, line) of his last lines, to know his own echo
     on_place: Callable[[str], None] | None = None     # "booth" or "desk": chosen by the artist, not by the mode
     history: list[str] = field(default_factory=list)  # the recent exchanges and what was done, for his replies
+    offer: Callable[[], str] | None = None            # what a "yes" does: the last thing he offered
     soloed: bool = False                              # he soloed a track, and takes it off before the next take
     a_cappella: bool = False                          # this take is recorded with the vocal soloed, on purpose
     take_start: object | None = None                  # (Position, tempo, beats per bar) read when the take began
@@ -369,6 +370,41 @@ class Booth:
             return str(later)
         return "nothing to do"
 
+    def _read_beat(self) -> str:
+        """The selected track's audio: its key and tempo, said, and offered for the session."""
+        from hiremarco.studio import analyze
+
+        if self.tracks is None:
+            return "no track control in this booth"
+        regions = self.tracks.regions()
+        if not regions:
+            self._say("the selected track has no audio to read", {}, "Select the beat's track and ask me again.")
+            return "no regions on the selected track"
+        path = analyze.find_audio(regions[0])
+        if path is None:
+            self._say("could not find the beat's file", {"region": regions[0]}, "I can't find that file on the Mac.")
+            return f"no file found for {regions[0]!r}"
+        reading = self._in_time(lambda: analyze.read(path))
+        key = reading.key
+
+        def apply() -> str:
+            self.key = key
+            done = [f"key {key} for pitch checks"]
+            try:
+                done.append(self.tracks.set_tempo(reading.bpm))
+            except Exception as exc:  # the key still stands; the log says why the tempo did not
+                done.append(f"tempo not set: {type(exc).__name__}: {str(exc)[-80:]}")
+            self._say("set the session from the beat", {"key": key, "tempo": reading.bpm, "done": done},
+                      f"Done. {key}, {reading.bpm:g}.")
+            return "; ".join(done)
+
+        self.offer = apply
+        self._say("read the beat's key and tempo; offer to set the session to it", {
+            "key": reading.key, "or_relative": reading.runner_up, "bpm": reading.bpm,
+            "or_half_double": reading.bpm_other or None, "note": "an estimate from the audio"},
+            f"Sounds like {reading.spoken()}. Want me to set the session to that?")
+        return f"beat read from {path.name}: {reading.spoken()} (estimate; runner-up {reading.runner_up})"
+
     def _unsolo_for_the_take(self) -> None:
         if self.soloed and self.tracks is not None:
             try:
@@ -580,6 +616,15 @@ class Booth:
             done = self.tracks.solo(a == "solo")  # silent: you hear the result
             self.soloed = a == "solo"
             return done
+        if a == "read_beat":
+            return self._read_beat()
+        if a == "accept":
+            if self.offer is None:
+                return self.handle(Command("chat", text=self.writer.line("the artist said yes but nothing was offered; "
+                                                                        "ask what they want", {}, "What are we doing?")
+                                           if self.writer is not None else "What are we doing?"))
+            offer, self.offer = self.offer, None
+            return offer()
         if a == "go_again":  # "let's go again": the solo comes off by itself and the next take rolls
             return self.handle(Command("record"))
         if a == "next_part":  # moving on: back to the full mix, then where to pick it up
