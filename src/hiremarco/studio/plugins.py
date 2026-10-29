@@ -62,8 +62,11 @@ class PluginError(RuntimeError):
 
 
 # Controls Marco reads but never moves: they route, monitor or reconfigure rather than shape the sound.
+# Also the selectors that would change what a plugin is doing rather than how much: Auto-Tune's key, scale and
+# input type, any mode or revision, meters, and pan (a vocal stays centered). Seen in the live read 2026-10-28.
 PROTECTED = re.compile(r"bypass|midi|solo|audition|side ?chain|sidechain|invert|oversampl|selected band|lookahead|"
-                       r"receive|delta|stereo link mode|channel mode|expert mode", re.IGNORECASE)
+                       r"receive|delta|\bmode\b|revision|\bmeter\b|analog|\bkey\b|\bscale\b|input type|\bpan\b|"
+                       r"gain scale|\bstereo\b", re.IGNORECASE)
 
 
 @dataclass

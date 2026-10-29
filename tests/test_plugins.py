@@ -144,3 +144,18 @@ def test_set_refuses_a_protected_control(tmp_path):
                     conn=gate.connect(":memory:"), rules_path=rules(tmp_path))
     with pytest.raises(gate.Refused, match="not a control Marco moves"):
         plugin.set({"Bypass": 100})
+
+
+@pytest.mark.parametrize("name", ["Key", "Scale", "Input Type", "Output Pan", "HPF Mode", "Revision", "Meter",
+                                  "Gain Scale", "Stereo Link", "Band 1 External Side Chain", "Receive Midi"])
+def test_selectors_and_routing_stay_read_only(name):
+    from hiremarco.studio.plugins import PROTECTED
+
+    assert PROTECTED.search(name)
+
+
+@pytest.mark.parametrize("name", ["Retune Speed", "Band 1 Gain", "Threshold", "Decay", "depth", "HF Boost", "Mix"])
+def test_sound_shaping_controls_stay_movable(name):
+    from hiremarco.studio.plugins import PROTECTED
+
+    assert not PROTECTED.search(name)
