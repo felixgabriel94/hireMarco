@@ -61,11 +61,14 @@ struct Orb: View {
         let eased = shown * shown * (3 - 2 * shown)  // smoothstep: no hard start or stop
         let level = min(max(halo.level, 0), 1)
         let mode = halo.mode
-        let speed = mode == "thinking" ? 3.2 : (mode == "speaking" ? 2.0 : 0.9)
-        let breathe = 1 + 0.025 * sin(t * 1.3)
-        let scale = breathe + (mode == "speaking" ? 0.08 : 0.03) * level
-        let light = mode == "listening" ? 0.55 + 0.45 * level : (mode == "speaking" ? 0.7 + 0.3 * level : 0.6)
-        let swell = mode == "speaking" ? 6 + 26 * level : (mode == "thinking" ? 10 : 4 + 8 * level)
+        // Only his voice moves him. Silent or listening, he just floats: a slow drift and breath, the same size.
+        let speaking = mode == "speaking"
+        let voice = speaking ? level : 0
+        let speed = speaking ? 2.0 : 0.9
+        let breathe = 1 + 0.02 * sin(t * 1.3)
+        let scale = breathe + 0.08 * voice
+        let light = speaking ? 0.7 + 0.3 * voice : 0.62
+        let swell = speaking ? 6 + 26 * voice : 5
         let w = 180.0, h = 142.0
         let rimGlow = 0.6  // how much light the rim gives off, 0 to 1 (Owner: 1.0 was too strong)
         return ZStack {
