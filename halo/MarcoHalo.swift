@@ -16,7 +16,14 @@ final class HaloState: ObservableObject {
     @Published var mode = "idle"
     var target: Double = 0
     var level: Double = 0
+    var shown: Double = 0          // 0 hidden, 1 fully there; eased every frame
+    var lastActive: Double = -100  // when he last thought or spoke
+    var lastFrame: Double = 0
 }
+
+// He appears when he has something to say: fading in as he thinks or speaks, staying through the reply, and
+// fading out a moment after his last word. While he only listens, the halo stays out of the way.
+let fadeIn = 0.5, fadeOut = 0.9, hold = 1.2
 
 let state = HaloState()
 
@@ -37,7 +44,17 @@ struct Orb: View {
 
     func orb(at t: Double) -> some View {
         // ease the level toward the latest one the booth sent, so the orb moves smoothly between messages
-        if frozenTime == nil { halo.level += (halo.target - halo.level) * 0.18 }
+        if frozenTime == nil {
+            halo.level += (halo.target - halo.level) * 0.18
+            let dt = halo.lastFrame == 0 ? 0 : min(t - halo.lastFrame, 0.1)
+            halo.lastFrame = t
+            if halo.mode == "speaking" || halo.mode == "thinking" { halo.lastActive = t }
+            let wanted = t - halo.lastActive < hold ? 1.0 : 0.0
+            let step = dt / (wanted > halo.shown ? fadeIn : fadeOut)
+            halo.shown = wanted > halo.shown ? min(wanted, halo.shown + step) : max(wanted, halo.shown - step)
+        }
+        let shown = frozenTime == nil ? halo.shown : 1.0
+        let eased = shown * shown * (3 - 2 * shown)  // smoothstep: no hard start or stop
         let level = min(max(halo.level, 0), 1)
         let mode = halo.mode
         let speed = mode == "thinking" ? 3.2 : (mode == "speaking" ? 2.0 : 0.9)
@@ -127,9 +144,8 @@ struct Orb: View {
                 .blur(radius: 10)
                 .blendMode(.plusLighter)
         }
-        .scaleEffect(scale)
-        .opacity(mode == "idle" ? 0.0 : 1.0)
-        .animation(.easeInOut(duration: 0.6), value: mode)
+        .scaleEffect(scale * (0.92 + 0.08 * eased))
+        .opacity(eased)
         .frame(width: 300, height: 300)
     }
 
