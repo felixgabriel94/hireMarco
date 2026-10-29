@@ -47,28 +47,19 @@ struct Orb: View {
         let swell = mode == "speaking" ? 6 + 26 * level : (mode == "thinking" ? 10 : 4 + 8 * level)
         let w = 180.0, h = 142.0
         return ZStack {
-            // the glow all around him, so he floats: wide and faint, brighter as the voice rises
+            // a soft blue light under him, on whatever is behind
             Ellipse()
-                .fill(RadialGradient(colors: [sky.opacity(0.34 * light), deep.opacity(0.22 * light), .clear],
-                                     center: .center, startRadius: w * 0.30, endRadius: w * 0.80))
-                .frame(width: w * 1.7, height: h * 1.75)
+                .fill(RadialGradient(colors: [sky.opacity(0.30 * light), deep.opacity(0.18 * light), .clear],
+                                     center: .center, startRadius: 0, endRadius: 112))
+                .frame(width: 225, height: 172)
+                .offset(y: 30)
                 .blur(radius: 22)
+            // the glass: dark inside, a faint blue at the bottom where the light pools
             Ellipse()
-                .fill(RadialGradient(colors: [ice.opacity(0.22 * light), .clear], center: .center,
-                                     startRadius: 0, endRadius: w * 0.5))
-                .frame(width: w * 1.1, height: h * 0.8)
-                .offset(y: h * 0.32)
-                .blur(radius: 18)
-                .blendMode(.plusLighter)
-            // the glass: dark inside, a faint blue at the bottom; its edge feathered into the glow, not a line
-            Ellipse()
-                .fill(LinearGradient(colors: [.black.opacity(0.70), Color(red: 0.02, green: 0.05, blue: 0.16).opacity(0.60),
-                                              deep.opacity(0.32)],
+                .fill(LinearGradient(colors: [.black.opacity(0.72), Color(red: 0.02, green: 0.05, blue: 0.16).opacity(0.62),
+                                              deep.opacity(0.30)],
                                      startPoint: .top, endPoint: .bottom))
                 .frame(width: w, height: h)
-                .mask(Ellipse().fill(RadialGradient(colors: [.black, .black, .clear], center: .center,
-                                                    startRadius: 0, endRadius: w * 0.52))
-                      .frame(width: w, height: h))
             // the ribbon of light across the middle: white at its core, sky blue, then deep blue at the edges
             Canvas { ctx, size in
                 let mid = size.height * 0.50
@@ -106,21 +97,18 @@ struct Orb: View {
             }
             .frame(width: w, height: h)
             .blendMode(.plusLighter)
-            .mask(Ellipse().fill(RadialGradient(colors: [.black, .black, .clear], center: .center,
-                                                startRadius: 0, endRadius: w * 0.52))
-                  .frame(width: w, height: h))
-            // the rim: a soft edge of light, blurred so it reads as glow, brightest at the top
+            .mask(Ellipse().frame(width: w - 4, height: h - 4))
+            // the rim: a thin edge of light, brightest at the top, and a glow pooling at the bottom
             Ellipse()
-                .strokeBorder(LinearGradient(colors: [.white.opacity(0.40), sky.opacity(0.08), sky.opacity(0.35)],
-                                             startPoint: .top, endPoint: .bottom), lineWidth: 2)
+                .strokeBorder(LinearGradient(colors: [.white.opacity(0.55), sky.opacity(0.10), sky.opacity(0.45)],
+                                             startPoint: .top, endPoint: .bottom), lineWidth: 1.2)
                 .frame(width: w, height: h)
-                .blur(radius: 2.5)
             Ellipse()
-                .fill(RadialGradient(colors: [ice.opacity(0.30 * light), .clear], center: .center,
+                .fill(RadialGradient(colors: [ice.opacity(0.35 * light), .clear], center: .center,
                                      startRadius: 0, endRadius: 52))
                 .frame(width: 120, height: 30)
                 .offset(y: h / 2 - 16)
-                .blur(radius: 9)
+                .blur(radius: 10)
                 .blendMode(.plusLighter)
         }
         .scaleEffect(scale)
