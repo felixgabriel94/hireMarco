@@ -32,7 +32,14 @@ final class Marco: NSObject, NSApplicationDelegate {
     let paths = loadPaths()
 
     func applicationDidFinishLaunching(_ note: Notification) {
-        item.button?.image = NSImage(systemSymbolName: "waveform.circle", accessibilityDescription: "Marco")
+        // the tie, in its own blue, so the menu bar stays on brand (menubar.png and @2x in Resources)
+        if let tie = Bundle.main.image(forResource: "menubar") {
+            tie.size = NSSize(width: 18, height: 18)
+            tie.isTemplate = false
+            item.button?.image = tie
+        } else {
+            item.button?.image = NSImage(systemSymbolName: "waveform.circle", accessibilityDescription: "Marco")
+        }
         let menu = NSMenu()
         status.isEnabled = false
         menu.addItem(status)

@@ -14,12 +14,14 @@ def test_the_build_writes_a_menu_bar_app_with_its_permissions_explained(tmp_path
 
     monkeypatch.setattr(app.shutil, "which", lambda name: "/opt/homebrew/bin/uv")
     monkeypatch.setattr(app.subprocess, "run", lambda args, **k: calls.append(args) or Done())
+    monkeypatch.setattr(app.shutil, "copyfile", lambda a, b: calls.append(["copy", str(a)]))
     built = app.build(tmp_path / "Marco.app")
     info = plistlib.loads((built / "Contents" / "Info.plist").read_bytes())
     assert info["LSUIElement"] is True and "listens" in info["NSMicrophoneUsageDescription"]
     assert calls[0][0] == "swiftc" and calls[-1][:3] == ["codesign", "--force", "--sign"]
     assert sum(c[0] == "sips" for c in calls) == 10 and any(c[0] == "iconutil" for c in calls)  # every icon size
     assert info["CFBundleIconFile"] == "Marco"
+    assert [c[1].rsplit("/", 1)[-1] for c in calls if c[0] == "copy"] == ["menubar.png", "menubar@2x.png"]
     assert '"uv": "/opt/homebrew/bin/uv"' in (app.config.STATE_DIR / "app.json").read_text()
 
 

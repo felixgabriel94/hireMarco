@@ -54,6 +54,8 @@ def build(app: Path = APP, source: Path = SOURCE) -> Path:
     if done.returncode != 0:
         raise RuntimeError(f"the app did not build: {done.stderr.strip()[-300:]}")
     make_icon(ICON, app / "Contents" / "Resources" / "Marco.icns")
+    for name in ("menubar.png", "menubar@2x.png"):  # the menu bar's tie, cut from the Owner's logo
+        shutil.copyfile(REPO / "app" / name, app / "Contents" / "Resources" / name)
     signed = subprocess.run(["codesign", "--force", "--sign", "-", str(app)], capture_output=True, text=True)
     if signed.returncode != 0:
         raise RuntimeError(f"the app did not sign: {signed.stderr.strip()[-200:]}")
