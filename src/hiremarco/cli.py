@@ -39,6 +39,7 @@
     uv run marco hearing reference --song S [--file ref.wav] "Travis Scott"               the reference sound
     uv run marco show ["caption"]        a picture of Logic's window to the Owner's WhatsApp, for the ISO box
     uv run marco app build|install|uninstall   hireMarco, the menu-bar app that starts with Logic (install: at login)
+    uv run marco tune FILE --key "F minor"   Marco's first tuning pass: a "(Marco tuned)" file beside the take
     uv run marco beat FILE               the key and tempo of a beat or loop (an estimate)
     uv run marco place booth|desk        where the running booth listens: the vocal mic, or the MacBook mic and speakers
     uv run marco halo                    Marco's halo over Logic: a short exchange, then a take (--preview DIR: pictures)
@@ -632,6 +633,18 @@ def cmd_app(args) -> int:
     return 0
 
 
+def cmd_tune(args) -> int:
+    from pathlib import Path
+
+    from hiremarco.studio import tune
+
+    target, before, after = tune.first_pass(Path(args.file), args.key, center=args.center, drift=args.drift)
+    print(f"before: {before}")
+    print(f"after:  {after}")
+    print(f"wrote {target}")
+    return 0
+
+
 def cmd_beat(args) -> int:
     from pathlib import Path
 
@@ -888,6 +901,13 @@ def main(argv: list[str] | None = None) -> int:
     ap = sub.add_parser("app")
     ap.add_argument("action", choices=["build", "install", "uninstall"])
     ap.set_defaults(func=cmd_app)
+
+    tn = sub.add_parser("tune")
+    tn.add_argument("file")
+    tn.add_argument("--key", required=True)
+    tn.add_argument("--center", type=float, default=80)
+    tn.add_argument("--drift", type=float, default=30)
+    tn.set_defaults(func=cmd_tune)
 
     bt = sub.add_parser("beat")
     bt.add_argument("file")

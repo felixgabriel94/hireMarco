@@ -41,6 +41,7 @@ THINKING = ["Hmm.", "Okay.", "Let me see.", "One sec.", "Mm, okay."]
 STOP_ALONE = {"stop", "stop stop", "okay stop", "ok stop", "cut", "cut it", "stop recording", "stop the take",
               "hold on", "hold up", "stop there", "let's stop", "lets stop"}
 COUNT_IN_SECONDS = float(os.environ.get("HIREMARCO_COUNT_IN_SECONDS", "0"))  # Logic's count-in, if on
+TUNE_CENTER, TUNE_DRIFT = 80.0, 30.0  # a first pass that still sounds like the artist; the last 20% is theirs
 AUTO_NOTE_SECONDS = 8  # a take this long or longer gets his note when it stops; shorter is a test or a false start
 FILLER_AFTER = 0.7  # seconds of thinking before he lets you know he is on it
 MIC_TAIL = 0.4  # seconds his hearing stays muted after he stops talking
@@ -370,6 +371,35 @@ class Booth:
             return str(later)
         return "nothing to do"
 
+    def _tune_take(self) -> str:
+        """His first tuning pass on the selected track's take: his ear, two amounts, a new file beside the take."""
+        from hiremarco.studio import analyze, tune
+
+        if self.rolling:
+            return "holding the first pass until the take stops"
+        if not self.key:
+            self._speak("What key are we in?")
+            return "asked for the key before tuning"
+        if self.tracks is None:
+            return "no track control in this booth"
+        regions = self.tracks.regions()
+        path = analyze.find_audio(regions[-1]) if regions else None
+        if path is None:
+            self._say("could not find the take's file to tune", {"regions": regions[-3:]},
+                      "I can't find that take's file. Select the vocal track and ask me again.")
+            return "no take file found"
+        target, before, after = self._in_time(lambda: tune.first_pass(path, self.key, center=TUNE_CENTER,
+                                                                      drift=TUNE_DRIFT))
+        subprocess.run(["open", "-R", str(target)], capture_output=True)  # in Finder, to drag under the take
+        self._say("finished a first tuning pass; the tuned take is a new file next to the original, shown in Finder",
+                  {"notes": before["notes"], "median_cents_off_before": before["median_cents_off"],
+                   "median_cents_off_after": after["median_cents_off"], "vibrato_notes_left_alone": before["vibrato_notes"],
+                   "amounts": f"center {TUNE_CENTER:g}, drift {TUNE_DRIFT:g}"},
+                  f"First pass done. {before['median_cents_off']:g} cents off down to {after['median_cents_off']:g}. "
+                  "It's in Finder next to your take.")
+        return (f"first pass on {path.name}: median {before['median_cents_off']} to {after['median_cents_off']} cents off, "
+                f"{before['notes']} notes, vibrato kept on {before['vibrato_notes']}; wrote {target.name}")
+
     def _read_beat(self) -> str:
         """The selected track's audio: its key and tempo, said, and offered for the session."""
         from hiremarco.studio import analyze
@@ -616,6 +646,8 @@ class Booth:
             done = self.tracks.solo(a == "solo")  # silent: you hear the result
             self.soloed = a == "solo"
             return done
+        if a == "tune_take":
+            return self._tune_take()
         if a == "read_beat":
             return self._read_beat()
         if a == "accept":

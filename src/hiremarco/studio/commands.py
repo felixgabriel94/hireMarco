@@ -22,7 +22,7 @@ ACTIONS = (
     "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
     "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "live_view", "hearing", "reference",
     "kill", "summon", "dismiss", "chat", "play_take", "play_from_lyric", "solo", "unsolo", "play_from",
-    "go_again", "next_part", "a_cappella", "read_beat", "accept", "unknown",
+    "go_again", "next_part", "a_cappella", "read_beat", "accept", "tune_take", "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
 
@@ -199,6 +199,9 @@ SOLO_SAID = re.compile(r"^(?:solo (?:it|that|this|the track|my vocals?|the vocal
                        r"|let me hear (?:just )?(?:my vocals?|the vocals?|my take)(?: alone| by itself| solo)?)$")
 UNSOLO_SAID = re.compile(r"^(?:unsolo(?: it| that| the track| me)?|take (?:it|the track|me) off solo|"
                          r"(?:turn |take )?(?:the )?solo off|bring everything back)$")
+TUNE_SAID = re.compile(r"^(?:(?:can you |let'?s |go ahead and )?tune (?:my|the|that|this) (?:take|vocals?|lead)"
+                       r"(?: up)?|(?:give me|do|run) (?:a |the )?first pass(?: on (?:the |my )?(?:tuning|vocals?|take))?"
+                       r"|(?:a )?first pass(?: tuning)?)$")
 READ_BEAT_SAID = re.compile(r"^(?:what(?:'s| is) the (?:key|tempo|bpm)(?: and (?:the )?(?:key|tempo|bpm))?(?: of| on)?"
                             r"(?: (?:the|this|that) (?:beat|track|song|instrumental))?|what key is (?:the|this|that) "
                             r"(?:beat|track|song|instrumental)(?: in)?|(?:find|detect|get|check) the (?:key|tempo|bpm)"
@@ -295,6 +298,8 @@ def understand(line: str, client: MuseSpark | None = None, context: list[str] | 
         return None
     if not said:
         return Command("summon")  # "Marco." or "Hey Marco" alone: he answers and waits, like a name called in a room
+    if TUNE_SAID.match(said):
+        return Command("tune_take")
     if READ_BEAT_SAID.match(said):
         return Command("read_beat")
     if ACCEPT_SAID.match(said):
