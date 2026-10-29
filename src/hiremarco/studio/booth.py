@@ -137,6 +137,7 @@ class Booth:
     heard_line: str = ""
     spoken: list = field(default_factory=list)        # (when, line) of his last lines, to know his own echo
     on_place: Callable[[str], None] | None = None     # "booth" or "desk": chosen by the artist, not by the mode
+    history: list[str] = field(default_factory=list)  # the recent exchanges and what was done, for his replies
     fillers: bool = True                              # "Hmm." while he thinks; off in tests that count lines
     _filled: bool = False
     _asked_after_take: bool = False                   # the after-take answer is used once per take
@@ -266,6 +267,8 @@ class Booth:
             self.busy = False
         if self.writer is not None:
             self.writer.heard(line, self.last_said)
+        self.history.append(f"artist: {line} | done: {result} | marco said: {self.last_said}")
+        del self.history[:-8]
         return self._done(f"heard: {line}", result, started)
 
     def _done(self, first: str, last: str, started: float) -> str:
@@ -334,7 +337,7 @@ class Booth:
                           f"{name}. Rolling when you are.")
                 return what
             if a == "name_track":
-                return self.tracks.rename(command.text)
+                return self.tracks.rename(track_title(command.text))
             if a == "stack":
                 stem = _stem(command.text)
                 named = [t.name for t in self.session.tracks if stem in _stem(t.name)]
@@ -383,6 +386,11 @@ class Booth:
             self._say("the artist is done talking for now; sign off", {}, DISMISSED)
             self.awake_at, self.asleep = -100.0, True
             return "dismissed; listening for his name only"
+        if a == "chat":
+            # conversation, not a command: his reply was written with the recent exchanges, so it can say what he
+            # did or did not do; nothing is performed
+            self._speak(command.text or MISSED)
+            return f"talked: {command.text[:80]}"
         if a == "summon":
             self._speak(self._answer_to_name())
             return "called by name; answered and listening"
@@ -547,6 +555,16 @@ class Barge:
         return kept
 
 
+NUMBER_WORDS = {"one": "1", "two": "2", "three": "3", "four": "4", "five": "5", "six": "6", "seven": "7",
+                "eight": "8", "nine": "9", "ten": "10"}
+
+
+def track_title(name: str) -> str:
+    """'harmony one' -> 'Harmony 1', 'lead vox' -> 'Lead Vox': names as they read on a track header."""
+    words = [NUMBER_WORDS.get(w.lower(), w) for w in name.strip().split()]
+    return " ".join(w if any(c.isupper() for c in w[1:]) else w[:1].upper() + w[1:] for w in words)
+
+
 def _words(text: str) -> list[str]:
     return re.findall(r"[a-z0-9']+", text.lower())
 
@@ -678,7 +696,7 @@ def run_booth(*, dry_run: bool = False) -> int:
 
     tracks = Tracks(dry_run=dry_run)
     session = tracks.scan() if not dry_run else None
-    booth = Booth(understand=understand, logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(48000),
+    booth = Booth(understand=lambda line: understand(line, context=booth.history), logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(48000),
                   tracks=tracks, session=session,
                   show=None if dry_run else __import__("hiremarco.studio.show", fromlist=["show"]).show,
                   live=None if dry_run else _booth_live,

@@ -148,3 +148,38 @@ def test_a_doubled_wake_word_is_stripped():
 ])
 def test_knob_steps_skip_the_model(line, knob, direction, steps):
     assert understand(line, client=None) == Command("knob", knob=knob, direction=direction, steps=steps)
+
+
+def test_a_doubled_word_is_heard_once():
+    assert understand("Marco, new track track for harmonies.", client=None) == Command("new_track", text="harmony")
+
+
+def test_track_names_read_as_a_header_would():
+    from hiremarco.studio.booth import track_title
+
+    assert track_title("harmony one") == "Harmony 1" and track_title("lead vox") == "Lead Vox"
+    assert track_title("AdLib two") == "AdLib 2"
+
+
+def test_conversation_is_answered_from_what_happened_and_nothing_is_done():
+    from hiremarco.studio.booth import Booth, Tape
+
+    seen = []
+
+    def hears(line):
+        if "did you rename" in line.lower():
+            seen.append(list(b.history))
+            return Command("chat", text="Not yet. The track's there, I didn't name it. Want Harmony 1?")
+        return understand(line, client=None)
+
+    said, did = [], []
+    b = Booth(understand=hears, logic=lambda c: did.append(c) or c.describe(), say=said.append,
+              feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None)
+    b.hear("Marco, new track")
+    b.hear("Marco, did you rename it?")
+    assert said[-1].startswith("Not yet") and did == [Command("new_track")]  # talking performs nothing
+    assert "new track" in seen[0][-1] and "artist: Marco, new track" in seen[0][-1]
+
+
+def test_a_new_track_for_a_role_is_found_inside_a_longer_line():
+    assert understand("Marco, correct, the new track for harmonies.", client=None) == Command("new_track", text="harmony")
