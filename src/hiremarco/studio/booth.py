@@ -33,13 +33,18 @@ DIALING = "Let me dial that in."
 MISSED = "I missed that. Say it again?"
 FAILED = "That one didn't take. I'll note it."
 HERE = "Yeah?"
+# The instant answer to his name: pre-made so it plays at once, picked so it never sounds like a loop. The Owner's
+# own picks first (2026-10-29: keep him cool like that).
+HEARD = ["Talk to me.", "What's up?", "Go ahead.", "Yeah?", "I'm here.", "Right here.", "What's good?",
+         "Go for it.", "What you need?", "I'm listening."]
+AFTER_TAKE = ["How we feeling?", "Talk to me.", "What you thinking?"]
 DISMISSED = "Anytime."
 AWAKE = 20.0  # seconds after the last exchange in which a sentence needs no "Marco"; the same quiet ends the halo
 LIVE_ON = "Live view's on. The link's on the Mac."
 LIVE_TEXTED = "Live view's on. I texted you the link."
 STOPPED = "Stopped. Everything's held until you clear it from the desk."
 # Lines Marco says often, made once at the start so they play the moment they are needed.
-STOCK = ["Rolling", HERE, DISMISSED, LIVE_ON, LIVE_TEXTED, NOTED, LISTENING, DIALING, MISSED, FAILED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
+STOCK = ["Rolling", *HEARD, *AFTER_TAKE, DISMISSED, LIVE_ON, LIVE_TEXTED, NOTED, LISTENING, DIALING, MISSED, FAILED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
          "Morning. Your session's up. Where do you want to start?"]
 
 
@@ -118,7 +123,20 @@ class Booth:
     settle: float = 0.8                               # seconds between making a track and naming it
     awake_at: float = -100.0                          # the last exchange: he listens without his name for AWAKE s
     asleep: bool = False                              # dismissed: the halo goes as soon as he finishes his line
+    recent_answers: list[str] = field(default_factory=list)   # his last answers to his name, never three alike
+    _asked_after_take: bool = False                   # the after-take answer is used once per take
     send_link: Callable[[str], str] | None = None     # a link to the artist's phone by text; None or a refusal: the Mac
+
+    def _answer_to_name(self) -> str:
+        """One of the instant answers: none of the last three, and an after-the-take one when a take just ended."""
+        import random
+
+        pool = AFTER_TAKE if self.tape.take is not None and not self.rolling and not self._asked_after_take else HEARD
+        self._asked_after_take = pool is AFTER_TAKE or self._asked_after_take
+        fresh = [line for line in pool if line not in self.recent_answers[-3:]] or pool
+        line = random.choice(fresh)
+        self.recent_answers.append(line)
+        return line
 
     def _deliver(self, text: str) -> str:
         """Links go to the artist's phone by text when Marco can send one; otherwise they stay on the Mac."""
@@ -280,7 +298,7 @@ class Booth:
             self.awake_at, self.asleep = -100.0, True
             return "dismissed; listening for his name only"
         if a == "summon":
-            self._speak(HERE)
+            self._speak(self._answer_to_name())
             return "called by name; answered and listening"
         if a == "unknown":
             # He heard his name but could not place the line: say so, never guess and never go quiet.
@@ -394,6 +412,7 @@ class Booth:
         elif a == "stop":
             self.rolling = False
             self.tape.mark_stop()
+            self._asked_after_take = False  # a new take: the next answer to his name can ask how it felt
         return result
 
 

@@ -75,7 +75,7 @@ def test_his_name_alone_gets_an_answer_and_his_name_mid_sentence_raises_the_halo
     from types import SimpleNamespace
     import time as clock
 
-    from hiremarco.studio.booth import HERE
+    from hiremarco.studio.booth import HEARD
     from hiremarco.studio.commands import Command, calls_marco
 
     for line in ("Marco.", "Hey Marco", "hey marco?", "Marco, Marco"):
@@ -85,7 +85,7 @@ def test_his_name_alone_gets_an_answer_and_his_name_mid_sentence_raises_the_halo
     said = []
     b = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: c.describe(), say=said.append,
               feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None)
-    assert "answered" in b.hear("Hey Marco") and said == [HERE]
+    assert "answered" in b.hear("Hey Marco") and said and said[-1] in HEARD
     audio = SimpleNamespace(speaking=False, out_level=0.0, in_level=0.0)
     booth = SimpleNamespace(rolling=False, busy=False, called_at=clock.monotonic())
     assert halo.booth_state(booth, audio) == ("thinking", 0.0)
@@ -175,3 +175,26 @@ def test_thats_all_puts_him_to_sleep_and_his_name_wakes_him():
     audio = SimpleNamespace(speaking=False, out_level=0.0, in_level=0.1)
     assert halo.booth_state(b, audio) == ("asleep", 0.0)
     assert "play" in b.hear("Marco, play it back.") and not b.asleep
+
+
+def test_his_answer_to_his_name_varies_and_asks_how_the_take_felt_once_after_it():
+    from hiremarco.studio.booth import AFTER_TAKE, HEARD
+
+    said = []
+    b = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: c.describe(), say=said.append,
+              feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None)
+    answers = []
+    for _ in range(12):
+        b.awake_at = -100.0
+        b.hear("Hey Marco.")
+        answers.append(said[-1])
+    assert all(a in HEARD for a in answers)
+    assert all(answers[i] not in answers[max(0, i - 3):i] for i in range(len(answers)))  # never three alike
+    b.hear("Marco, record.")
+    b.hear("Marco, stop.")
+    b.awake_at = -100.0
+    b.hear("Hey Marco.")
+    assert said[-1] in AFTER_TAKE
+    b.awake_at = -100.0
+    b.hear("Hey Marco.")
+    assert said[-1] in HEARD
