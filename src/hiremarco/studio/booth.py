@@ -366,8 +366,6 @@ def run_booth(*, dry_run: bool = False) -> int:
     """
     import asyncio
 
-    import sounddevice as sd
-
     from hiremarco import config
     from hiremarco.hearing import Listener, to_pcm24k
     from hiremarco.studio.commands import understand
@@ -376,13 +374,13 @@ def run_booth(*, dry_run: bool = False) -> int:
     from hiremarco.studio.chain import Channel
     from hiremarco.voice import Talkback
 
-    device = config.get("HIREMARCO_MIC_DEVICE") or None
-    channel = int(config.get("HIREMARCO_MIC_CHANNEL") or 1)
-    rate = int(config.get("HIREMARCO_MIC_RATE") or 48000)
+    from hiremarco.studio.audio import DuplexAudio
+
     logic = Logic(dry_run=dry_run)
     booth: Booth
 
-    talkback = None if dry_run else Talkback(lambda: booth.rolling)
+    # Marco's voice plays through the same stream that carries the mic; the player is attached once it exists.
+    talkback = None if dry_run else Talkback(lambda: booth.rolling, play=lambda pcm, rate: None)
     if talkback is not None:
         print(f"voice: {talkback.warm(STOCK)} stock line(s) made, the rest already cached")
 
@@ -398,7 +396,7 @@ def run_booth(*, dry_run: bool = False) -> int:
 
     tracks = Tracks(dry_run=dry_run)
     session = tracks.scan() if not dry_run else None
-    booth = Booth(understand=understand, logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(rate),
+    booth = Booth(understand=understand, logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(48000),
                   tracks=tracks, session=session,
                   show=None if dry_run else __import__("hiremarco.studio.show", fromlist=["show"]).show,
                   say_stopped=None if talkback is None else (lambda: talkback.say_stock(STOPPED)),
@@ -413,20 +411,23 @@ def run_booth(*, dry_run: bool = False) -> int:
         loop = asyncio.get_running_loop()
         chunks: asyncio.Queue[bytes] = asyncio.Queue()
 
-        def callback(indata, frames, time_info, status) -> None:
-            if frames <= 0:
+        def on_input(mono: np.ndarray) -> None:
+            if mono.size == 0:
                 return  # a glitch delivered nothing; sending an empty frame would break the hearing session
-            mono = np.asarray(indata)[:, channel - 1].copy()
             booth.tape.write(mono)
-            loop.call_soon_threadsafe(chunks.put_nowait, to_pcm24k(mono, rate).tobytes())
+            loop.call_soon_threadsafe(chunks.put_nowait, to_pcm24k(mono, audio.rate).tobytes())
 
         async def mic():
             while True:
                 yield await chunks.get()
 
-        with sd.InputStream(device=device, channels=channel, samplerate=rate, dtype="float32",
-                            blocksize=rate // 10, callback=callback):
-            print(f"booth live on {device or 'the default input'} channel {channel}"
+        audio = DuplexAudio.from_config(on_input)
+        booth.tape = Tape(audio.rate)
+        if talkback is not None:
+            talkback.play = audio.play
+        with audio:
+            print(f"booth live on {audio.device or 'the default interface'}, mic channel {audio.mic_channel}, "
+                  f"Marco on outputs {audio.out_pair[0]}-{audio.out_pair[1]}, one stream"
                   + (" (dry run)" if dry_run else "") + "; Ctrl+C stops")
             if session is not None:
                 print(f"session: {len(session.tracks)} track(s), {session.mode} mode"
