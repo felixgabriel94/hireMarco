@@ -31,6 +31,7 @@
     uv run marco sound --read            every parameter of the open plugin and its value
     uv run marco chain list|read         the selected track's inserts, and every active plugin's settings
     uv run marco chain sound warmer      Muse Wonder sets the whole chain from a description
+    uv run marco chain back              put every control the last change moved back where it was
     uv run marco run-check FILE --key "F minor" [--start S --end S] [--play] [--midi out.mid]
                                          the notes of a vocal run, cents off each, and the corrected guide
 """
@@ -451,6 +452,10 @@ def cmd_chain(args) -> int:
                         "  (no range: read only)"
                     print(f"      {name:<26} {value:g}{span}")
             return 0
+        if args.action == "back":
+            restored = channel.put_back()
+            print(f"put back: {', '.join(state.plugin for state in restored.values())}")
+            return 0
         trace = Trace(f"chain sound: {' '.join(args.words)}")
         channel.read()
         before = {s.number: dict(s.state.params) for s in channel.chain.active() if s.state}
@@ -565,7 +570,7 @@ def main(argv: list[str] | None = None) -> int:
     so.set_defaults(func=cmd_sound)
 
     ch = sub.add_parser("chain")
-    ch.add_argument("action", choices=["list", "read", "sound"])
+    ch.add_argument("action", choices=["list", "read", "sound", "back"])
     ch.add_argument("words", nargs="*")
     ch.set_defaults(func=cmd_chain)
 

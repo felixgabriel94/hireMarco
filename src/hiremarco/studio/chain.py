@@ -192,10 +192,31 @@ class Channel:
         if not per_slot:
             raise PluginError("no usable change came back")
         self.undo = {n: {k: by_number[n].state.params[k] for k in vals} for n, vals in per_slot.items()}
-        return self._apply(per_slot), said or "Done."
+        results = self._apply(per_slot)
+        self._keep_undo()
+        return results, said or "Done."
+
+    def _undo_path(self):
+        from pathlib import Path
+
+        from hiremarco import config
+
+        return Path(config.STATE_DIR) / "chain-undo.json"
+
+    def _keep_undo(self) -> None:
+        """The values before the last change, kept on disk so "put it back" works from a new command too."""
+        path = self._undo_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({str(n): vals for n, vals in self.undo.items()}))
 
     def put_back(self) -> dict[int, PluginState]:
+        if not self.undo and self._undo_path().exists():
+            self.undo = {int(n): vals for n, vals in json.loads(self._undo_path().read_text()).items()}
         if not self.undo:
             raise gate.Refused("nothing to put back")
+        if self.chain is None:
+            self.read()
         undo, self.undo = self.undo, {}
-        return self._apply(undo)
+        results = self._apply(undo)
+        self._undo_path().unlink(missing_ok=True)
+        return results

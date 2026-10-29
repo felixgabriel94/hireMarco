@@ -103,3 +103,12 @@ def test_nothing_usable_is_an_error(tmp_path, rules):
                       client=wonder(tmp_path, reply, []))
     with pytest.raises(PluginError, match="no usable change"):
         channel.design("wetter")
+
+
+def test_put_back_works_from_a_new_command(tmp_path, rules):
+    fake = FakeChain()
+    reply = json.dumps({"changes": [{"slot": 2, "parameter": "Attack", "value": 45}], "said": "Softer attack."})
+    Channel(run=fake, conn=gate.connect(":memory:"), rules_path=rules, client=wonder(tmp_path, reply, [])).design("x")
+    assert fake.plugins[2][1]["Attack"] == 4500
+    Channel(run=fake, conn=gate.connect(":memory:"), rules_path=rules).put_back()  # a fresh process, same disk
+    assert fake.plugins[2][1]["Attack"] == 2000
