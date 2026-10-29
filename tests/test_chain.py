@@ -83,7 +83,7 @@ def test_level_controls_move_at_most_one_step():
 def test_design_across_the_chain_then_put_back(tmp_path, rules):
     fake, seen = FakeChain(), []
     reply = json.dumps({"changes": [
-        {"slot": 1, "parameter": "Band 1 Gain", "value": 62},
+        {"slot": 1, "parameter": "Band 1 Gain", "value": 62, "why": "air above 10 kHz"},
         {"slot": 1, "parameter": "Output Gain", "value": 95},     # level: held to one step
         {"slot": 2, "parameter": "Attack", "value": 45},
         {"slot": 3, "parameter": "Mix", "value": 70},             # bypassed: left alone
@@ -92,6 +92,7 @@ def test_design_across_the_chain_then_put_back(tmp_path, rules):
     channel = Channel(run=fake, conn=gate.connect(":memory:"), rules_path=rules, client=wonder(tmp_path, reply, seen))
     results, said = channel.design("brighter and smoother")
     assert said.startswith("A little more air")
+    assert channel.reasons[(1, "Band 1 Gain")] == "air above 10 kHz"
     # percents land on each plugin's own scale: 62% of 60000, Output held to 50% + 15
     assert fake.plugins[1][1]["Band 1 Gain"] == 37200 and fake.plugins[1][1]["Output Gain"] == 39000
     assert fake.plugins[2][1]["Attack"] == 4500 and fake.plugins[3][1]["Mix"] == 20

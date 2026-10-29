@@ -63,10 +63,14 @@ def wonder(tmp_path, plan, seen):
     return MuseSpark(api_key="k", joblog=JobLog(tmp_path / "j.jsonl"), transport=httpx.MockTransport(handler))
 
 
-PLAN = {"plugin_moves": [{"track": "Bass", "slot": 1, "parameter": "Band 1 Gain", "value": 44},
-                         {"track": "Vocal", "slot": 1, "parameter": "Mix", "value": 20},
-                         {"track": "Ghost", "slot": 1, "parameter": "Mix", "value": 20}],
-        "fader_moves": [{"track": "Bass", "db": -9.0}],
+PLAN = {"plugin_moves": [{"track": "Bass", "slot": 1, "parameter": "Band 1 Gain", "value": 44,
+                          "why": "the bass masks the kick's 60 Hz fundamental"},
+                         {"track": "Vocal", "slot": 1, "parameter": "Mix", "value": 20, "why": "less wash"},
+                         {"track": "Ghost", "slot": 1, "parameter": "Mix", "value": 20, "why": "x"}],
+        "fader_moves": [{"track": "Bass", "db": -9.0, "why": "the bass sits above the kick"}],
+        "recommendations": [{"what": "Move Pro-DS before CLA-76 on the vocal",
+                             "why": "the 1176 brightens sibilance it is fed"},
+                            {"what": "", "why": "empty is dropped"}],
         "to_buses": ["Vocal: ValhallaVintageVerb"],
         "targets": ["Kick / Bass / bass"],
         "said": "I dipped the bass under the kick and pulled the bass down a touch."}
@@ -83,8 +87,12 @@ def test_a_pass_that_separates_the_collision_is_kept(tmp_path, rules):
     seen = []
     session = FakeSession(after=report(gap=None))
     result = Mixer(session, client=wonder(tmp_path, PLAN, seen), conn=gate.connect(":memory:"), rules_path=rules,
-                   log=lambda line: None).pass_("give the kick room", report(gap=2.0))
+                   log=lambda line: None, owned={"de-esser": ["FabFilter Pro-DS"]}).pass_("give the kick room",
+                                                                                        report(gap=2.0))
     assert result.kept and "gone" in result.why
+    assert result.plan.reasons["Bass / 1 / Band 1 Gain"].startswith("the bass masks")
+    assert result.plan.recommendations == [("Move Pro-DS before CLA-76 on the vocal",
+                                            "the 1176 brightens sibilance it is fed")]
     assert ("plugin", "Bass", 1, {"Band 1 Gain": 26400.0}) in session.calls  # 44% of 60000, the level step held
     assert ("fader", "Bass", -6.0) in session.calls                          # -3 dB toward -9, one 3 dB step
     assert not any(c[1] == "Ghost" for c in session.calls if c[0] == "plugin")
@@ -93,12 +101,13 @@ def test_a_pass_that_separates_the_collision_is_kept(tmp_path, rules):
     assert sent["measurements"]["collisions"] == ["Kick / Bass / bass (within 2.0 dB)"]
     assert sent["session"][2]["inserts"][0]["belongs_on"] == "bus"
     assert "MIXING RULEBOOK" in seen[0]["messages"][0]["content"]
+    assert sent["owned_plugins"] == {"de-esser": ["FabFilter Pro-DS"]}
 
 
 def test_a_pass_that_makes_it_worse_is_put_back(tmp_path, rules):
     session = FakeSession(after=report(gap=1.0))
     result = Mixer(session, client=wonder(tmp_path, PLAN, []), conn=gate.connect(":memory:"), rules_path=rules,
-                   log=lambda line: None).pass_("give the kick room", report(gap=2.0))
+                   log=lambda line: None, owned={}).pass_("give the kick room", report(gap=2.0))
     assert not result.kept and "did not improve" in result.why
     bass = session.list[0]
     assert bass.inserts[1].params["Band 1 Gain"] == 30000.0 and bass.fader_db == -3.0

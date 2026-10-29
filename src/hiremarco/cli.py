@@ -471,6 +471,9 @@ def cmd_chain(args) -> int:
             old = before.get(number, {}).get(name)
             if old is not None and abs(old - value) > 0.05:
                 print(f"  {state.plugin:<20} {name:<24} {old:g} -> {value:g}")
+                why = channel.reasons.get((number, name))
+                if why:
+                    print(f"      why: {why}")
     trace.done(said)
     return 0
 
