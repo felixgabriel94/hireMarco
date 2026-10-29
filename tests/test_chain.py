@@ -26,6 +26,16 @@ class FakeChain:
         self.calls.append(args)
         if args[0] == "list":
             return "\n".join(f"{n}\t{name}\t{'bypassed' if byp else 'on'}" for n, (name, _, byp) in self.plugins.items())
+        if args[0] == "readall":
+            return "\n".join(f"slot\t{n}\n" + self(["read", str(n)]) for n, (_, _, byp) in self.plugins.items()
+                             if not byp)
+        if args[0] == "setmany":
+            blocks, rest = [], args[1:]
+            while rest:
+                end = rest.index(";")
+                number, pairs, rest = rest[0], rest[1:end], rest[end + 1:]
+                blocks.append(f"slot\t{number}\n" + self(["set", number, *pairs]))
+            return "\n".join(blocks)
         number = int(args[1])
         name, params, _ = self.plugins[number]
         if args[0] == "set":
@@ -60,7 +70,8 @@ def test_list_parses_slots_and_bypass():
 def test_read_opens_only_the_active_plugins(rules):
     fake = FakeChain()
     chain = Channel(run=fake, conn=gate.connect(":memory:"), rules_path=rules).read()
-    assert [c[:2] for c in fake.calls] == [["list"], ["read", "1"], ["read", "2"]]
+    assert fake.calls[0] == ["list"] and fake.calls[1] == ["readall"]  # one run reads every active plugin
+    assert [c[:2] for c in fake.calls[2:]] == [["read", "1"], ["read", "2"]]
     assert chain.slots[2].state is None and chain.slots[0].state.percent("Band 1 Gain") == 50.0
 
 

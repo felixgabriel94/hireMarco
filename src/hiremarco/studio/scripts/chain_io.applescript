@@ -51,14 +51,58 @@ on inserts()
 	return sorted
 end inserts
 
-on openPlugin(n)
-	set slot to item n of inserts()
+on closePluginWindows()
+	tell application "System Events"
+		tell process "Logic Pro"
+			repeat with w in (every window)
+				if (name of w) does not contain " - Tracks" then
+					try
+						perform action "AXPress" of (first button of w whose description is "close")
+					end try
+				end if
+			end repeat
+		end tell
+	end tell
+	delay 0.2
+end closePluginWindows
+
+on pluginWindow()
+	tell application "System Events"
+		tell process "Logic Pro"
+			repeat with w in (every window)
+				if (name of w) does not contain " - Tracks" then
+					try
+						set t to table 1 of scroll area 1 of w
+						return w
+					end try
+					try
+						set vb to first menu button of w whose description is "view"
+						return w
+					end try
+				end if
+			end repeat
+		end tell
+	end tell
+	return missing value
+end pluginWindow
+
+on openSlot(slot)
+	-- Start clean: an "open" press on a plugin whose window is already open closes it instead.
+	closePluginWindows()
 	tell application "System Events"
 		tell process "Logic Pro"
 			perform action "AXPress" of (item 4 of slot)
-			delay 0.8
-			set w to window 1
-			if (name of w) contains " - Tracks" then error "the plugin window did not open"
+		end tell
+	end tell
+	set w to missing value
+	repeat 30 times
+		delay 0.1
+		set w to pluginWindow()
+		if w is not missing value then exit repeat
+	end repeat
+	if w is missing value then error "the plugin window for " & (item 2 of slot) & " did not open"
+	tell application "System Events"
+		tell process "Logic Pro"
 			set viewButton to first menu button of w whose description is "view"
 			set current to title of viewButton
 		end tell
@@ -81,13 +125,24 @@ on openPlugin(n)
 		delay 0.6
 	end if
 	return w
+end openSlot
+
+on openPlugin(n)
+	return openSlot(item n of inserts())
 end openPlugin
 
-on report(w, wanted)
+on report(w, wanted, slotName)
 	set out to {}
 	tell application "System Events"
 		tell process "Logic Pro"
-			set end of out to "plugin" & tab & (value of static text 1 of w)
+			-- The window's own title is the plugin's full name, except on plugins whose first label is a
+			-- control (Pro-Q 3 shows "Side Chain:"); then the mixer's slot name stands in.
+			set nm to slotName
+			try
+				set shown to value of static text 1 of w
+				if shown does not end with ":" and shown is not "" then set nm to shown
+			end try
+			set end of out to "plugin" & tab & nm
 			-- One request for all labels and one for all values: a plugin like Pro-Q 3 has hundreds of rows,
 			-- and asking row by row took over a minute (live, 2026-10-28).
 			set t to table 1 of scroll area 1 of w
@@ -158,10 +213,11 @@ end report
 on run argv
 	set helper to item 1 of argv
 	set mode to item 2 of argv
+	set slots to inserts()
 	if mode is "list" then
 		set out to {}
 		set i to 0
-		repeat with slot in inserts()
+		repeat with slot in slots
 			set i to i + 1
 			if (item 3 of slot) is true then
 				set state to "bypassed"
@@ -173,6 +229,44 @@ on run argv
 		set AppleScript's text item delimiters to linefeed
 		return out as text
 	end if
+	if mode is "readall" then
+		-- Every active slot in one run: one list of the inserts, one window open at a time.
+		set blocks to {}
+		set i to 0
+		repeat with slot in slots
+			set i to i + 1
+			if (item 3 of slot) is not true then
+				set end of blocks to "slot" & tab & (i as text) & linefeed & report(openSlot(slot), {}, item 2 of slot)
+			end if
+		end repeat
+		set AppleScript's text item delimiters to linefeed
+		return blocks as text
+	end if
+	if mode is "setmany" then
+		-- Arguments after the mode: N Name value Name value ... ";" N Name value ...
+		set blocks to {}
+		set current to missing value
+		set wanted to {}
+		set i to 3
+		repeat while i ≤ (count of argv)
+			set a to item i of argv
+			if a is ";" then
+				if current is not missing value then set end of blocks to "slot" & tab & (current as text) & linefeed & report(openSlot(item current of slots), wanted, item 2 of (item current of slots))
+				set current to missing value
+				set wanted to {}
+				set i to i + 1
+			else if current is missing value then
+				set current to a as integer
+				set i to i + 1
+			else
+				set end of wanted to {a, (item (i + 1) of argv) as real}
+				set i to i + 2
+			end if
+		end repeat
+		if current is not missing value then set end of blocks to "slot" & tab & (current as text) & linefeed & report(openSlot(item current of slots), wanted, item 2 of (item current of slots))
+		set AppleScript's text item delimiters to linefeed
+		return blocks as text
+	end if
 	set n to (item 3 of argv) as integer
 	set wanted to {}
 	if mode is "set" then
@@ -180,5 +274,5 @@ on run argv
 			set end of wanted to {(item i of argv), (item (i + 1) of argv) as real}
 		end repeat
 	end if
-	return report(openPlugin(n), wanted)
+	return report(openPlugin(n), wanted, item 2 of (item n of slots))
 end run

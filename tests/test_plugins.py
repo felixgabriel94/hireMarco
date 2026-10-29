@@ -159,3 +159,12 @@ def test_sound_shaping_controls_stay_movable(name):
     from hiremarco.studio.plugins import PROTECTED
 
     assert not PROTECTED.search(name)
+
+
+def test_idle_bands_show_only_their_used_switch():
+    state = parse("plugin\tPro-Q 3\nBand 1 Used\t1\t0\t1\nBand 1 Gain\t30000\t0\t60000\n"
+                  "Band 2 Used\t0\t0\t1\nBand 2 Gain\t30000\t0\t60000\nBand 2 Q\t5000\t0\t10000\n"
+                  "Output Level\t10000\t0\t20000")
+    seen = state.for_model()
+    assert set(seen["parameters"]) == {"Band 1 Used", "Band 1 Gain", "Band 2 Used", "Output Level"}
+    assert "Band 2 Q" not in seen["fixed"]

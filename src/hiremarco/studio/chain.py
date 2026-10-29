@@ -93,12 +93,25 @@ def parse_list(report: str) -> list[Slot]:
     return slots
 
 
+def split_blocks(report: str) -> dict[int, PluginState]:
+    """'slot<TAB>N' lines start each plugin's block in a readall or setmany answer."""
+    states, number, lines = {}, None, []
+    for line in report.strip().splitlines() + ["slot\t-1"]:
+        if line.startswith("slot\t"):
+            if number is not None and lines:
+                states[number] = parse("\n".join(lines))
+            number, lines = int(line.split("\t")[1]), []
+        else:
+            lines.append(line)
+    return states
+
+
 def _osascript(args: list[str]) -> str:
     try:
         done = subprocess.run(["osascript", str(SCRIPTS / "chain_io.applescript"), str(SCRIPTS / "menu_open.js"), *args],
-                              capture_output=True, text=True, timeout=120)
+                              capture_output=True, text=True, timeout=240)
     except subprocess.TimeoutExpired as exc:
-        raise PluginError("Logic took over two minutes to answer") from exc
+        raise PluginError("Logic took over four minutes to answer") from exc
     if done.returncode != 0:
         raise PluginError(done.stderr.strip()[-200:] or f"osascript exit {done.returncode}")
     return done.stdout
@@ -126,8 +139,9 @@ class Channel:
         chain = Chain(parse_list(self.run(["list"])))
         if not chain.slots:
             raise PluginError("the selected track has no plugins")
+        states = split_blocks(self.run(["readall"]))  # one run opens every active plugin in turn
         for slot in chain.active():
-            slot.state = parse(self.run(["read", str(slot.number)]))
+            slot.state = states.get(slot.number)
         self.chain = chain
         return chain
 
@@ -136,18 +150,22 @@ class Channel:
                             for n, vals in per_slot.items())
 
         def run() -> dict[int, PluginState]:
-            results = {}
+            args = ["setmany"]
             for number, values in per_slot.items():
-                args = ["set", str(number)]
+                args.append(str(number))
                 for name, value in values.items():
                     args += [name, f"{value:g}"]
-                after = parse(self.run(args))
+                args.append(";")
+            results = split_blocks(self.run(args))  # one run sets every plugin that changes
+            for number, values in per_slot.items():
+                after = results.get(number)
+                if after is None:
+                    raise PluginError(f"slot {number} did not answer")
                 known = next((sl.state for sl in self.chain.slots if sl.number == number and sl.state), after)
                 off = [n for n, v in values.items()
                        if abs(after.params.get(n, float("inf")) - v) > known.tolerance(n)]
                 if off:
                     raise PluginError(f"{after.plugin}: {', '.join(off)} did not take the value asked")
-                results[number] = after
                 for slot in self.chain.slots:
                     if slot.number == number:
                         slot.state = after

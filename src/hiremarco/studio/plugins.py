@@ -97,8 +97,13 @@ class PluginState:
     def for_model(self) -> dict:
         """What the model sees: every movable control as 0-100 of its range; the rest as read-only context."""
         movable = self.changeable()
+        # An unused band (Pro-Q's "Band 7 Used" at 0) shows only its Used switch, so the model can add a band
+        # but does not read through twenty idle ones: Pro-Q 3 goes from about 230 controls to about 60.
+        idle = {n[: -len(" Used")] for n in movable if n.endswith(" Used") and self.params[n] <= self.ranges[n][0]}
+        movable = [n for n in movable if n.endswith(" Used") or not any(n.startswith(p + " ") for p in idle)]
         context = dict(self.fixed)
-        context.update({n: f"{v:g}" for n, v in self.params.items() if n not in movable})
+        context.update({n: f"{v:g}" for n, v in self.params.items() if n not in movable
+                        and not any(n.startswith(p + " ") for p in idle)})
         return {"plugin": self.plugin, "parameters": {n: self.percent(n) for n in movable}, "fixed": context}
 
 
