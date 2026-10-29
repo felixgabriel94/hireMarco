@@ -22,7 +22,7 @@ from dataclasses import dataclass, field, replace
 import numpy as np
 
 from hiremarco import config, gate
-from hiremarco.studio.commands import Command, calls_marco
+from hiremarco.studio.commands import Command, calls_marco, strip_wake
 from hiremarco.studio.feedback import TakeNote
 
 ROLLING = {"record", "play", "punch"}
@@ -33,6 +33,7 @@ DIALING = "Let me dial that in."
 MISSED = "I missed that. Say it again?"
 FAILED = "That one didn't take. I'll note it."
 HERE = "Yeah?"
+FOLLOW_UP = 8.0  # seconds after "Yeah?" in which the next sentence needs no "Marco"
 LIVE_ON = "Live view's on. The link's on the Mac."
 LIVE_TEXTED = "Live view's on. I texted you the link."
 STOPPED = "Stopped. Everything's held until you clear it from the desk."
@@ -114,6 +115,7 @@ class Booth:
     busy: bool = False                                # a command is running: the halo shows him thinking
     called_at: float = 0.0                            # when his name was last heard, before the sentence ended
     settle: float = 0.8                               # seconds between making a track and naming it
+    answered_at: float = -100.0                       # when he last said "Yeah?" to his name alone
     send_link: Callable[[str], str] | None = None     # a link to the artist's phone by text; None or a refusal: the Mac
 
     def _deliver(self, text: str) -> str:
@@ -135,6 +137,10 @@ class Booth:
 
     def hear(self, line: str) -> str | None:
         started = time.monotonic()
+        # After "Hey Marco" and his "Yeah?", the next sentence is for him even without his name (live 2026-10-29:
+        # "Hey Marco." then "Give me the live view." came as two sentences, and the second was ignored).
+        if started - self.answered_at < FOLLOW_UP and strip_wake(line) is None:
+            line = f"Marco, {line}"
         try:
             command = self.understand(line)
         except gate.Refused as refused:
@@ -263,6 +269,7 @@ class Booth:
             return self._kill()
         if a == "summon":
             self._speak(HERE)
+            self.answered_at = time.monotonic()
             return "called by name; answered and listening"
         if a == "unknown":
             # He heard his name but could not place the line: say so, never guess and never go quiet.

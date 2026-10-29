@@ -138,3 +138,16 @@ def test_the_listener_hands_on_each_partial_and_yields_only_finished_sentences(m
         return [line async for line in listener.sentences(mic())]
 
     assert asyncio.run(run()) == ["Hey Marco, record."] and partials == ["Hey Mar", "Hey Marco, re"]
+
+
+def test_after_yeah_the_next_sentence_needs_no_name_and_later_ones_do():
+    from hiremarco.studio.booth import FOLLOW_UP
+
+    said, links = [], []
+    b = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: c.describe(), say=said.append,
+              feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None,
+              live=lambda: "http://x", send_link=links.append)
+    b.hear("Hey Marco.")
+    assert "link texted" in b.hear("Give me the live view.") and links == ["Live view: http://x"]
+    b.answered_at -= FOLLOW_UP + 1
+    assert b.hear("Give me the live view.") is None and len(links) == 1
