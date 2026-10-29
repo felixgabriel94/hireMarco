@@ -42,10 +42,10 @@ FILLER_AFTER = 0.7  # seconds of thinking before he lets you know he is on it
 MIC_TAIL = 0.4  # seconds his hearing stays muted after he stops talking
 ECHO_SECONDS = 15.0  # how long a line of his can come back through the mic as an echo
 HERE = "Yeah?"
-# The instant answer to his name: pre-made so it plays at once, picked so it never sounds like a loop. The Owner's
-# own picks first (2026-10-29: keep him cool like that).
-HEARD = ["Talk to me.", "What's up?", "Go ahead.", "Yeah?", "I'm here.", "Right here.", "What's good?",
-         "Go for it.", "What you need?", "I'm listening."]
+# The instant answer to his name: pre-made so it plays at once, picked so it never sounds like a loop. Cool and
+# warm, never curt (Owner 2026-10-29: "Go ahead" reads as rude, so it and its cousins are out).
+HEARD = ["Talk to me.", "What's up?", "Yeah?", "I'm here.", "Right here.", "What's good?", "I'm listening.",
+         "Hey, what's up?", "I got you, what's up?", "What are we thinking?"]
 AFTER_TAKE = ["How we feeling?", "Talk to me.", "What you thinking?"]
 DISMISSED = "Anytime."
 AWAKE = 20.0  # seconds after the last exchange in which a sentence needs no "Marco"; the same quiet ends the halo
