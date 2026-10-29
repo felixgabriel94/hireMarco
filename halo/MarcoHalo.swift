@@ -46,6 +46,7 @@ struct Orb: View {
         let light = mode == "listening" ? 0.55 + 0.45 * level : (mode == "speaking" ? 0.7 + 0.3 * level : 0.6)
         let swell = mode == "speaking" ? 6 + 26 * level : (mode == "thinking" ? 10 : 4 + 8 * level)
         let w = 180.0, h = 142.0
+        let rimGlow = 0.6  // how much light the rim gives off, 0 to 1 (Owner: 1.0 was too strong)
         return ZStack {
             // a soft blue light under him, on whatever is behind
             Ellipse()
@@ -106,15 +107,17 @@ struct Orb: View {
             // the rim's glow: the same edge, wider and blurred, so the line gives off light
             Ellipse()
                 .stroke(LinearGradient(colors: [ice.opacity(0.70), sky.opacity(0.45), sky.opacity(0.75)],
-                                       startPoint: .top, endPoint: .bottom), lineWidth: 5)
+                                       startPoint: .top, endPoint: .bottom), lineWidth: 4)
                 .frame(width: w, height: h)
-                .blur(radius: 5)
+                .blur(radius: 4)
+                .opacity(rimGlow)
                 .blendMode(.plusLighter)
             Ellipse()
                 .stroke(LinearGradient(colors: [sky.opacity(0.45 * light + 0.15), deep.opacity(0.45), sky.opacity(0.55)],
-                                       startPoint: .top, endPoint: .bottom), lineWidth: 12)
+                                       startPoint: .top, endPoint: .bottom), lineWidth: 10)
                 .frame(width: w + 6, height: h + 6)
-                .blur(radius: 12)
+                .blur(radius: 11)
+                .opacity(rimGlow * 0.9)
                 .blendMode(.plusLighter)
             Ellipse()
                 .fill(RadialGradient(colors: [ice.opacity(0.35 * light), .clear], center: .center,
