@@ -103,6 +103,19 @@ struct Orb: View {
                 .strokeBorder(LinearGradient(colors: [.white.opacity(0.55), sky.opacity(0.10), sky.opacity(0.45)],
                                              startPoint: .top, endPoint: .bottom), lineWidth: 1.2)
                 .frame(width: w, height: h)
+            // the rim's glow: the same edge, wider and blurred, so the line gives off light
+            Ellipse()
+                .stroke(LinearGradient(colors: [ice.opacity(0.70), sky.opacity(0.45), sky.opacity(0.75)],
+                                       startPoint: .top, endPoint: .bottom), lineWidth: 5)
+                .frame(width: w, height: h)
+                .blur(radius: 5)
+                .blendMode(.plusLighter)
+            Ellipse()
+                .stroke(LinearGradient(colors: [sky.opacity(0.45 * light + 0.15), deep.opacity(0.45), sky.opacity(0.55)],
+                                       startPoint: .top, endPoint: .bottom), lineWidth: 12)
+                .frame(width: w + 6, height: h + 6)
+                .blur(radius: 12)
+                .blendMode(.plusLighter)
             Ellipse()
                 .fill(RadialGradient(colors: [ice.opacity(0.35 * light), .clear], center: .center,
                                      startRadius: 0, endRadius: 52))
