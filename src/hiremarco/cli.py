@@ -33,6 +33,8 @@
     uv run marco chain sound warmer      Muse Wonder sets the whole chain from a description
     uv run marco chain back              put every control the last change moved back where it was
     uv run marco ears FOLDER [--mix F]   each exported track's loudness, bands and collisions; the mix's headroom
+    uv run marco tracks list             every track with its region count, and whether this is recording or mixing
+    uv run marco tracks rename "Lead Vox"  rename the selected track, read back
     uv run marco session FOLDER          the session view: each track's role and reading, the ranked fights,
                                          what is masked, each track against its role's target, the hardware
     uv run marco handoff mix-ready FOLDER --song S      the session folder a mix engineer expects, measured
@@ -555,6 +557,26 @@ def cmd_session(args) -> int:
     return 0
 
 
+def cmd_tracks(args) -> int:
+    """The session's tracks and mode, or rename the selected track."""
+    from hiremarco.studio.tracks import Tracks
+
+    tracks = Tracks(dry_run=args.dry_run)
+    if args.action == "list":
+        state = tracks.scan()
+        for t in state.tracks:
+            print(f"  {t.number:>3}  {t.name:<32} {t.regions} region(s)")
+        print(f"{len(state.tracks)} track(s): {state.mode} mode")
+        return 0
+    trace = Trace(f"rename: {' '.join(args.name)}")
+    try:
+        trace.done(tracks.rename(" ".join(args.name)))
+    except (gate.Refused, RuntimeError) as stopped:
+        trace.done(f"held: {getattr(stopped, 'reason', stopped)}")
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -677,7 +699,15 @@ def main(argv: list[str] | None = None) -> int:
     sv.add_argument("--json")
     sv.set_defaults(func=cmd_session)
 
+    tr = sub.add_parser("tracks")
+    tr.add_argument("action", choices=["list", "rename"])
+    tr.add_argument("name", nargs="*")
+    tr.add_argument("--dry-run", action="store_true")
+    tr.set_defaults(func=cmd_tracks)
+
     args = parser.parse_args(argv)
+    if args.command == "tracks" and args.action == "rename" and not args.name:
+        parser.error("tracks rename needs the new name")
     if args.command == "say" and not (args.tone or args.text):
         parser.error("say needs the text, or --tone")
     if args.command == "gate" and args.action == "kill" and not args.state:

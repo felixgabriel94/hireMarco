@@ -20,7 +20,7 @@ TENANT = "owner"
 ACTIONS = (
     "play", "stop", "record", "go_to_start", "go_to_section", "go_to_bar", "new_track", "arm_track",
     "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
-    "unknown",
+    "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
 
@@ -145,6 +145,49 @@ SOUND_SAID = re.compile(r"^(?:make (?:it|me|my voice|the vocal)|i want (?:it|my 
                         r"wide|wider|small|tight|tighter|lush|washy|distant|closer|intimate|haunting|dreamy|"
                         r"cathedral|room|hall|plate|cave|space)\b.*)$")
 PUT_BACK_SAID = re.compile(r"^(?:put it back|undo that( sound)?|go back|back to how it was)$")
+# Recording-mode housekeeping and the mode switch, all without a model call.
+KIND_WORDS = {"lead": "lead", "the lead": "lead", "lead vocal": "lead", "main vocal": "lead", "ad lib": "ad-lib",
+              "ad-lib": "ad-lib", "adlib": "ad-lib", "ad libs": "ad-lib", "harmony": "harmony", "harmonies": "harmony",
+              "a harmony": "harmony", "double": "double", "a double": "double", "reference": "reference",
+              "the beat": "beat", "beat": "beat"}
+LABEL_SAID = re.compile(r"^(?:we'?re on|this is|this one'?s|this track is|it'?s|recording) (?:the |an? )?(?P<kind>lead vocal|"
+                        r"main vocal|lead|ad[- ]?libs?|harmony|harmonies|double|reference|beat)(?: track| now)?$")
+NAME_SAID = re.compile(r"^(?:name|call|label) (?:this track|the track|this one|this|the|it) (?P<name>.+)$")
+STACK_SAID = re.compile(r"^(?:stack|group|sum) (?:the |all the |my )?(?P<what>harmonies|harmony|ad[- ]?libs|doubles|"
+                        r"vocals|backing vocals)(?: together| into a stack)?$")
+MIX_SAID = re.compile(r"^(?:give me |do |run |let'?s do )?(?:a |the )?(?:quick )?mix pass(?: on (?:this|the song|what we have))?$|"
+                      r"^(?:clean up|balance) (?:the mix|what we have(?: so far)?|the session)$")
+WATCH_SAID = re.compile(r"^keep (?:it|things|the mix|the frequencies) balanced(?: as we (?:go|work|record))?$|"
+                        r"^(?:stop|no more) (?:watching|balancing)(?: the mix)?$")
+MODE_SAID = re.compile(r"^(?:what mode(?: are you in)?|are we recording or mixing|"
+                       r"(?:we'?re |let'?s |let'?s do |switch to |go to |back to )?(?:recording|mixing)(?: now| mode)?)$")
+
+
+def tidy_command(said: str) -> Command | None:
+    m = LABEL_SAID.match(said)
+    if m:
+        kind = KIND_WORDS.get(m.group("kind").replace("-", " ").replace("  ", " "), None) or \
+            KIND_WORDS.get(m.group("kind"), None)
+        if kind:
+            return Command("label_track", text=kind)
+    m = NAME_SAID.match(said)
+    if m:
+        # the line arrives lowercased; a track name reads better in title case ("hook vox" -> "Hook Vox")
+        return Command("name_track", text=m.group("name").strip(" '\"").title())
+    m = STACK_SAID.match(said)
+    if m:
+        return Command("stack", text=m.group("what"))
+    if MIX_SAID.match(said):
+        return Command("mix_pass")
+    m = WATCH_SAID.match(said)
+    if m:
+        return Command("balanced_watch", text="off" if said.startswith(("stop", "no more")) else "on")
+    m = MODE_SAID.match(said)
+    if m:
+        want = "recording" if "recording" in said and not said.startswith(("what", "are we")) else \
+            "mixing" if "mixing" in said and not said.startswith(("what", "are we")) else ""
+        return Command("mode", text=want)
+    return None
 
 
 def strip_wake(line: str) -> str | None:
@@ -180,6 +223,9 @@ def understand(line: str, client: MuseSpark | None = None) -> Command | None:
         return exact
     if PUT_BACK_SAID.match(said):
         return Command("put_back")
+    tidy = tidy_command(said)
+    if tidy:
+        return tidy
     sound = SOUND_SAID.match(said)
     if sound:
         return Command("sound", text=sound.group("want").strip())

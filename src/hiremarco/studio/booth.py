@@ -34,6 +34,16 @@ STOCK = ["Rolling", NOTED, LISTENING, DIALING, "Here's how it goes.", "What key 
          "Morning. Your session's up. Where do you want to start?"]
 
 
+def _stem(words: str) -> str:
+    """'Harmonies' -> 'harmony', 'Ad-libs' -> 'adlib', 'Harmony 2' -> 'harmony2': one shape for matching."""
+    w = words.lower().replace("-", "").replace(" ", "")
+    if w.endswith("ies"):
+        w = w[:-3] + "y"
+    elif w.endswith("s") and not w.endswith("ss"):
+        w = w[:-1]
+    return w
+
+
 class Tape:
     """The last TAPE_SECONDS of the mic, mono, with the current take's span marked."""
 
@@ -86,6 +96,9 @@ class Booth:
     play_clip: Callable[[np.ndarray, str], object] | None = None
     last_run: list = field(default_factory=list)
     plugin: object | None = None
+    tracks: object | None = None          # studio.tracks.Tracks
+    session: object | None = None         # studio.tracks.SessionState, from the scan at start
+    mix_pass: Callable[[str], str] | None = None
 
     def _speak(self, text: str) -> None:
         try:
@@ -111,6 +124,50 @@ class Booth:
         text = f"{first} > {last} > {time.monotonic() - started:.1f} s"
         self.log(text)
         return text
+
+    def _tidy(self, command: Command) -> str:
+        from hiremarco.studio.tracks import NotMapped, SessionState
+
+        a = command.action
+        if self.session is None:
+            self.session = SessionState("recording", [])
+        if a == "mode":
+            if command.text:
+                self.session.mode = command.text
+                self._speak(f"{command.text.capitalize()} mode.")
+                return f"mode set: {command.text}"
+            self._speak(f"We're {self.session.mode}.")
+            return f"mode: {self.session.mode}"
+        if a == "balanced_watch":
+            self.session.balanced_watch = command.text == "on"
+            self._speak("I'll keep it balanced as we go." if self.session.balanced_watch else "Okay, just recording.")
+            return f"balanced watch {command.text}"
+        if a == "mix_pass":
+            if self.rolling:
+                return "holding the mix pass until the take stops"
+            if self.mix_pass is None:
+                return "no mix pass wired in this booth"
+            self._speak(DIALING)
+            result = self.mix_pass("baseline: a clean balanced mix of what we have so far")
+            self._speak(result)
+            return f"mix pass: {result}"
+        if self.tracks is None:
+            return "no track control in this booth"
+        try:
+            if a == "label_track":
+                name, what = self.tracks.label(command.text, self.session)
+                self._speak(f"{name}. Rolling when you are.")
+                return what
+            if a == "name_track":
+                return self.tracks.rename(command.text)
+            if a == "stack":
+                stem = _stem(command.text)
+                named = [t.name for t in self.session.tracks if stem in _stem(t.name)]
+                return self.tracks.stack(named or [command.text])
+        except NotMapped as later:
+            self._speak("Noted. I'll do that one from the desk.")
+            return str(later)
+        return "nothing to do"
 
     def _run_check(self, lyric: str) -> str:
         from hiremarco.studio import pitch
@@ -162,6 +219,8 @@ class Booth:
             self.pending_punch = note.punch_where if note.punch else ""
             self._speak(note.spoken)
             return f"take note: {note.spoken}"
+        if a in ("label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode"):
+            return self._tidy(command)
         if a == "set_key":
             from hiremarco.studio.pitch import parse_key
 
@@ -247,7 +306,12 @@ def run_booth(*, dry_run: bool = False) -> int:
 
     from hiremarco.hearing import transcribe
 
+    from hiremarco.studio.tracks import Tracks
+
+    tracks = Tracks(dry_run=dry_run)
+    session = tracks.scan() if not dry_run else None
     booth = Booth(understand=understand, logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(rate),
+                  tracks=tracks, session=session,
                   key=config.get("HIREMARCO_SONG_KEY") or "",
                   plugin=None if dry_run else Channel(),
                   transcribe=lambda audio, r: transcribe(audio, r, diarize=False),
@@ -271,6 +335,8 @@ def run_booth(*, dry_run: bool = False) -> int:
                             blocksize=rate // 10, callback=callback):
             print(f"booth live on {device or 'the default input'} channel {channel}"
                   + (" (dry run)" if dry_run else "") + "; Ctrl+C stops")
+            if session is not None:
+                print(f"session: {len(session.tracks)} track(s), {session.mode} mode")
             async for line in Listener().sentences(mic()):
                 await asyncio.to_thread(booth.hear, line)
 
