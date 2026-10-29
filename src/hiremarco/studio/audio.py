@@ -49,6 +49,8 @@ class DuplexAudio:
         self._drained.set()
         self._stream = None
         self.overflows = 0
+        self.in_level = 0.0   # RMS of the last mic block, for the halo
+        self.out_level = 0.0  # RMS of Marco's voice in the last block
 
     @classmethod
     def from_config(cls, on_input: Callable[[np.ndarray], None]) -> "DuplexAudio":
@@ -68,10 +70,13 @@ class DuplexAudio:
         if status and getattr(status, "input_overflow", False):
             self.overflows += 1
         if frames > 0:
-            self.on_input(np.asarray(indata)[:, self.mic_channel - 1].copy())
+            mic = np.asarray(indata)[:, self.mic_channel - 1].copy()
+            self.in_level = float(np.sqrt(np.mean(mic * mic))) if mic.size else 0.0
+            self.on_input(mic)
         out = np.asarray(outdata)
         out[:] = 0
         written = 0
+        voice = 0.0
         while written < frames:
             if self._current is None or self._offset >= self._current.size:
                 try:
@@ -83,11 +88,17 @@ class DuplexAudio:
                     break
             take = min(frames - written, self._current.size - self._offset)
             chunk = self._current[self._offset:self._offset + take]
+            voice += float(np.sum(chunk * chunk))
             for ch in self.out_pair:
                 if 1 <= ch <= self.out_channels:
                     out[written:written + take, ch - 1] += chunk
             self._offset += take
             written += take
+        self.out_level = float(np.sqrt(voice / frames)) if frames > 0 else 0.0
+
+    @property
+    def speaking(self) -> bool:
+        return not self._drained.is_set()
 
     def play(self, pcm: np.ndarray, rate: int) -> None:
         """Queue one line for the next callbacks and wait until it has gone out."""

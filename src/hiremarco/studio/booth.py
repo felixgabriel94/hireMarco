@@ -108,6 +108,7 @@ class Booth:
     say_stopped: Callable[[], bool] | None = None     # the cache-only player for STOPPED, after the switch is on
     hearing: Callable[[], str] | None = None          # the full read, spoken, then the question
     reference: Callable[[str], str] | None = None     # "sound like X" -> the signature, spoken short
+    busy: bool = False                                # a command is running: the halo shows him thinking
 
     def _speak(self, text: str) -> None:
         try:
@@ -123,6 +124,7 @@ class Booth:
             return self._done(f"heard: {line}", f"held: {refused.reason}", started)
         if command is None:
             return None  # not addressed to Marco
+        self.busy = True
         try:
             result = self.handle(command)
         except gate.Refused as refused:
@@ -130,6 +132,8 @@ class Booth:
         except Exception as exc:  # a failed action is said and logged; the booth keeps listening
             self._speak(FAILED)
             result = f"failed: {type(exc).__name__}: {str(exc)[-160:]}"
+        finally:
+            self.busy = False
         return self._done(f"heard: {line}", result, started)
 
     def _done(self, first: str, last: str, started: float) -> str:
@@ -358,6 +362,7 @@ def _song() -> str:
 
 
 _LIVE: list = []
+_HALO: list = []
 
 
 def _booth_live() -> str:
@@ -463,6 +468,25 @@ def run_booth(*, dry_run: bool = False) -> int:
         booth.tape = Tape(audio.rate)
         if talkback is not None:
             talkback.play = audio.play
+        halo = None
+        if (config.get("HIREMARCO_HALO") or "on") != "off":
+            from hiremarco.studio.halo import Halo, level_of
+
+            def halo_state() -> tuple[str, float]:
+                if audio.speaking:
+                    return "speaking", level_of(audio.out_level, 10)
+                if booth.busy:
+                    return "thinking", 0.0
+                return "listening", level_of(audio.in_level, 8)
+
+            halo = Halo(halo_state)
+            try:
+                halo.start()
+            except Exception as exc:  # the halo is the look, not the work: the booth runs without it
+                print(f"   (halo off: {type(exc).__name__}: {str(exc)[-160:]})")
+                halo = None
+        if halo is not None:
+            _HALO.append(halo)
         with audio:
             print(f"booth live on {audio.device or 'the default interface'}, mic channel {audio.mic_channel}, "
                   f"Marco on outputs {audio.out_pair[0]}-{audio.out_pair[1]}, one stream"
@@ -488,5 +512,7 @@ def run_booth(*, dry_run: bool = False) -> int:
         pass
     if _LIVE:
         _LIVE[0].stop()
+    if _HALO:
+        _HALO[0].stop()
     print(f"booth closed: {len(booth.notes)} note(s), {len(booth.producer_notes)} producer note(s)")
     return 0

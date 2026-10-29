@@ -37,6 +37,7 @@
     uv run marco hearing answer --song S --folder STEMS "the lead is right, 808 harder"   the artist's guardrails
     uv run marco hearing reference --song S [--file ref.wav] "Travis Scott"               the reference sound
     uv run marco show ["caption"]        a picture of Logic's window to the Owner's WhatsApp, for the ISO box
+    uv run marco halo                    Marco's halo over Logic, cycling listening, thinking, speaking (--preview DIR: pictures)
     uv run marco live                    Logic's window live on the phone, video with pictures as fallback; prints the link
     uv run marco tracks list             every track with its region count, and whether this is recording or mixing
     uv run marco tracks rename "Lead Vox"  rename the selected track, read back
@@ -599,6 +600,41 @@ def cmd_show(args) -> int:
     return 0
 
 
+def cmd_halo(args) -> int:
+    """Show the halo over Logic on its own, cycling through its three states, so the look can be judged."""
+    import math
+    import time
+
+    from hiremarco.studio import halo
+
+    path = halo.build()
+    if args.preview:
+        subprocess.run([str(path), "--preview", args.preview], check=True)
+        print(f"pictures in {args.preview}")
+        return 0
+    started = time.monotonic()
+
+    def demo() -> tuple[str, float]:
+        t = time.monotonic() - started
+        phase = t % 12
+        if phase < 4:
+            return "listening", 0.15 + 0.15 * math.sin(t * 3)
+        if phase < 6:
+            return "thinking", 0.0
+        return "speaking", abs(math.sin(t * 7)) * 0.6 + abs(math.sin(t * 2.3)) * 0.3
+
+    link = halo.Halo(demo)
+    link.start()
+    print("halo over Logic: listening, thinking, speaking, every 12 seconds. Ctrl+C stops it.")
+    try:
+        while True:
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
+    link.stop()
+    return 0
+
+
 def cmd_live(args) -> int:
     """Serve Logic's window as a live view on this Mac's network, and print the link for the phone."""
     from hiremarco.studio import live
@@ -788,6 +824,10 @@ def main(argv: list[str] | None = None) -> int:
     sh = sub.add_parser("show")
     sh.add_argument("caption", nargs="*")
     sh.set_defaults(func=cmd_show)
+
+    ha = sub.add_parser("halo")
+    ha.add_argument("--preview", metavar="DIR")
+    ha.set_defaults(func=cmd_halo)
 
     lv = sub.add_parser("live")
     lv.add_argument("--port", type=int, default=8788)
