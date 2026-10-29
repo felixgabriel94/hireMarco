@@ -152,6 +152,16 @@ final class Marco: NSObject, NSApplicationDelegate {
             $0.bundleIdentifier == logicID }) { start() } else { show("Waiting for Logic") }
     }
 
+    // Quit from anywhere (the menu, Activity Monitor, `quit app`): the booth goes with it, never left listening.
+    func applicationWillTerminate(_ note: Notification) {
+        if let run = process {
+            run.interrupt()
+            let deadline = Date().addingTimeInterval(3)
+            while run.isRunning && Date() < deadline { usleep(100_000) }
+            if run.isRunning { run.terminate() }
+        }
+    }
+
     @objc func quit() {
         stop("Quitting")
         DispatchQueue.main.asyncAfter(deadline: .now() + 1) { NSApp.terminate(nil) }
