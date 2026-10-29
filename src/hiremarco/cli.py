@@ -33,6 +33,8 @@
     uv run marco chain sound warmer      Muse Wonder sets the whole chain from a description
     uv run marco chain back              put every control the last change moved back where it was
     uv run marco ears FOLDER [--mix F]   each exported track's loudness, bands and collisions; the mix's headroom
+    uv run marco handoff mix-ready FOLDER --song S      the session folder a mix engineer expects, measured
+    uv run marco handoff master-ready MIX.wav --song S  the mix checked and filed for mastering, or what stops it
     uv run marco run-check FILE --key "F minor" [--start S --end S] [--play] [--midi out.mid]
                                          the notes of a vocal run, cents off each, and the corrected guide
 """
@@ -491,6 +493,29 @@ def cmd_ears(args) -> int:
     return 0
 
 
+def cmd_handoff(args) -> int:
+    """The session ready for a mix engineer, or the mix ready for mastering."""
+    from pathlib import Path
+
+    from hiremarco.mix.handoff import ready_for_mastering, ready_to_mix
+
+    dest = Path(args.dest).expanduser()
+    if args.kind == "mix-ready":
+        folder = ready_to_mix(Path(args.path).expanduser(), dest, song=args.song)
+        print(f"ready to mix: {folder}")
+        return 0
+    check = ready_for_mastering(Path(args.path).expanduser(), dest, song=args.song)
+    for name, value in check.facts.items():
+        print(f"  {name:<14} {value}")
+    if not check.ready:
+        print("not ready for mastering:")
+        for problem in check.problems:
+            print(f"  - {problem}")
+        return 1
+    print(f"ready for mastering: {check.folder}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -598,6 +623,13 @@ def main(argv: list[str] | None = None) -> int:
     ea.add_argument("--mix")
     ea.add_argument("--json")
     ea.set_defaults(func=cmd_ears)
+
+    ho = sub.add_parser("handoff")
+    ho.add_argument("kind", choices=["mix-ready", "master-ready"])
+    ho.add_argument("path", help="the exported tracks folder, or the bounced mix")
+    ho.add_argument("--song", required=True)
+    ho.add_argument("--dest", default="~/Desktop")
+    ho.set_defaults(func=cmd_handoff)
 
     args = parser.parse_args(argv)
     if args.command == "say" and not (args.tone or args.text):
