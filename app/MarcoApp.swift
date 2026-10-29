@@ -8,6 +8,8 @@
 //
 // It reads the repository and uv paths from ~/.local/state/hiremarco/app.json, written by `marco app build`.
 import AppKit
+import ApplicationServices
+import CoreGraphics
 import Network
 
 let logicID = "com.apple.logic10"
@@ -62,10 +64,19 @@ final class Marco: NSObject, NSApplicationDelegate {
         center.addObserver(self, selector: #selector(terminated(_:)),
                            name: NSWorkspace.didTerminateApplicationNotification, object: nil)
         if paths == nil { show("Run `marco app build` once") }
+        askForAccess()
         if NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == logicID }) { start() }
     }
 
     func show(_ text: String) { status.title = text }
+
+    // macOS adds an app built on this Mac to the Accessibility and Screen Recording lists only when the app asks
+    // for itself; picking it with + did nothing (live 2026-10-29). Each call shows the system's own prompt once.
+    func askForAccess() {
+        let prompt = kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String
+        if !AXIsProcessTrustedWithOptions([prompt: true] as CFDictionary) { show("Allow hireMarco in Accessibility") }
+        if !CGPreflightScreenCaptureAccess() { _ = CGRequestScreenCaptureAccess() }
+    }
 
     @objc func launched(_ note: Notification) {
         let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
