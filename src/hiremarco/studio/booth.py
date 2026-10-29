@@ -23,6 +23,7 @@ import numpy as np
 
 from hiremarco import config, gate
 from hiremarco.studio.commands import Command, calls_marco, strip_wake
+from hiremarco.studio.words import Writer
 from hiremarco.studio.feedback import TakeNote
 
 ROLLING = {"record", "play", "punch"}
@@ -124,6 +125,9 @@ class Booth:
     awake_at: float = -100.0                          # the last exchange: he listens without his name for AWAKE s
     asleep: bool = False                              # dismissed: the halo goes as soon as he finishes his line
     recent_answers: list[str] = field(default_factory=list)   # his last answers to his name, never three alike
+    writer: object | None = None                      # studio.words.Writer: his content lines, written live
+    last_said: str = ""
+    heard_line: str = ""
     _asked_after_take: bool = False                   # the after-take answer is used once per take
     send_link: Callable[[str], str] | None = None     # a link to the artist's phone by text; None or a refusal: the Mac
 
@@ -149,7 +153,12 @@ class Booth:
             self.log(f"   (not texted: {getattr(exc, 'reason', None) or type(exc).__name__}; printed and copied)")
             return "printed and copied"
 
+    def _say(self, moment: str, facts: dict, plain: str) -> None:
+        """A line with content: written for this moment when a writer is wired, the plain line otherwise."""
+        self._speak(self.writer.line(moment, facts, plain) if self.writer is not None else plain)
+
     def _speak(self, text: str) -> None:
+        self.last_said = text
         try:
             self.say(text)
         except gate.Refused as held:
@@ -174,15 +183,19 @@ class Booth:
         self.awake_at = time.monotonic()
         self.asleep = False
         self.busy = True
+        self.last_said = ""
+        self.heard_line = line
         try:
             result = self.handle(command)
         except gate.Refused as refused:
             result = f"held: {refused.reason}"
         except Exception as exc:  # a failed action is said and logged; the booth keeps listening
-            self._speak(FAILED)
             result = f"failed: {type(exc).__name__}: {str(exc)[-160:]}"
+            self._say("an action failed", {"asked": line, "what_failed": result}, FAILED)
         finally:
             self.busy = False
+        if self.writer is not None:
+            self.writer.heard(line, self.last_said)
         return self._done(f"heard: {line}", result, started)
 
     def _done(self, first: str, last: str, started: float) -> str:
@@ -224,13 +237,14 @@ class Booth:
         if a == "mode":
             if command.text:
                 self.session.mode = command.text
-                self._speak(f"{command.text.capitalize()} mode.")
+                self._say("switched mode", {"mode_now": command.text}, f"{command.text.capitalize()} mode.")
                 return f"mode set: {command.text}"
-            self._speak(f"We're {self.session.mode}.")
+            self._say("asked which mode", {"mode": self.session.mode}, f"We're {self.session.mode}.")
             return f"mode: {self.session.mode}"
         if a == "balanced_watch":
             self.session.balanced_watch = command.text == "on"
-            self._speak("I'll keep it balanced as we go." if self.session.balanced_watch else "Okay, just recording.")
+            self._say("balance watch", {"watching_the_balance": self.session.balanced_watch},
+                      "I'll keep it balanced as we go." if self.session.balanced_watch else "Okay, just recording.")
             return f"balanced watch {command.text}"
         if a == "mix_pass":
             if self.rolling:
@@ -246,7 +260,8 @@ class Booth:
         try:
             if a == "label_track":
                 name, what = self.tracks.label(command.text, self.session)
-                self._speak(f"{name}. Rolling when you are.")
+                self._say("named the track", {"role": command.text, "name": name, "result": what},
+                          f"{name}. Rolling when you are.")
                 return what
             if a == "name_track":
                 return self.tracks.rename(command.text)
@@ -255,7 +270,8 @@ class Booth:
                 named = [t.name for t in self.session.tracks if stem in _stem(t.name)]
                 return self.tracks.stack(named or [command.text])
         except NotMapped as later:
-            self._speak("Noted. I'll do that one from the desk.")
+            self._say("cannot do this one yet", {"asked": command.action, "why": str(later)},
+                      "Noted. I'll do that one from the desk.")
             return str(later)
         return "nothing to do"
 
@@ -294,7 +310,7 @@ class Booth:
         if a == "kill":
             return self._kill()
         if a == "dismiss":
-            self._speak(DISMISSED)
+            self._say("the artist is done talking for now; sign off", {}, DISMISSED)
             self.awake_at, self.asleep = -100.0, True
             return "dismissed; listening for his name only"
         if a == "summon":
@@ -302,11 +318,11 @@ class Booth:
             return "called by name; answered and listening"
         if a == "unknown":
             # He heard his name but could not place the line: say so, never guess and never go quiet.
-            self._speak(MISSED)
+            self._say("did not understand; ask one specific question", {"heard": self.heard_line}, MISSED)
             return "not a studio command, nothing done; asked him to say it again"
         if a == "note":
             self.notes.append(command.text)
-            self._speak(NOTED)
+            self._say("kept a note for the mix", {"note": command.text}, NOTED)
             return f"note: {command.text}"
         if a == "take_feedback":
             if self.rolling:
@@ -349,7 +365,8 @@ class Booth:
             link = self.live()
             self.log(f"   live view: {link}")
             where = self._deliver(f"Live view: {link}")
-            self._speak(LIVE_TEXTED if where == "texted" else LIVE_ON)
+            self._say("live view on", {"link": "texted to the artist's phone" if where == "texted"
+                                       else "on the Mac's screen, copied"}, LIVE_TEXTED if where == "texted" else LIVE_ON)
             return f"live view on, link {where}"
         if a in ("label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode"):
             return self._tidy(command)
@@ -397,9 +414,12 @@ class Booth:
             try:
                 name, what = self.tracks.label(command.text, self.session)
             except Exception as exc:
-                self._speak(FAILED)
-                return f"{made}; naming failed: {type(exc).__name__}: {str(exc)[-160:]}"
-            self._speak(f"{name}. Rolling when you are.")
+                failed = f"naming failed: {type(exc).__name__}: {str(exc)[-160:]}"
+                self._say("made a new track but could not name it", {"role": command.text, "what_failed": failed},
+                          FAILED)
+                return f"{made}; {failed}"
+            self._say("made a new track and named it", {"role": command.text, "name": name},
+                      f"{name}. Rolling when you are.")
             return f"{made}; {what}"
         if a in ROLLING and not self.rolling:
             self._speak("Rolling")  # said while stopped, before the take starts
@@ -509,6 +529,7 @@ def run_booth(*, dry_run: bool = False) -> int:
                   tracks=tracks, session=session,
                   show=None if dry_run else __import__("hiremarco.studio.show", fromlist=["show"]).show,
                   live=None if dry_run else _booth_live,
+                  writer=None if dry_run or (config.get("HIREMARCO_LIVE_WORDS") or "on") == "off" else Writer(),
                   send_link=None if dry_run or (config.get("HIREMARCO_TEXT_LINKS") or "off") != "on" else _text_owner,
                   say_stopped=None if talkback is None else (lambda: talkback.say_stock(STOPPED)),
                   hearing=None if dry_run else _booth_hearing, reference=None if dry_run else _booth_reference,
