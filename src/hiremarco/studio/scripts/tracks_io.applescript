@@ -19,39 +19,71 @@ on mainWindow()
 end mainWindow
 
 -- The layout around the Tracks area moves with what is showing (Inspector, Library, Mixer), so the parts are found
--- by their description, searched downward, not by a fixed path (a fixed path failed live 2026-10-29).
-on findDesc(el, wanted, depth)
+-- by their description, searched downward, not by a fixed path (a fixed path failed live 2026-10-29). The search
+-- asks for a whole level's descriptions in one call, and the path it finds is kept in the state folder, so the
+-- next call walks straight to it and searches again only if Logic's layout changed (a rename took 9.6 s live).
+property skipped : {"Control Bar", "Inspector", "Library", "Mixer", "Tracks contents", "Tracks time ruler"}
+
+on findPath(el, wanted, depth)
 	if depth > 7 then return missing value
-	set kids to {}
+	set descs to {}
 	tell application "System Events"
 		try
-			set kids to every UI element of el
+			set descs to description of every UI element of el
 		end try
 	end tell
-	repeat with k in kids
-		set kid to contents of k
-		set d to ""
-		tell application "System Events"
-			try
-				set d to description of kid
-			end try
-		end tell
-		if d is wanted then return kid
-		-- a track's own items hold no further parts, and the panels around the Tracks area hold none of them
-		if d does not start with "Track " and d is not in {"Control Bar", "Inspector", "Library", "Mixer", "Tracks contents", "Tracks time ruler"} then
-			set found to findDesc(kid, wanted, depth + 1)
-			if found is not missing value then return found
+	repeat with i from 1 to count of descs
+		set d to item i of descs
+		if d is missing value then set d to ""
+		if d is wanted then return {i}
+	end repeat
+	repeat with i from 1 to count of descs
+		set d to item i of descs
+		if d is missing value then set d to ""
+		if d does not start with "Track " and d is not in skipped then
+			tell application "System Events" to set kid to UI element i of el
+			set deeper to findPath(kid, wanted, depth + 1)
+			if deeper is not missing value then return {i} & deeper
 		end if
 	end repeat
 	return missing value
-end findDesc
+end findPath
 
--- "Tracks header" and "Tracks contents" are unique in the window; searched from the window itself, since a plain
--- "Tracks" also names other controls.
+on walk(el, steps)
+	set here to el
+	repeat with i in steps
+		tell application "System Events" to set here to UI element (i as integer) of here
+	end repeat
+	return here
+end walk
+
+on cacheFile(wanted)
+	return (POSIX path of (path to home folder)) & ".local/state/hiremarco/ax-" & (do shell script "echo " & quoted form of wanted & " | tr ' ' '-'") & ".txt"
+end cacheFile
+
 on part(main, wanted)
-	set found to findDesc(main, wanted, 0)
-	if found is missing value then error "Logic's window has no " & wanted & " showing"
-	return found
+	set f to cacheFile(wanted)
+	try
+		set kept to paragraphs of (do shell script "cat " & quoted form of f & " 2>/dev/null")
+		if (count of kept) > 0 and (item 1 of kept) is not "" then
+			set steps to {}
+			set AppleScript's text item delimiters to ","
+			repeat with t in text items of (item 1 of kept)
+				set end of steps to (t as integer)
+			end repeat
+			set AppleScript's text item delimiters to ""
+			set found to walk(main, steps)
+			tell application "System Events" to set d to description of found
+			if d is wanted then return found
+		end if
+	end try
+	set steps to findPath(main, wanted, 0)
+	if steps is missing value then error "Logic's window has no " & wanted & " showing"
+	set AppleScript's text item delimiters to ","
+	set line_ to steps as text
+	set AppleScript's text item delimiters to ""
+	do shell script "mkdir -p ~/.local/state/hiremarco && printf %s " & quoted form of line_ & " > " & quoted form of f
+	return walk(main, steps)
 end part
 
 on focusedLine()

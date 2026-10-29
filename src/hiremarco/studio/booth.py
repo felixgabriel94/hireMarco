@@ -156,6 +156,13 @@ class Booth:
         self._say("the artist is done talking for now; sign off", {}, DISMISSED)
         return self._done("shortcut", "sent away; listening for his name only", now)
 
+    def session_facts(self) -> str:
+        """What a good engineer has in his head without asking: the mode, the tracks, whether a take is rolling."""
+        mode = self.session.mode if self.session is not None else "recording"
+        tracks = [t.name for t in self.session.tracks][:24] if self.session is not None else []
+        take = "a take is rolling" if self.rolling else ("a take was just recorded" if self.tape.take else "no take yet")
+        return f"session: {mode} mode; tracks: {', '.join(tracks) or 'unknown'}; {take}; key: {self.key or 'not set'}"
+
     def _answer_to_name(self) -> str:
         """One of the instant answers: none of the last three, and an after-the-take one when a take just ended."""
         import random
@@ -183,6 +190,7 @@ class Booth:
         if self.writer is None:
             self._speak(plain)
             return
+        facts = {**facts, "session": self.session_facts()}
         self._speak(self._in_time(lambda: self.writer.line(moment, facts, plain)))
 
     def _in_time(self, work: Callable[[], object]) -> object:
@@ -496,6 +504,9 @@ class Booth:
                 self._say("made a new track but could not name it", {"role": command.text, "what_failed": failed},
                           FAILED)
                 return f"{made}; {failed}"
+            from hiremarco.studio.tracks import TrackInfo
+
+            self.session.tracks.append(TrackInfo(len(self.session.tracks) + 1, name, 0))  # he knows it is there now
             self._say("made a new track and named it", {"role": command.text, "name": name},
                       f"{name}. Rolling when you are.")
             return f"{made}; {what}"
@@ -696,7 +707,8 @@ def run_booth(*, dry_run: bool = False) -> int:
 
     tracks = Tracks(dry_run=dry_run)
     session = tracks.scan() if not dry_run else None
-    booth = Booth(understand=lambda line: understand(line, context=booth.history), logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(48000),
+    booth = Booth(understand=lambda line: understand(line, context=[booth.session_facts(), *booth.history]),
+                  logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(48000),
                   tracks=tracks, session=session,
                   show=None if dry_run else __import__("hiremarco.studio.show", fromlist=["show"]).show,
                   live=None if dry_run else _booth_live,
