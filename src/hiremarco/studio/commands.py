@@ -166,6 +166,8 @@ KIND_WORDS = {"lead": "lead", "the lead": "lead", "lead vocal": "lead", "main vo
               "ad-lib": "ad-lib", "adlib": "ad-lib", "ad libs": "ad-lib", "harmony": "harmony", "harmonies": "harmony",
               "a harmony": "harmony", "double": "double", "a double": "double", "reference": "reference",
               "the beat": "beat", "beat": "beat"}
+NEW_FOR_SAID = re.compile(r"^(?:(?:create|make|give me|add|open) )?(?:a )?new track for (?:the |my |an? )?"
+                          r"(?P<kind>lead vocal|main vocal|lead|ad[- ]?libs?|harmony|harmonies|doubles?|reference|beat)$")
 LABEL_SAID = re.compile(r"^(?:we'?re on|this is|this one'?s|this track is|it'?s|recording) (?:the |an? )?(?P<kind>lead vocal|"
                         r"main vocal|lead|ad[- ]?libs?|harmony|harmonies|double|reference|beat)(?: track| now)?$")
 NAME_SAID = re.compile(r"^(?:name|call|label) (?:this track|the track|this one|this|the|it) (?P<name>.+)$")
@@ -262,6 +264,10 @@ def understand(line: str, client: MuseSpark | None = None) -> Command | None:
         return step
     if PUT_BACK_SAID.match(said):
         return Command("put_back")
+    m = NEW_FOR_SAID.match(said)
+    if m:
+        kind = KIND_WORDS.get(m.group("kind").replace("-", " ")) or KIND_WORDS.get(m.group("kind"))
+        return Command("new_track", text=kind or "")
     tidy = tidy_command(said)
     if tidy:
         return tidy

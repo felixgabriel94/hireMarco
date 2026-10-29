@@ -81,3 +81,10 @@ def test_a_failed_scan_leaves_recording_mode_and_keeps_the_reason():
 
     state = Tracks(run=broken).scan()
     assert state.mode == "recording" and state.tracks == [] and "System Events" in state.scan_error
+
+
+def test_a_name_committed_only_to_the_field_is_reported_not_claimed(tmp_path):
+    tracks = Tracks(run=lambda a: "renamed\told\tFIELD ONLY: Harmony 1", conn=gate.connect(":memory:"),
+                    rules_path=rules(tmp_path))
+    with pytest.raises(RuntimeError, match="did not take"):
+        tracks.rename("Harmony 1")

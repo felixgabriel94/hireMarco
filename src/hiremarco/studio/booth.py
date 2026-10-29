@@ -316,6 +316,20 @@ class Booth:
             if not self.pending_punch:
                 return "punch where? nothing pending"
             command = replace(command, section=self.pending_punch)
+        if a == "new_track" and command.text and self.tracks is not None:
+            # one move: make the track (Logic selects it), then name it for its kind
+            made = self.logic(Command("new_track"))
+            if self.session is None:
+                from hiremarco.studio.tracks import SessionState
+
+                self.session = SessionState("recording", [])
+            try:
+                name, what = self.tracks.label(command.text, self.session)
+            except Exception as exc:
+                self._speak(FAILED)
+                return f"{made}; naming failed: {type(exc).__name__}"
+            self._speak(f"{name}. Rolling when you are.")
+            return f"{made}; {what}"
         if a in ROLLING and not self.rolling:
             self._speak("Rolling")  # said while stopped, before the take starts
         result = self.logic(command)

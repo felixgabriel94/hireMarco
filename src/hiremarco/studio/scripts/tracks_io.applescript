@@ -69,10 +69,30 @@ on run argv
 				if trackGroup is missing value then error "the Inspector's Track field is not showing (press I)"
 				set tf to text field 1 of trackGroup
 				set prior to value of tf
+				-- Setting the field's value only edits it; Return commits the name to the track (live 2026-10-28:
+				-- the field read "Harmony 1" while the track header still read the old name).
+				set focused of tf to true
 				set value of tf to newName
-				delay 0.3
-				set nowValue to value of tf
-				return "renamed" & tab & prior & tab & nowValue
+				key code 36
+				delay 0.4
+				-- Verify on the track header in the Tracks area, not on the field.
+				set headerNames to {}
+				repeat with g in (every group of main)
+					try
+						set headerNames to headerNames & (description of (every UI element of g whose description starts with "Track "))
+					end try
+					try
+						repeat with g2 in (every group of g)
+							set headerNames to headerNames & (description of (every UI element of g2 whose description starts with "Track "))
+						end repeat
+					end try
+				end repeat
+				set committed to ""
+				repeat with h in headerNames
+					if (h as text) contains newName then set committed to newName
+				end repeat
+				if committed is "" then set committed to "FIELD ONLY: " & (value of tf)
+				return "renamed" & tab & prior & tab & committed
 			end tell
 		end tell
 	end if

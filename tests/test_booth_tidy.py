@@ -74,3 +74,14 @@ def test_mode_and_watch_and_mix_pass():
     assert "pass on: baseline" in b.hear("Marco, give me a mix pass")
     b.hear("Marco, let's do mixing now")
     assert b.session.mode == "mixing" and said[-1] == "Mixing mode."
+
+
+def test_new_track_for_harmonies_makes_the_track_then_names_it():
+    assert understand("Marco, create a new track for harmonies", client=None) == Command("new_track", text="harmony")
+    assert understand("Marco, new track for the lead", client=None) == Command("new_track", text="lead")
+    b, said, tracks = booth()
+    did = []
+    b.logic = lambda c: did.append(c) or c.describe()
+    result = b.hear("Marco, new track for harmonies")
+    assert did == [Command("new_track")] and tracks.calls == [("label", "harmony")]
+    assert said[-1] == "Harmony 1. Rolling when you are." and "renamed" in result
