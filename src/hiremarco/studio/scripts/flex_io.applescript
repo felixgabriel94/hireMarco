@@ -135,23 +135,39 @@ on run argv
 		set wantScale to item 3 of argv
 		set wantAmount to (item 4 of argv) as real
 		-- the root takes only with the notes selected (live 2026-10-29: with none selected it stayed Off and the scale
-		-- list never opened), so the editor's notes get key focus by their own element and Logic's Edit menu selects
-		-- all; nothing here clicks by position (a coordinate click turned Flex off, live 2026-10-29)
-		set notesArea to findDesc(main, "Track contents", 0)
-		if notesArea is missing value then error "the editor's notes are not showing"
+		-- list never opened). The editor's own header has an Edit menu button (beside Functions and View, the same
+		-- row as the flex mode pop-up) whose Select > All acts on the editor's notes with no focus needed; Cmd+A after
+		-- focusing the notes is the fallback. Nothing here clicks by position (a coordinate click turned Flex off).
+		set editButton to missing value
+		if flexPop is not missing value then
+			tell application "System Events"
+				try
+					set header to value of attribute "AXParent" of flexPop
+					repeat with g in (every group of header)
+						repeat with b in (every menu button of g)
+							if editButton is missing value and (description of b) is "Edit" then set editButton to contents of b
+						end repeat
+					end repeat
+				end try
+			end tell
+		end if
 		tell application "System Events"
 			tell process "Logic Pro"
+				set selectedBy to "the editor's Edit > Select > All"
 				try
-					set value of attribute "AXFocused" of notesArea to true
-				end try
-				delay 0.2
-				-- Logic files Select All under Edit > Select > All (Edit has no "Select All", live 2026-10-29); Cmd+A is
-				-- the same command if the menu path moves
-				set selectedBy to "Edit > Select > All"
-				try
-					click menu item "All" of menu 1 of menu item "Select" of menu 1 of menu bar item "Edit" of menu bar 1
+					if editButton is missing value then error "no editor Edit menu"
+					click editButton
+					delay 0.4
+					click menu item "All" of menu 1 of menu item "Select" of menu 1 of editButton
 				on error
+					key code 53
 					set selectedBy to "Cmd+A"
+					set notesArea to my findDesc(main, "Track contents", 0)
+					if notesArea is missing value then error "the editor's notes are not showing"
+					try
+						set value of attribute "AXFocused" of notesArea to true
+					end try
+					delay 0.2
 					keystroke "a" using command down
 				end try
 				delay 0.3
