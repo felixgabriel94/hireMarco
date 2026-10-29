@@ -17,7 +17,7 @@ on keys(what)
 			keystroke what
 		end if
 	end tell
-	delay 0.45
+	delay 0.25
 end keys
 
 on bail(out, why)
@@ -62,7 +62,7 @@ on run argv
 			end ignoring
 		end tell
 	end tell
-	delay 0.8
+	delay 0.5
 	set n to menusOpen()
 	set end of out to "menus open after pressing Setting: " & n
 	if n is not 1 then return bail(out, "the Setting menu is not seen as open, so nothing was typed")
@@ -78,7 +78,7 @@ on run argv
 	if n is not 3 then return bail(out, "the Performance submenu did not open")
 	keys(target)
 	keys(36)
-	delay 0.8
+	delay 0.5
 	set end of out to "menus open after Return: " & menusOpen()
 	set {strip, afterText} to stripInfo()
 	set end of out to "after: " & afterText
