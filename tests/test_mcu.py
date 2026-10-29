@@ -192,3 +192,16 @@ def test_a_plugin_logic_has_not_validated_waits_for_logic_to_launch(tmp_path):
     learner._relearn = lambda s, p: calls.append(p) or ["New (s/s)"]
     surface.receive(mido.Message("sysex", data=HEADER + [0x00]))  # Logic launched and queried the surface
     assert len(calls) == 2 and not learner.pending
+
+
+def test_insert_refuses_an_unauthorized_uad_plugin_before_touching_logic():
+    sent = []
+    surface = Surface(send=sent.append)
+    names = ["UAD 4K Buss Compressor (s/s)", "Pro-Q 3 (s/s)"]
+    try:
+        mcu.insert(surface, names, "1", 3, "4k buss", may_run=lambda name: not name.startswith("UAD"))
+    except LookupError as refused:
+        assert "not authorized" in str(refused)
+    else:
+        raise AssertionError("inserted an unauthorized plug-in")
+    assert sent == []

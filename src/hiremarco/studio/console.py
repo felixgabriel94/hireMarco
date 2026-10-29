@@ -109,14 +109,24 @@ class Console:
 
     # plug-ins
     def authorized(self) -> set[str]:
+        """UAD plug-ins this Mac may run: authorized, or in a demo with days left (Console's own flags)."""
         if self._authorized is None:
             names = set()
             for key in self.get("/plugins").get("children", {}):
                 props = self.get(f"/plugins/{key}")["properties"]
-                if props.get("Authorized", {}).get("value"):
+                flag = lambda name: props.get(name, {}).get("value")  # noqa: E731
+                if flag("Authorized") or (flag("Demoing") and (flag("DemoDaysRemaining") or 0) > 0):
                     names.add(props["Name"]["value"])
             self._authorized = names
         return self._authorized
+
+    def may_run(self, logic_name: str) -> bool:
+        """Whether a plug-in named as Logic lists it ("UAD Neve 1073 (s/s)") may be loaded: a UAD one only if
+        Console says so; anything else is not Console's to judge."""
+        name = logic_name
+        while name.endswith(")") and " (" in name:  # Logic adds "(s/s)"; "CLA-76 (s) (s/s)" carries two
+            name = name.rsplit(" (", 1)[0]
+        return not name.startswith("UAD ") or name in self.authorized()
 
     def find_plugin(self, words: str) -> str:
         """The one authorized plug-in whose name holds every word: "la-2a silver" finds "UAD Teletronix LA-2A Silver"."""

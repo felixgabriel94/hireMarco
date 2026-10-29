@@ -339,16 +339,20 @@ def strip_of(surface: Surface, track: str) -> int:
     return scored[0][1]
 
 
-def insert(surface: Surface, names: list[str], track: str, slot: int, words: str, replace: bool = False) -> str:
+def insert(surface: Surface, names: list[str], track: str, slot: int, words: str, replace: bool = False,
+           may_run: Callable[[str], bool] | None = None) -> str:
     """Put a plug-in into a track's insert slot in one go: Plug-in Mixer view, the slot, a guard against
     replacing what is there, the jump with read-back, the press, then a read of the slot to prove it."""
+    wanted = names[pick(names, words)]
+    if may_run is not None and not may_run(wanted):
+        raise LookupError(f"{wanted} is not authorized on this Mac (UAD Console says so), so it would not open")
     mixer_view(surface)
     strip = strip_of(surface, track)
     go_slot(surface, slot)
     there = surface.screen.strip(strip)[1]
     if there not in ("--", "") and not replace:
         raise LookupError(f"insert {slot} on that track already holds {there}; say replace to swap it")
-    shown = jump(surface, strip, names, names[pick(names, words)])
+    shown = jump(surface, strip, names, wanted)
     surface.press("vpot", strip)
     time.sleep(0.8)
     mixer_view(surface)  # the press opened Plug-in Edit view; back to the slots to read the result
@@ -547,8 +551,10 @@ def serve(sock_path, log_path) -> None:
                         index = Path(log_path).with_name("maps") / "logic_plugins.json"
                         names = _json.loads(index.read_text())
                         started = time.monotonic()
+                        from hiremarco.studio.console import Console
+
                         done = insert(surface, names, words[1], int(words[2]), " ".join(words[3:]),
-                                      replace=words[0] == "replace")
+                                      replace=words[0] == "replace", may_run=Console().may_run)
                         index.write_text(_json.dumps(names, indent=0))
                         answer = f"{done} in {time.monotonic() - started:.1f} s"
                     elif words and words[0] == "learned":

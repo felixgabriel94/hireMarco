@@ -179,3 +179,11 @@ def test_a_control_blank_at_its_ends_is_still_bisected(console, engine):
 
     engine.shown = blank_ends
     assert abs(float(console.set_param(0, 1, "Retune Speed", 40)) - 40) <= 1
+
+
+def test_may_run_judges_uad_names_by_console_and_leaves_others_alone(engine, console):
+    engine.authorized["UAD Neve 1084"] = False
+    assert console.may_run("UAD Teletronix LA-2A Silver (s/s)")
+    assert not console.may_run("UAD Fairchild 670 (s/s)")
+    assert not console.may_run("UAD Neve 1084 (s/s)")
+    assert console.may_run("Pro-Q 3 (s/s)") and console.may_run("CLA-76 (s) (s/s)")
