@@ -8,13 +8,14 @@ so it stays the same between runs and the phone can keep it as a bookmark;
 ``--new-link`` makes a new one and the old link stops working. Capture runs
 only while someone is watching.
 
-Pictures, not video: a few frames a second, enough to watch knobs move and
-presets load from the ISO box.
+The page tries real video first (``webrtc.py``, 30 frames a second) and
+falls back to pictures, a few frames a second, when video cannot connect.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import secrets
 import subprocess
 import tempfile
@@ -36,11 +37,43 @@ PAGE = """<!doctype html>
 html, body { margin: 0; height: 100%; background: #111; color: #aaa; font: 13px -apple-system, sans-serif; }
 body { display: flex; flex-direction: column; }
 #view { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; }
-img { max-width: 100%; max-height: 100%; object-fit: contain; }
+img, video { max-width: 100%; max-height: 100%; object-fit: contain; }
 #bar { padding: 6px 12px; display: flex; justify-content: space-between; }
 </style></head>
-<body><div id="view"><img src="stream?t={token}" alt="Logic, live"></div>
-<div id="bar"><span>Marco live</span><span>view only</span></div></body></html>
+<body><div id="view"><video id="video" autoplay playsinline muted></video>
+<img id="pictures" alt="Logic, live" hidden></div>
+<div id="bar"><span>Marco live</span><span id="mode">connecting</span></div>
+<script>
+const token = "{token}", video = document.getElementById("video"), mode = document.getElementById("mode");
+function pictures(why) {
+  video.hidden = true;
+  const img = document.getElementById("pictures");
+  img.src = "stream?t=" + token; img.hidden = false;
+  mode.textContent = "pictures, view only" + (why ? " (" + why + ")" : "");
+}
+async function smooth() {
+  if (!window.RTCPeerConnection) return pictures("no WebRTC");
+  const pc = new RTCPeerConnection();
+  pc.addTransceiver("video", { direction: "recvonly" });
+  pc.ontrack = (e) => { video.srcObject = e.streams[0] || new MediaStream([e.track]); };
+  const late = setTimeout(() => { pc.close(); pictures("video did not connect"); }, 8000);
+  video.onplaying = () => { clearTimeout(late); mode.textContent = "live video, view only"; };
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === "failed") { clearTimeout(late); pictures("video dropped"); }
+  };
+  await pc.setLocalDescription(await pc.createOffer());
+  await new Promise((done) => {
+    if (pc.iceGatheringState === "complete") return done();
+    pc.onicegatheringstatechange = () => pc.iceGatheringState === "complete" && done();
+    setTimeout(done, 2000);
+  });
+  const answer = await fetch("offer?t=" + token, { method: "POST", headers: { "content-type": "application/json" },
+                                                   body: JSON.stringify(pc.localDescription) });
+  if (!answer.ok) { clearTimeout(late); pc.close(); return pictures("no video on the Mac"); }
+  await pc.setRemoteDescription(await answer.json());
+}
+smooth().catch((e) => pictures(String(e).slice(0, 60)));
+</script></body></html>
 """
 
 
@@ -117,10 +150,10 @@ def lan_address() -> str | None:
     return None
 
 
-def make_app(frames: Frames, token: str, *, max_frames: int | None = None):
+def make_app(frames: Frames, token: str, *, max_frames: int | None = None, peers=None):
     """The page and its stream. A request without the token gets a plain 404, as if nothing were here."""
     from starlette.applications import Starlette
-    from starlette.responses import HTMLResponse, Response, StreamingResponse
+    from starlette.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
     from starlette.routing import Route
 
     def allowed(request) -> bool:
@@ -161,4 +194,25 @@ def make_app(frames: Frames, token: str, *, max_frames: int | None = None):
         return StreamingResponse(parts(), media_type=f"multipart/x-mixed-replace; boundary={BOUNDARY}",
                                  headers={"Cache-Control": "no-store"})
 
-    return Starlette(routes=[Route("/", page), Route("/frame.jpg", frame), Route("/stream", stream)])
+    async def offer(request):
+        if not allowed(request):
+            return Response(status_code=404)
+        if peers is None:
+            return Response("no video on this run", status_code=503)
+        body = await request.json()
+        if not isinstance(body, dict) or body.get("type") != "offer" or not isinstance(body.get("sdp"), str):
+            return Response("an offer needs type and sdp", status_code=400)
+        try:
+            return JSONResponse(await peers.answer(body))
+        except Exception as exc:  # the page falls back to pictures; the terminal says why
+            print(f"live video: {type(exc).__name__}: {exc}"[:300])
+            return Response("video could not start", status_code=503)
+
+    @contextlib.asynccontextmanager
+    async def lifespan(app):
+        yield
+        if peers is not None:
+            await peers.close_all()
+
+    return Starlette(routes=[Route("/", page), Route("/frame.jpg", frame), Route("/stream", stream),
+                             Route("/offer", offer, methods=["POST"])], lifespan=lifespan)

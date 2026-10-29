@@ -21,7 +21,7 @@ def test_without_the_token_nothing_is_there(path):
 def test_the_page_plays_the_stream_with_its_token():
     client, _ = app()
     page = client.get("/?t=tok-123")
-    assert page.status_code == 200 and 'src="stream?t=tok-123"' in page.text
+    assert page.status_code == 200 and 'const token = "tok-123"' in page.text
 
 
 def test_the_stream_sends_jpeg_parts_and_stops_capturing_when_the_viewer_leaves():
@@ -84,3 +84,27 @@ def test_the_window_finder_script_is_a_cgwindowlist_read_of_logic_only():
 
     script = (Path(live.__file__).parent / "scripts" / "logic_window.js").read_text()
     assert "CGWindowListCopyWindowInfo" in script and '"Logic Pro"' in script and "layer !== 0" in script
+
+
+def test_the_offer_needs_the_token_a_real_offer_and_video_on_this_run():
+    client, _ = app()
+    assert client.post("/offer", json={"type": "offer", "sdp": "v=0"}).status_code == 404
+    assert client.post("/offer?t=tok-123", json={"type": "offer", "sdp": "v=0"}).status_code == 503
+
+    class FakePeers:
+        async def answer(self, offer):
+            return {"type": "answer", "sdp": "answered " + offer["sdp"]}
+
+        async def close_all(self):
+            pass
+
+    client = TestClient(live.make_app(live.Frames(lambda: JPEG), "tok-123", peers=FakePeers()))
+    assert client.post("/offer?t=tok-123", json={"type": "answer", "sdp": "x"}).status_code == 400
+    answered = client.post("/offer?t=tok-123", json={"type": "offer", "sdp": "v=0"})
+    assert answered.json() == {"type": "answer", "sdp": "answered v=0"}
+
+
+def test_the_page_tries_video_first_and_keeps_pictures_as_the_fallback():
+    client, _ = app()
+    page = client.get("/?t=tok-123").text
+    assert "RTCPeerConnection" in page and 'fetch("offer?t=" + token' in page and '"stream?t=" + token' in page
