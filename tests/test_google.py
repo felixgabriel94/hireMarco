@@ -104,3 +104,26 @@ def test_calendar_add_needs_its_switch(tmp_path, monkeypatch):
     cal.rules_path = on
     assert cal.add("Dinner with Kai", start, start + timedelta(hours=2), idempotency_key="b1") == "evt1"
     assert posted[0]["summary"] == "Dinner with Kai" and posted[0]["start"]["dateTime"].endswith("-05:00")
+
+
+def test_mail_waits_out_a_rate_limit_then_reads(rules_path, monkeypatch):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if len(calls) == 1:
+            return httpx.Response(403, json={"error": {"message": "Quota exceeded for quota metric 'Total Query Cost'"}})
+        return httpx.Response(200, json={"messages": []})
+
+    mail = Mail(auth=FakeAuth(), transport=httpx.MockTransport(handler), rules_path=rules_path)
+    waits = []
+    monkeypatch.setattr(mail, "_sleep", waits.append)
+    assert mail.recent() == []
+    assert waits == [2] and len(calls) == 2
+
+
+def test_mail_gives_up_on_a_real_refusal(rules_path):
+    mail = Mail(auth=FakeAuth(), transport=httpx.MockTransport(lambda r: httpx.Response(403, json={"error": {"message": "Forbidden"}})),
+                rules_path=rules_path)
+    with pytest.raises(RuntimeError, match="HTTP 403"):
+        mail.recent()

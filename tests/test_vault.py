@@ -57,3 +57,20 @@ def test_show_asks_the_owner_and_logs_without_the_value(tmp_path):
     lines = [json.loads(line) for line in log.read_text().splitlines()]
     assert [line["outcome"] for line in lines] == ["refused", "shown"]
     assert "XYZ" not in log.read_text()
+
+
+def test_a_serial_on_the_line_after_its_label_is_found_with_the_named_product():
+    text = "Thanks for reaching out.\n### Serial Number for *VocalSynth 2*:\n\nSN-ABCD1-EF2G-HIJ3-KLMN-OPQR\n"
+    found = find_serials("iZotope", "Re: support", text)
+    assert [(f.product, f.tail) for f in found] == [("VocalSynth 2", "OPQR")]
+
+
+def test_request_ids_shaped_like_uuids_are_not_serials():
+    text = "Location reset number:\n0ab123c4-56d7-89e0-1fab-23c4567de8fa\n"
+    assert find_serials("iLok", "Location Reset Approved", text) == []
+
+
+def test_a_label_in_emphasis_is_not_a_product_and_a_known_name_in_the_subject_is():
+    text = "### Here is your *serial number*:\n\nSN-ABCD1-EF2G-HIJ3-KLMN-ZUBH\n"
+    found = find_serials("iZotope", "Re: re download my VocalSynth 2 plugin", text, known=["VocalSynth 2", "Neutron 3"])
+    assert [(f.product, f.tail) for f in found] == [("VocalSynth 2", "ZUBH")]

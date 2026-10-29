@@ -633,7 +633,13 @@ def cmd_vault(args) -> int:
             items = mail.recent(newer_than="15y", limit=200, purpose="license receipts")
         finally:
             mail.close()
-        pointers = vault.keep([(item.sender.rpartition("@")[2], item.subject, item.text) for item in items])
+        import json
+
+        from hiremarco.studio.ledger import base_name
+
+        index = state / "maps" / "logic_plugins.json"
+        known = {base_name(n) for n in json.loads(index.read_text())} if index.exists() else set()
+        pointers = vault.keep([(item.sender.rpartition("@")[2], item.subject, item.text) for item in items], known)
         print(f"read {len(items)} receipt(s); kept {len(pointers)} serial(s)")
         for line in pointers:
             print(f"  {line}")

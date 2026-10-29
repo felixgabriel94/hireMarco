@@ -14,7 +14,7 @@ from __future__ import annotations
 import json
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -45,19 +45,50 @@ class Found:
         return self.value.replace("-", "")[-4:]
 
 
-def find_serials(vendor: str, subject: str, text: str) -> list[Found]:
-    """Every labelled serial in one receipt; the product is the nearest line above that names something."""
+VALUE = re.compile(r"^\s*[*`]*(?P<value>[A-Z0-9](?:[A-Z0-9-]{8,}[A-Z0-9]))[*`]*\s*$")
+UUID = re.compile(r"(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")  # a request id, not a serial
+# A label that ends its line, the value on the next ("### Serial code for *Product*:"); the product is the
+# emphasised words in the label line, or what follows "for"
+LABEL_ALONE = re.compile(r"(?i)\b(serial|licen[cs]e|product\s*key|activation|registration|unlock)\b[^:]*:\s*[*_]*\s*$")
+LABEL_WORDS = re.compile(r"(?i)serial|licen[cs]e|key|code")
+EMPHASIS = re.compile(r"[*_]{1,2}([^*_]+?)[*_]{1,2}")
+FOR_PRODUCT = re.compile(r"(?i)\bfor\s+(?:your\s+)?(?P<product>[^:*_]+?)\s*[*_]*\s*:")
+
+
+def find_serials(vendor: str, subject: str, text: str, known: Iterable[str] = ()) -> list[Found]:
+    """Every labelled serial in one receipt, whether the value follows the label on its line ("Serial number:
+    AB12-...") or sits alone on the next line (iZotope: "Serial Number for VocalSynth 2:" then the value).
+    The product is the one the label names, else a known product named in the subject or the mail, else the
+    nearest line above, else the subject."""
+    mentioned = sorted((k for k in known if len(k) > 3 and (k in subject or k in text)), key=len, reverse=True)
     lines = text.splitlines()
     found, seen = [], set()
+
+    def keep(value: str, product: str, i: int) -> None:
+        value = value.strip("-")
+        if NOT_SERIAL.match(value) or UUID.match(value) or value in seen or not re.search(r"\d", value):
+            return
+        seen.add(value)
+        if product and LABEL_WORDS.search(product):
+            product = ""  # "*serial number*" names the label, not the product
+        if not product and mentioned:
+            product = mentioned[0]
+        if not product:
+            product = next((ln.strip(" :-|#*") for ln in reversed(lines[max(0, i - 4):i])
+                            if ln.strip(" :-|#*") and not LABEL.search(ln) and not LABEL_ALONE.search(ln)), "")
+        found.append(Found(vendor, (product or subject).strip(" *_")[:80], value))
+
     for i, line in enumerate(lines):
+        alone = LABEL_ALONE.search(line.strip(" #"))
+        if alone:
+            following = next((ln for ln in lines[i + 1:i + 4] if ln.strip()), "")
+            value = VALUE.match(following)
+            if value:
+                named = EMPHASIS.search(line) or FOR_PRODUCT.search(line)
+                keep(value.group("value"), named.group(1) if named else "", i)
+            continue
         for match in LABEL.finditer(line):
-            value = match.group("value").strip("-")
-            if NOT_SERIAL.match(value) or value in seen or not re.search(r"\d", value):
-                continue
-            seen.add(value)
-            product = next((ln.strip(" :-|") for ln in reversed(lines[max(0, i - 4):i])
-                            if ln.strip(" :-|") and not LABEL.search(ln)), "") or subject
-            found.append(Found(vendor, product[:80], value))
+            keep(match.group("value"), "", i)
     return found
 
 
@@ -124,13 +155,15 @@ class Vault:
         self.log_path = log_path
         self.ask = ask
 
-    def keep(self, receipts: list[tuple[str, str, str]]) -> list[str]:
+    def keep(self, receipts: list[tuple[str, str, str]], known: Iterable[str] = ()) -> list[str]:
         """Store every serial in (vendor, subject, text) receipts; returns pointers only."""
-        pointers = []
+        pointers, known = [], list(known)
         for vendor, subject, text in receipts:
-            for found in find_serials(vendor, subject, text):
+            for found in find_serials(vendor, subject, text, known):
                 self.keychain.put(found.item, found.value)
-                pointers.append(f"{found.item} (serial in Keychain, ends in {found.tail})")
+                pointer = f"{found.item} (serial in Keychain, ends in {found.tail})"
+                if pointer not in pointers:  # a thread quotes the same serial in every reply
+                    pointers.append(pointer)
         return pointers
 
     def show(self, item: str) -> str | None:

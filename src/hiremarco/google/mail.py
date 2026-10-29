@@ -83,10 +83,25 @@ class Mail:
         self._http = httpx.Client(base_url=GMAIL_URL, timeout=20, transport=transport)
 
     def _get(self, path: str, **params) -> dict:
-        response = self._http.get(path, params=params, headers=self.auth.headers())
+        # Gmail's per-user rate limit answers 429, or 403 "Quota exceeded" (seen live 2026-10-29 on a new
+        # project): wait and try again, doubling the wait, before giving up
+        for wait in (2, 4, 8, 16, 32, None):
+            response = self._http.get(path, params=params, headers=self.auth.headers())
+            limited = response.status_code == 429 or (response.status_code == 403 and (
+                "quota" in response.text.lower() or "ratelimit" in response.text.lower()))
+            if not limited or wait is None:
+                break
+            self._sleep(wait)
         if response.status_code >= 400:
-            raise RuntimeError(f"Gmail returned HTTP {response.status_code}")
+            raise RuntimeError(f"Gmail returned HTTP {response.status_code}"
+                               + (" (rate limit; try again in a few minutes)" if limited else ""))
         return response.json()
+
+    @staticmethod
+    def _sleep(seconds: float) -> None:
+        import time
+
+        time.sleep(seconds)
 
     def recent(self, newer_than: str = "2d", limit: int = 10, purpose: str | None = None) -> list[MailItem]:
         """Granted senders' mail; ``purpose`` keeps only the grants whose purpose mentions it."""
