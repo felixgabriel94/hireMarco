@@ -143,6 +143,8 @@ class Booth:
     spoken: list = field(default_factory=list)        # (when, line) of his last lines, to know his own echo
     on_place: Callable[[str], None] | None = None     # "booth" or "desk": chosen by the artist, not by the mode
     history: list[str] = field(default_factory=list)  # the recent exchanges and what was done, for his replies
+    soloed: bool = False                              # he soloed a track, and takes it off before the next take
+    a_cappella: bool = False                          # this take is recorded with the vocal soloed, on purpose
     take_start: object | None = None                  # (Position, tempo, beats per bar) read when the take began
     auto_note: bool = False                           # a note after every take of AUTO_NOTE_SECONDS or more
     fillers: bool = True                              # "Hmm." while he thinks; off in tests that count lines
@@ -367,6 +369,15 @@ class Booth:
             return str(later)
         return "nothing to do"
 
+    def _unsolo_for_the_take(self) -> None:
+        if self.soloed and self.tracks is not None:
+            try:
+                self.tracks.solo(False)
+                self.log("   (solo off for the take)")
+            except Exception as exc:  # the take matters more; the log says the solo stayed
+                self.log(f"   (solo could not come off: {type(exc).__name__})")
+            self.soloed = False
+
     def _play_back(self, command: Command) -> str:
         """Play the last take from its start, or from a line in it; then it plays and he stays quiet."""
         from hiremarco.studio import pitch
@@ -566,7 +577,23 @@ class Booth:
         if a in ("solo", "unsolo"):
             if self.tracks is None:
                 return "no track control in this booth"
-            return self.tracks.solo(a == "solo")  # silent: you hear the result
+            done = self.tracks.solo(a == "solo")  # silent: you hear the result
+            self.soloed = a == "solo"
+            return done
+        if a == "go_again":  # "let's go again": the solo comes off by itself and the next take rolls
+            return self.handle(Command("record"))
+        if a == "next_part":  # moving on: back to the full mix, then where to pick it up
+            self._unsolo_for_the_take()
+            self._say("the artist wants to record a different part; ask where to pick it up", {}, "Where do you want to pick it up?")
+            return "ready for the next part"
+        if a == "a_cappella":  # the one time the solo stays on while recording: the vocal alone, no beat
+            if self.tracks is not None and not self.soloed:
+                self.tracks.solo(True)
+                self.soloed = True
+            self.a_cappella = True
+            return self.handle(Command("record"))
+        if a in ("record", "punch") and not self.rolling and not self.a_cappella:
+            self._unsolo_for_the_take()  # an engineer takes the solo off before a take without being told
         if a == "record" and self.tracks is not None and not self.rolling:
             try:
                 self.take_start = self.tracks.where()  # where this take begins, to play it back or find a line
@@ -583,6 +610,7 @@ class Booth:
                 self.pending_punch = ""
         elif a == "stop":
             self.rolling = False
+            self.a_cappella = False  # a cappella is for that take
             self.tape.mark_stop()
             self._asked_after_take = False  # a new take: the next answer to his name can ask how it felt
             take = self.tape.last_take()

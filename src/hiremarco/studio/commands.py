@@ -22,7 +22,7 @@ ACTIONS = (
     "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
     "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "live_view", "hearing", "reference",
     "kill", "summon", "dismiss", "chat", "play_take", "play_from_lyric", "solo", "unsolo", "play_from",
-    "unknown",
+    "go_again", "next_part", "a_cappella", "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
 
@@ -55,7 +55,8 @@ INSTRUCTIONS = (
     "'Make it more spacey' or 'I want my voice a bit more metallic' means sound with text describing the sound; "
     "'put it back' or 'undo that sound' means put_back. 'Play my take back' means play_take; 'take me back to "
     "where I say let me love you' means play_from_lyric with text 'let me love you'; 'solo my vocal' means solo, "
-    "'unsolo' means unsolo. 'New track for harmonies' means new_track with text "
+    "'unsolo' means unsolo. 'Let's go again' or 'one more' means go_again; 'let's record a different part' means "
+    "next_part; 'I'd like to record this a cappella' means a_cappella. 'New track for harmonies' means new_track with text "
     "'harmony' (or 'lead', 'ad-lib', 'double'). 'Rename this to harmony one' or 'call it lead vox' means "
     "name_track with the name in text, written as a track name ('Harmony 1', 'Lead Vox'). "
     "When the line is conversation rather than a command (a question about what Marco just did, a yes or no, "
@@ -198,6 +199,13 @@ SOLO_SAID = re.compile(r"^(?:solo (?:it|that|this|the track|my vocals?|the vocal
                        r"|let me hear (?:just )?(?:my vocals?|the vocals?|my take)(?: alone| by itself| solo)?)$")
 UNSOLO_SAID = re.compile(r"^(?:unsolo(?: it| that| the track| me)?|take (?:it|the track|me) off solo|"
                          r"(?:turn |take )?(?:the )?solo off|bring everything back)$")
+GO_AGAIN_SAID = re.compile(r"^(?:(?:all right|alright|okay|ok|cool|bet),? )?(?:let'?s )?(?:go|run it|do it|try it|take it)"
+                           r" (?:again|one more time|from the top)$|^(?:one more|again|another one|next take|let'?s do another"
+                           r"(?: one| take)?)$")
+NEXT_PART_SAID = re.compile(r"^(?:(?:all right|alright|okay|ok|cool),? )?let'?s (?:record|do|go to|move to|work on) "
+                            r"(?:a |the )?(?:different|next|another|new) (?:part|section|verse|line)$")
+A_CAPPELLA_SAID = re.compile(r"^(?:i(?:'d| would) like to |i want to |let'?s )?record (?:this|it|the (?:section|part|verse|"
+                             r"hook|chorus)|this (?:section|part))? ?a ?cappella$|^a ?cappella(?: take| this time)?$")
 DISMISS_SAID = re.compile(r"^(?:that'?s (?:all|it)(?: for now)?|thanks?(?: you)?(?:,? marco)?|thank you(?:,? marco)?|"
                           r"go to sleep|you can go|i'?m good|we'?re good|bye(?:,? marco)?|later|dismissed|step out)$")
 KILL_SAID = re.compile(r"^(?:stop everything|stop it all|kill (?:it|switch|everything)|hands off|freeze|abort)$")
@@ -280,6 +288,12 @@ def understand(line: str, client: MuseSpark | None = None, context: list[str] | 
         return None
     if not said:
         return Command("summon")  # "Marco." or "Hey Marco" alone: he answers and waits, like a name called in a room
+    if GO_AGAIN_SAID.match(said):
+        return Command("go_again")
+    if NEXT_PART_SAID.match(said):
+        return Command("next_part")
+    if A_CAPPELLA_SAID.match(said):
+        return Command("a_cappella")
     if PLAY_TAKE_SAID.match(said):
         return Command("play_take")
     if SOLO_SAID.match(said):

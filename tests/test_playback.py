@@ -63,3 +63,25 @@ def test_solo_and_unsolo_act_on_the_selected_track_without_a_word():
     b, did, said = booth()
     assert "solo on" in b.hear("Marco, solo my vocals") and "solo off" in b.hear("Marco, unsolo")
     assert b.tracks.calls == [True, False] and said == []
+
+
+def test_the_solo_comes_off_by_itself_before_the_next_take_unless_it_is_a_cappella():
+    b, did, said = booth()
+    b.hear("Marco, solo my vocals")
+    assert b.soloed and b.tracks.calls == [True]
+    assert understand("Marco, all right, let's go again", client=None) == Command("go_again")
+    b.hear("Marco, all right, let's go again")
+    assert b.tracks.calls == [True, False] and not b.soloed and b.rolling  # unsoloed, then rolling
+    b.hear("stop")
+    b.hear("Marco, I'd like to record this a cappella")
+    assert b.tracks.calls == [True, False, True] and b.rolling and b.soloed  # solo on for the a cappella take
+    b.hear("stop")
+    b.hear("Marco, one more")
+    assert b.tracks.calls[-1] is False and not b.soloed  # the next normal take: off again
+
+
+def test_moving_to_a_different_part_takes_the_solo_off_and_asks_where():
+    b, did, said = booth()
+    b.hear("Marco, solo it")
+    assert "next part" in b.hear("Marco, let's record a different part")
+    assert b.tracks.calls == [True, False] and said[-1] == "Where do you want to pick it up?"
