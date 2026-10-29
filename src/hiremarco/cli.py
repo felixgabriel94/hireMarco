@@ -457,7 +457,7 @@ def cmd_chain(args) -> int:
             print(f"put back: {', '.join(state.plugin for state in restored.values())}")
             return 0
         trace = Trace(f"chain sound: {' '.join(args.words)}")
-        channel.read()
+        channel.read(fresh=False)  # the last full read, while the slot list still matches it
         before = {s.number: dict(s.state.params) for s in channel.chain.active() if s.state}
         changed, said = channel.design(" ".join(args.words))
     except (PluginError, gate.Refused) as stopped:

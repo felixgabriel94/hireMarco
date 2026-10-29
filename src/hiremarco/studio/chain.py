@@ -29,6 +29,7 @@ from hiremarco.studio.presets import SCRIPTS
 MODEL = "muse-wonder-1.0"
 TENANT = "owner"
 MAX_CHANGES = 12
+CACHE_MINUTES = 30
 LEVEL_STEP = 15.0
 LEVEL_WORDS = re.compile(r"gain|output|out$|level|volume|threshold|thresh|makeup|make-up|input|drive|ceiling",
                          re.IGNORECASE)
@@ -135,15 +136,58 @@ class Channel:
         self.chain: Chain | None = None
         self.undo: dict[int, dict[str, float]] = {}
 
-    def read(self) -> Chain:
+    def read(self, fresh: bool = True) -> Chain:
+        """The chain with every active plugin's settings.
+
+        Opening every plugin takes most of a minute on a twelve-plugin chain (live, 2026-10-28), so unless
+        ``fresh`` the last full read is reused while the slot list still matches it and it is under
+        CACHE_MINUTES old; Marco's own changes keep it current. A hand-made change in a plugin is not seen
+        until the next fresh read ("Marco, read the chain" or ``marco chain read``).
+        """
         chain = Chain(parse_list(self.run(["list"])))
         if not chain.slots:
             raise PluginError("the selected track has no plugins")
-        states = split_blocks(self.run(["readall"]))  # one run opens every active plugin in turn
+        cached = None if fresh else self._cached(chain)
+        states = cached if cached is not None else split_blocks(self.run(["readall"]))
         for slot in chain.active():
             slot.state = states.get(slot.number)
         self.chain = chain
+        self._keep_cache()
         return chain
+
+    def _cache_path(self):
+        from pathlib import Path
+
+        from hiremarco import config
+
+        return Path(config.STATE_DIR) / "chain-cache.json"
+
+    def _keep_cache(self) -> None:
+        if self.chain is None:
+            return
+        data = {"at": time.time(), "slots": [[s.number, s.name, s.bypassed] for s in self.chain.slots],
+                "states": {str(s.number): {"plugin": s.state.plugin, "params": s.state.params,
+                                           "ranges": {k: list(v) for k, v in s.state.ranges.items()},
+                                           "fixed": s.state.fixed}
+                           for s in self.chain.slots if s.state}}
+        path = self._cache_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(data))
+
+    def _cached(self, chain: Chain) -> dict[int, PluginState] | None:
+        path = self._cache_path()
+        if not path.exists():
+            return None
+        try:
+            data = json.loads(path.read_text())
+        except ValueError:
+            return None
+        if time.time() - data.get("at", 0) > CACHE_MINUTES * 60:
+            return None
+        if data.get("slots") != [[s.number, s.name, s.bypassed] for s in chain.slots]:
+            return None  # a plugin was added, moved, removed or bypassed: read it all again
+        return {int(n): PluginState(v["plugin"], v["params"], {k: tuple(r) for k, r in v["ranges"].items()},
+                                    v["fixed"]) for n, v in data.get("states", {}).items()}
 
     def _apply(self, per_slot: dict[int, dict[str, float]]) -> dict[int, PluginState]:
         message = "; ".join(f"slot {n}: " + ", ".join(f"{k} {v:g}" for k, v in vals.items())
@@ -159,6 +203,9 @@ class Channel:
             results = split_blocks(self.run(args))  # one run sets every plugin that changes
             for number, values in per_slot.items():
                 after = results.get(number)
+                if after is not None and not after.ranges:
+                    after.ranges = next((sl.state.ranges for sl in self.chain.slots
+                                         if sl.number == number and sl.state), {})
                 if after is None:
                     raise PluginError(f"slot {number} did not answer")
                 known = next((sl.state for sl in self.chain.slots if sl.number == number and sl.state), after)
@@ -169,6 +216,7 @@ class Channel:
                 for slot in self.chain.slots:
                     if slot.number == number:
                         slot.state = after
+            self._keep_cache()
             return results
 
         return gate.execute_effect(
@@ -178,7 +226,7 @@ class Channel:
         )
 
     def design(self, description: str) -> tuple[dict[int, PluginState], str]:
-        chain = self.chain or self.read()
+        chain = self.chain or self.read(fresh=False)
         payload = {
             "wants": description,
             "chain": [{"slot": s.number, "bypassed": s.bypassed, **(s.state.for_model() if s.state else
@@ -233,7 +281,7 @@ class Channel:
         if not self.undo:
             raise gate.Refused("nothing to put back")
         if self.chain is None:
-            self.read()
+            self.read(fresh=False)
         undo, self.undo = self.undo, {}
         results = self._apply(undo)
         self._undo_path().unlink(missing_ok=True)

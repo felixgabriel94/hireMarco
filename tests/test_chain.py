@@ -123,3 +123,16 @@ def test_put_back_works_from_a_new_command(tmp_path, rules):
     assert fake.plugins[2][1]["Attack"] == 4500
     Channel(run=fake, conn=gate.connect(":memory:"), rules_path=rules).put_back()  # a fresh process, same disk
     assert fake.plugins[2][1]["Attack"] == 2000
+
+
+def test_a_second_request_reuses_the_chain_it_read(tmp_path, rules):
+    fake = FakeChain()
+    reply = json.dumps({"changes": [{"slot": 2, "parameter": "Attack", "value": 45}], "said": "Softer."})
+    Channel(run=fake, conn=gate.connect(":memory:"), rules_path=rules, client=wonder(tmp_path, reply, [])).read()
+    fake.calls.clear()
+    Channel(run=fake, conn=gate.connect(":memory:"), rules_path=rules, client=wonder(tmp_path, reply, [])).design("x")
+    assert [c[0] for c in fake.calls] == ["list", "setmany", "set"]  # no readall: the cache held it
+    fake.plugins[3] = ("ValhallaVintageVerb", fake.plugins[3][1], False)  # un-bypassed by hand
+    fake.calls.clear()
+    Channel(run=fake, conn=gate.connect(":memory:"), rules_path=rules, client=wonder(tmp_path, reply, [])).design("x")
+    assert "readall" in [c[0] for c in fake.calls]  # the slot list changed, so it reads again
