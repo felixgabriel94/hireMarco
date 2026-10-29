@@ -628,7 +628,16 @@ def cmd_live(args) -> int:
     print(f"live view: {link}")
     print("copied to the clipboard; open it on the phone on the same Wi-Fi. Ctrl+C stops it.")
     Trace("live").done(f"serving on port {args.port}, frame {len(frames.latest) // 1024} KB")
-    uvicorn.run(live.make_app(frames, token, peers=peers), host="0.0.0.0", port=args.port, log_level="warning")
+    # an open phone page keeps its stream open: on Ctrl+C the stream ends itself, and two seconds is the limit
+    server = None
+    app = live.make_app(frames, token, peers=peers, stopping=lambda: bool(server and server.should_exit))
+    server = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=args.port, log_level="warning",
+                                           timeout_graceful_shutdown=2))
+    try:
+        server.run()
+    except KeyboardInterrupt:  # uvicorn hands Ctrl+C back once it has closed everything
+        pass
+    print("live view stopped")
     return 0
 
 

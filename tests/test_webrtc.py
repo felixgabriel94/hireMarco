@@ -54,3 +54,11 @@ def test_the_bitrate_is_raised_for_a_session_window():
 
     webrtc.tune_h264()
     assert h264.DEFAULT_BITRATE == 4_000_000 and h264.MAX_BITRATE == 8_000_000
+
+
+def test_the_capture_output_class_is_defined_once_so_a_second_viewer_can_start():
+    first = webrtc.output_class()
+    assert webrtc.output_class() is first
+    out = first.alloc().init()
+    out.capture = None
+    out.stream_didOutputSampleBuffer_ofType_(None, None, 0)  # no capture attached: ignored, never raises

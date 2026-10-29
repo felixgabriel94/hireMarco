@@ -150,7 +150,8 @@ def lan_address() -> str | None:
     return None
 
 
-def make_app(frames: Frames, token: str, *, max_frames: int | None = None, peers=None):
+def make_app(frames: Frames, token: str, *, max_frames: int | None = None, peers=None,
+             stopping: Callable[[], bool] = lambda: False):
     """The page and its stream. A request without the token gets a plain 404, as if nothing were here."""
     from starlette.applications import Starlette
     from starlette.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
@@ -182,6 +183,8 @@ def make_app(frames: Frames, token: str, *, max_frames: int | None = None, peers
             sent, seen = 0, -1
             try:
                 while max_frames is None or sent < max_frames:
+                    if stopping() or (max_frames is None and await request.is_disconnected()):
+                        break
                     if frames.seq != seen and frames.latest:
                         seen, data = frames.seq, frames.latest
                         yield (f"--{BOUNDARY}\r\nContent-Type: image/jpeg\r\nContent-Length: {len(data)}\r\n\r\n"

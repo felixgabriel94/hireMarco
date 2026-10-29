@@ -57,6 +57,50 @@ def bgra_from(pixel_buffer) -> np.ndarray | None:
         Quartz.CVPixelBufferUnlockBaseAddress(pixel_buffer, Quartz.kCVPixelBufferLock_ReadOnly)
 
 
+_OUTPUT = None
+
+
+def output_class():
+    """The ScreenCaptureKit output, defined once: Objective-C class names are global to the process."""
+    global _OUTPUT
+    if _OUTPUT is not None:
+        return _OUTPUT
+    import warnings
+
+    import CoreMedia
+    import objc
+    import ScreenCaptureKit as SCK
+    from Foundation import NSObject
+
+    warnings.filterwarnings("ignore", category=objc.ObjCPointerWarning)
+
+    class MarcoWindowOutput(NSObject, protocols=[objc.protocolNamed("SCStreamOutput")]):
+        def stream_didOutputSampleBuffer_ofType_(self, stream, sample, kind):
+            # an exception here would end the whole process from inside ScreenCaptureKit's queue
+            capture = getattr(self, "capture", None)
+            if capture is None:
+                return
+            try:
+                if kind != SCK.SCStreamOutputTypeScreen:
+                    return
+                pixels = CoreMedia.CMSampleBufferGetImageBuffer(sample)
+                if not pixels:  # an idle frame: the window did not change
+                    return
+                if hasattr(pixels, "pointerAsInteger"):
+                    # CoreMedia hands back a bare pointer; Core Video's functions take the object
+                    pixels = objc.objc_object(c_void_p=pixels.pointerAsInteger)
+                image = bgra_from(pixels)
+                if image is not None:
+                    with capture._lock:
+                        capture.latest = image
+                        capture.frames += 1
+            except Exception as exc:
+                capture.error = f"{type(exc).__name__}: {exc}"[:200]
+
+    _OUTPUT = MarcoWindowOutput
+    return _OUTPUT
+
+
 class WindowCapture:
     """ScreenCaptureKit on one window. ``latest`` is the newest frame; the window itself picks which one."""
 
@@ -85,10 +129,8 @@ class WindowCapture:
 
     def start(self) -> None:
         import CoreMedia
-        import objc
         import ScreenCaptureKit as SCK
         from AppKit import NSApplication
-        from Foundation import NSObject
 
         NSApplication.sharedApplication()  # ScreenCaptureKit needs the window server session a Cocoa app opens
         content, error = self._wait(SCK.SCShareableContent.getShareableContentWithCompletionHandler_,
@@ -111,29 +153,8 @@ class WindowCapture:
         config.setShowsCursor_(True)
         config.setQueueDepth_(5)
 
-        capture = self
-
-        class Output(NSObject, protocols=[objc.protocolNamed("SCStreamOutput")]):
-            def stream_didOutputSampleBuffer_ofType_(self, stream, sample, kind):
-                # an exception here would end the whole process from inside ScreenCaptureKit's queue
-                try:
-                    if kind != SCK.SCStreamOutputTypeScreen:
-                        return
-                    pixels = CoreMedia.CMSampleBufferGetImageBuffer(sample)
-                    if not pixels:  # an idle frame: the window did not change
-                        return
-                    if hasattr(pixels, "pointerAsInteger"):
-                        # CoreMedia hands back a bare pointer; Core Video's functions take the object
-                        pixels = objc.objc_object(c_void_p=pixels.pointerAsInteger)
-                    image = bgra_from(pixels)
-                    if image is not None:
-                        with capture._lock:
-                            capture.latest = image
-                            capture.frames += 1
-                except Exception as exc:
-                    capture.error = f"{type(exc).__name__}: {exc}"[:200]
-
-        self._output = Output.alloc().init()
+        self._output = output_class().alloc().init()
+        self._output.capture = self
         self._stream = SCK.SCStream.alloc().initWithFilter_configuration_delegate_(content_filter, config, None)
         ok, add_error = self._stream.addStreamOutput_type_sampleHandlerQueue_error_(
             self._output, SCK.SCStreamOutputTypeScreen, None, None)
@@ -150,6 +171,9 @@ class WindowCapture:
             except TimeoutError:
                 pass
             self._stream = None
+        if self._output is not None:
+            self._output.capture = None
+            self._output = None
 
 
 def window_track(source: Callable[[], np.ndarray | None]):
