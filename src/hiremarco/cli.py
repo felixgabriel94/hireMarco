@@ -505,6 +505,39 @@ def cmd_chain(args) -> int:
     return 0
 
 
+def cmd_console(args) -> int:
+    """UAD Console on one input: list its slots, load or unload a plug-in, set a control, point Auto-Tune at a key."""
+    from hiremarco.studio.console import Console, ConsoleError
+
+    console = Console()
+    words = " ".join(args.words)
+    try:
+        if args.action == "slots":
+            print(console.channel_name(args.channel))
+            for slot in console.slots(args.channel):
+                label = "Unison" if slot.number == 0 else f"insert {slot.number}"
+                print(f"  {label:<9} {slot.name or '(empty)'}{'' if slot.power or not slot.name else '  (off)'}")
+        elif args.action == "params":
+            for name, control in console.params(args.channel, args.slot).items():
+                print(f"  {name:<22} {control['shown']}")
+        elif args.action == "load":
+            print(f"loaded {console.load(args.channel, args.slot, words)} in slot {args.slot}")
+        elif args.action == "unload":
+            console.unload(args.channel, args.slot)
+            print(f"slot {args.slot} is empty")
+        elif args.action == "set":
+            name, _, value = words.rpartition(" ")
+            print(f"{name} = {console.set_param(args.channel, args.slot, name, value)}")
+        elif args.action == "tune":
+            key, scale = (args.words + ["minor"])[:2]
+            for name, shown in console.tune(args.channel, key, scale).items():
+                print(f"  {name:<16} {shown}")
+    except (ConsoleError, OSError) as stopped:
+        print(f"stopped: {stopped}")
+        return 1
+    return 0
+
+
 def cmd_ears(args) -> int:
     """Measure a folder of exported tracks, and the mix if given."""
     import json
@@ -859,6 +892,13 @@ def main(argv: list[str] | None = None) -> int:
     ch.add_argument("action", choices=["list", "read", "sound", "back"])
     ch.add_argument("words", nargs="*")
     ch.set_defaults(func=cmd_chain)
+
+    co = sub.add_parser("console", help="UAD Console: slots, params, load, unload, set NAME VALUE, tune KEY SCALE")
+    co.add_argument("action", choices=["slots", "params", "load", "unload", "set", "tune"])
+    co.add_argument("words", nargs="*")
+    co.add_argument("--channel", type=int, default=0, help="Console input, 0 = ANALOG 1")
+    co.add_argument("--slot", type=int, default=1, help="1 to 4 for inserts, 0 for Unison")
+    co.set_defaults(func=cmd_console)
 
     ea = sub.add_parser("ears")
     ea.add_argument("folder")
