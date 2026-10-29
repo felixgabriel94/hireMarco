@@ -7,6 +7,7 @@
     uv run marco serve                   the WhatsApp webhook on 127.0.0.1:8787
     uv run marco serve --listen-only     hear the Owner, reply to nothing (opens the 24-hour window)
     uv run marco whatsapp send "text"    one message to the Owner (manual trigger)
+    uv run marco whatsapp opened         the Owner has just written to Marco's number (until the webhook runs)
     uv run marco whatsapp verify-token   make the webhook token, copy it to the clipboard
     uv run marco whatsapp subscribe      point the WhatsApp account's webhooks at the app
     uv run marco google signin           one Google sign-in for mail (read) and calendar
@@ -120,6 +121,18 @@ def cmd_whatsapp(args) -> int:
             config.set_value("WHATSAPP_VERIFY_TOKEN", token, path)
         subprocess.run(["pbcopy"], input=token.encode(), check=True)
         print("WHATSAPP_VERIFY_TOKEN copied to the clipboard; paste it into Meta's Verify token field")
+        return 0
+
+    if args.action == "opened":
+        # Until the webhook runs, the Owner says at the desk that he has just written to Marco's number. Meta keeps
+        # its own 24-hour window and refuses a free-form text outside it at no charge, so a wrong claim only fails.
+        from datetime import datetime, timezone
+
+        from hiremarco.whatsapp.client import record_inbound
+
+        owner = config.require("OWNER_WHATSAPP")
+        record_inbound(gate.connect(), f"desk:{datetime.now(timezone.utc).isoformat()}", owner, "owner-said-at-desk")
+        Trace("whatsapp: window").done("recorded as opened by the Owner at the desk; Meta's own window still rules")
         return 0
 
     from hiremarco.whatsapp import WhatsApp
@@ -716,7 +729,7 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(func=cmd_serve)
 
     w = sub.add_parser("whatsapp")
-    w.add_argument("action", choices=["send", "verify-token", "subscribe"])
+    w.add_argument("action", choices=["send", "verify-token", "subscribe", "opened"])
     w.add_argument("text", nargs="*")
     w.set_defaults(func=cmd_whatsapp)
 
