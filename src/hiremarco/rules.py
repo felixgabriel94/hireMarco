@@ -4,9 +4,10 @@ Nothing in this repository sends outbound (a message, a call) unless a line
 in RULES.md names the tool and the destination. Absent means off. The line
 grammar, one per line under the "Send switches" heading::
 
-    send: <tool> -> <destination> ; <purpose> ; until <YYYY-MM-DD>
+    send: <tool> -> <destination> ; <purpose> ; until <YYYY-MM-DD | revoked>
 
-``<tool>`` is a package name such as ``whatsapp`` or ``calls``;
+``until revoked`` is a switch with no end date, on until its line is removed
+(Owner ruling 2026-10-29 for WhatsApp to the Owner). ``<tool>`` is a package name such as ``whatsapp`` or ``calls``;
 ``<destination>`` is a phone number in E.164 without the plus, ``owner`` for
 the Owner's own number (read from OWNER_WHATSAPP in the private env file, so
 it stays out of this public repository), or ``*`` for a tool that reaches no
@@ -23,7 +24,7 @@ from pathlib import Path
 from hiremarco import config
 
 RULES_PATH = Path(__file__).resolve().parents[2] / "RULES.md"
-LINE = re.compile(r"^\s*send:\s*(?P<tool>[\w-]+)\s*->\s*(?P<dest>\*|owner|\d{7,15})\s*;\s*(?P<purpose>[^;]+?)\s*;\s*until\s+(?P<until>\d{4}-\d{2}-\d{2})\s*$")
+LINE = re.compile(r"^\s*send:\s*(?P<tool>[\w-]+)\s*->\s*(?P<dest>\*|owner|\d{7,15})\s*;\s*(?P<purpose>[^;]+?)\s*;\s*until\s+(?P<until>\d{4}-\d{2}-\d{2}|revoked)\s*$")
 
 
 @dataclass(frozen=True)
@@ -42,7 +43,8 @@ def switches(path: Path | None = None) -> list[Switch]:
     for raw in path.read_text().splitlines():
         m = LINE.match(raw)
         if m:
-            found.append(Switch(m["tool"], m["dest"], m["purpose"].strip(), date.fromisoformat(m["until"])))
+            until = date.max if m["until"] == "revoked" else date.fromisoformat(m["until"])
+            found.append(Switch(m["tool"], m["dest"], m["purpose"].strip(), until))
     return found
 
 

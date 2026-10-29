@@ -32,6 +32,18 @@ def test_expired_line_is_off(tmp_path):
     assert rules.allowed("calls", "15551234567", date(2026, 10, 27), p) is False
 
 
+def test_until_revoked_has_no_end_date(tmp_path):
+    p = write(tmp_path, "send: calls -> 15551234567 ; the Owner's phone ; until revoked\n")
+    assert rules.switches(p)[0].until == date.max
+    assert rules.allowed("calls", "15551234567", date(2031, 1, 1), p) is True
+
+
+def test_repo_rules_file_keeps_whatsapp_to_the_owner_on_with_no_end_date():
+    # Owner ruling 2026-10-29: Marco texts the Owner on WhatsApp indefinitely
+    whatsapp = [s for s in rules.switches() if s.tool == "whatsapp"]
+    assert [(s.destination, s.until) for s in whatsapp] == [("owner", date.max)]
+
+
 def test_malformed_line_is_ignored(tmp_path):
     p = write(tmp_path, "send: calls -> restaurant ; no number ; until 2026-11-04\nsend calls 15551234567\n")
     assert rules.switches(p) == []

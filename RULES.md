@@ -19,16 +19,17 @@ closed. Check: `tests/test_rules.py`, `tests/test_gate.py`,
 
 Grammar, one line each, under the heading that follows:
 
-    send: <tool> -> <destination> ; <purpose> ; until <YYYY-MM-DD>
+    send: <tool> -> <destination> ; <purpose> ; until <YYYY-MM-DD | revoked>
 
-`<tool>` is the package that acts (`whatsapp`, `calls`, `logic`, `export`);
+`until revoked` has no end date: the switch stays on until its line is
+removed. `<tool>` is the package that acts (`whatsapp`, `calls`, `logic`, `export`);
 `<destination>` is a phone number in E.164 without the plus, `owner` for the
 Owner's own number (kept in the private env file, not in this repository),
 or `*` for a tool that reaches no person. A new destination is a new line.
 
 ## Send switches
 
-    send: whatsapp -> owner ; Marco's replies and the first-whatsapp take ; until 2026-11-04
+    send: whatsapp -> owner ; Marco's replies and the first-whatsapp take ; until revoked
     send: talkback -> * ; Marco's voice in the Owner's headphones, between takes ; until 2026-11-04
     send: logic -> * ; key commands, knobs and the export dialog in the Owner's Logic ; until 2026-11-04
 
