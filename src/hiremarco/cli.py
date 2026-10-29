@@ -490,6 +490,21 @@ def cmd_ears(args) -> int:
         print("no WAV or AIFF files in that folder")
         return 1
     print(summary(report))
+    if args.picture:
+        import soundfile as sf
+
+        from hiremarco.mix.picture import draw
+
+        first, second = args.picture
+        files = {p.stem: p for p in Path(args.folder).glob("*.wav")}
+        if first not in files or second not in files:
+            print(f"--picture needs two track names from: {', '.join(sorted(files))}")
+            return 1
+        a, ra = sf.read(files[first], dtype="float32")
+        b, rb = sf.read(files[second], dtype="float32")
+        out = Path(args.folder) / f"collision_{first}_{second}.svg".replace(" ", "_")
+        spans = draw((first, a, ra), (second, b, rb), out)
+        print(f"picture: {out} ({len(spans)} shaded region(s))")
     if args.json:
         Path(args.json).write_text(json.dumps(report.as_dict(), indent=1))
         print(f"report written: {args.json}")
@@ -625,6 +640,7 @@ def main(argv: list[str] | None = None) -> int:
     ea.add_argument("folder")
     ea.add_argument("--mix")
     ea.add_argument("--json")
+    ea.add_argument("--picture", nargs=2, metavar=("TRACK_A", "TRACK_B"))
     ea.set_defaults(func=cmd_ears)
 
     ho = sub.add_parser("handoff")
