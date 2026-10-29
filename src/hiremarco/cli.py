@@ -32,6 +32,7 @@
     uv run marco chain list|read         the selected track's inserts, and every active plugin's settings
     uv run marco chain sound warmer      Muse Wonder sets the whole chain from a description
     uv run marco chain back              put every control the last change moved back where it was
+    uv run marco ears FOLDER [--mix F]   each exported track's loudness, bands and collisions; the mix's headroom
     uv run marco run-check FILE --key "F minor" [--start S --end S] [--play] [--midi out.mid]
                                          the notes of a vocal run, cents off each, and the corrected guide
 """
@@ -472,6 +473,24 @@ def cmd_chain(args) -> int:
     return 0
 
 
+def cmd_ears(args) -> int:
+    """Measure a folder of exported tracks, and the mix if given."""
+    import json
+    from pathlib import Path
+
+    from hiremarco.mix.ears import listen, summary
+
+    report = listen(Path(args.folder), Path(args.mix) if args.mix else None)
+    if not report.tracks and not report.mix:
+        print("no WAV or AIFF files in that folder")
+        return 1
+    print(summary(report))
+    if args.json:
+        Path(args.json).write_text(json.dumps(report.as_dict(), indent=1))
+        print(f"report written: {args.json}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -573,6 +592,12 @@ def main(argv: list[str] | None = None) -> int:
     ch.add_argument("action", choices=["list", "read", "sound", "back"])
     ch.add_argument("words", nargs="*")
     ch.set_defaults(func=cmd_chain)
+
+    ea = sub.add_parser("ears")
+    ea.add_argument("folder")
+    ea.add_argument("--mix")
+    ea.add_argument("--json")
+    ea.set_defaults(func=cmd_ears)
 
     args = parser.parse_args(argv)
     if args.command == "say" and not (args.tone or args.text):
