@@ -33,6 +33,8 @@
     uv run marco chain sound warmer      Muse Wonder sets the whole chain from a description
     uv run marco chain back              put every control the last change moved back where it was
     uv run marco ears FOLDER [--mix F]   each exported track's loudness, bands and collisions; the mix's headroom
+    uv run marco session FOLDER          the session view: each track's role and reading, the ranked fights,
+                                         what is masked, each track against its role's target, the hardware
     uv run marco handoff mix-ready FOLDER --song S      the session folder a mix engineer expects, measured
     uv run marco handoff master-ready MIX.wav --song S  the mix checked and filed for mastering, or what stops it
     uv run marco run-check FILE --key "F minor" [--start S --end S] [--play] [--midi out.mid]
@@ -534,6 +536,25 @@ def cmd_handoff(args) -> int:
     return 0
 
 
+def cmd_session(args) -> int:
+    """Marco's session view of a folder of exported tracks: roles, fights, masking, targets, hardware."""
+    from pathlib import Path
+
+    from hiremarco.mix.ears import listen
+    from hiremarco.mix.session import build, save, summary
+
+    report = listen(Path(args.folder).expanduser(), Path(args.mix).expanduser() if args.mix else None)
+    if not report.tracks:
+        print("no WAV or AIFF files in that folder")
+        return 1
+    view = build(report)
+    print(summary(view))
+    if args.json:
+        save(view, Path(args.json).expanduser())
+        print(f"session view written: {args.json}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -649,6 +670,12 @@ def main(argv: list[str] | None = None) -> int:
     ho.add_argument("--song", required=True)
     ho.add_argument("--dest", default="~/Desktop")
     ho.set_defaults(func=cmd_handoff)
+
+    sv = sub.add_parser("session")
+    sv.add_argument("folder")
+    sv.add_argument("--mix")
+    sv.add_argument("--json")
+    sv.set_defaults(func=cmd_session)
 
     args = parser.parse_args(argv)
     if args.command == "say" and not (args.tone or args.text):
