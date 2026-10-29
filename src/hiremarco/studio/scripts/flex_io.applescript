@@ -1,7 +1,7 @@
 -- Flex Pitch in Logic's Audio Track Editor: read its state, list its menus, or apply a first pass.
 --   osascript flex_io.applescript state
 --   osascript flex_io.applescript menus
---   osascript flex_io.applescript apply "E" "Minor (Aeolian)" 80
+--   osascript flex_io.applescript apply "E" "minor" 80        (a scale's full name works too)
 -- Grounded in the live map of 2026-10-29: the editor's header has a checkbox "Show/Hide Flex" and a pop-up whose
 -- value is the flex mode ("Flex Pitch"); its left inspector holds the static texts "Scale Quantize" (with a root
 -- pop-up, "Off" or a note, and a scale pop-up, "Major (Ionian)") and "Pitch Correction" (with a 0 to 100 slider).
@@ -153,9 +153,33 @@ on run argv
 				delay 0.4
 				click menu item wantRoot of menu 1 of rootPop
 				delay 0.3
+				-- the scale list opens only once a root is set (it read empty with root Off, live 2026-10-29), so it is
+				-- read now and the wanted scale is matched by name: "minor" finds "Minor (Aeolian)"
 				click scalePop
 				delay 0.4
-				click menu item wantScale of menu 1 of scalePop
+				set names to name of every menu item of menu 1 of scalePop
+				set picked to missing value
+				repeat with nm in names
+					set nmText to nm as text
+					if picked is missing value and nmText is not "" then
+						if nmText is wantScale then set picked to nmText
+					end if
+				end repeat
+				if picked is missing value then
+					repeat with nm in names
+						set nmText to nm as text
+						if picked is missing value then
+							if wantScale is "minor" and (nmText starts with "Minor" or nmText contains "Aeolian") then set picked to nmText
+							if wantScale is "major" and (nmText starts with "Major" or nmText contains "Ionian") then set picked to nmText
+						end if
+					end repeat
+				end if
+				if picked is missing value then
+					key code 53
+					set AppleScript's text item delimiters to "|"
+					error "no scale called " & wantScale & " in Flex Pitch's list: " & (names as text)
+				end if
+				click menu item picked of menu 1 of scalePop
 				delay 0.3
 				set value of amount to wantAmount
 				delay 0.3
