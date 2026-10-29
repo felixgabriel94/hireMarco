@@ -140,13 +140,19 @@ on run argv
 			tell process "Logic Pro"
 				set regionItem to first UI element of contentsArea whose role is "AXLayoutItem"
 				set regionPos to position of regionItem
-				set visible to value of attribute "AXParent" of contentsArea
-				set visiblePos to position of visible
 			end tell
 		end tell
+		-- the editor's own panel ("Track") is on screen even when its notes are scrolled: click a third of
+		-- the way down it, just inside the region (the notes area starts after its left inspector)
+		set editorPanel to findDesc(main, "Track", 0)
+		if editorPanel is missing value then error "the editor is not open"
+		tell application "System Events"
+			set editorPos to position of editorPanel
+			set editorSize to size of editorPanel
+		end tell
 		set px to item 1 of regionPos
-		set vx to item 1 of visiblePos
-		set vy to item 2 of visiblePos
+		set vx to (item 1 of editorPos) + 260
+		set vy to (item 2 of editorPos) + ((item 2 of editorSize) div 3) - 40
 		tell application "System Events"
 			tell process "Logic Pro"
 				set clickX to px + 12
