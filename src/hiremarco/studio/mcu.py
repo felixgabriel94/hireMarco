@@ -80,6 +80,7 @@ class Surface:
     def __init__(self, send: Callable[[object], None] | None = None, log: Callable[[str], None] | None = None):
         self.screen = Screen()
         self.version = 0  # counts display writes, so a move can wait for Logic to redraw
+        self.mode = ["", ""]  # the two-character mode display: "P2" is insert slot 2 in Plug-in view
         self.lit: dict[int, bool] = {}
         self.log = log or (lambda line: None)
         self._send = send
@@ -123,6 +124,9 @@ class Surface:
             self.log("sysex " + " ".join(f"{b:02x}" for b in data))
         elif message.type == "note_on":
             self.lit[message.note] = message.velocity > 0
+        elif message.type == "control_change" and message.control in (0x4A, 0x4B):
+            value = message.value & 0x3F
+            self.mode[0x4B - message.control] = chr(value + 0x40) if value < 0x20 else chr(value)
         elif message.type not in ("clock",):
             self.log(str(message))
 
@@ -262,6 +266,174 @@ def jump(surface: Surface, strip: int, names: list[str], target_name: str, round
     raise LookupError(f"did not reach {target_name!r} in {rounds} moves")
 
 
+def slot_now(surface: Surface) -> int | None:
+    """The insert slot Plug-in Mixer view shows, from the mode display ("P1" to "P9", then "10" to "15")."""
+    left, right = surface.mode
+    if left == "P" and right.isdigit():
+        return int(right)
+    if (left + right).isdigit():
+        return int(left + right)
+    return None
+
+
+def wait_for(check: Callable[[], bool], timeout: float = 1.5) -> bool:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        if check():
+            return True
+        time.sleep(0.02)
+    return check()
+
+
+def mixer_view(surface: Surface) -> None:
+    """Pan, then Plug-in: Logic lands in Plug-in Mixer view, one insert slot across the eight strips."""
+    surface.press("pan")
+    wait_for(lambda: slot_now(surface) is None)  # Pan mode shows "PN"
+    surface.press("plugin")
+    if not wait_for(lambda: slot_now(surface) is not None) or surface.screen.lines[0].startswith("Ins1Pl"):
+        raise LookupError("Logic did not open Plug-in Mixer view")
+    time.sleep(0.3)
+
+
+def go_slot(surface: Surface, slot: int) -> None:
+    if not 1 <= slot <= 15:
+        raise LookupError("Logic has insert slots 1 to 15")
+    for _ in range(20):
+        now = slot_now(surface)
+        if now == slot:
+            time.sleep(0.25)  # the bottom line redraws for the new slot
+            return
+        if now is None:
+            raise LookupError("not in Plug-in Mixer view")
+        surface.press("down" if slot > now else "up")
+        wait_for(lambda: slot_now(surface) != now, 0.8)
+    raise LookupError(f"could not reach insert slot {slot}")
+
+
+def strip_of(surface: Surface, track: str) -> int:
+    """The strip whose short name Logic shows is spelled inside ``track`` ("OS_6x_" in
+    "OS_6ix_149_vocal_remnants_Em"): Logic shortens names by dropping letters, so the short name is a
+    subsequence of the full one."""
+    if track.isdigit():
+        return int(track)
+    def inside(short: str, full: str) -> bool:
+        letters = iter(full.lower())
+        return bool(short) and all(ch in letters for ch in short.lower())
+    def ends(short: str, full: str) -> int:  # shared start plus shared end: "ins117" beats "Inst 1" for "instrumental 117"
+        a, b = short.lower(), full.lower()
+        start = next((i for i, (x, y) in enumerate(zip(a, b)) if x != y), min(len(a), len(b)))
+        end = next((i for i, (x, y) in enumerate(zip(a[::-1], b[::-1])) if x != y), min(len(a), len(b)))
+        return start + end
+
+    hits = [n for n in range(8) if inside(surface.screen.strip(n)[0], track)]
+    scored = sorted(((ends(surface.screen.strip(n)[0], track), n) for n in hits), reverse=True)
+    if not scored or (len(scored) > 1 and scored[0][0] == scored[1][0]):
+        raise LookupError(f"{track!r} matches strips {hits}; give the strip number (0 to 7)")
+    return scored[0][1]
+
+
+def insert(surface: Surface, names: list[str], track: str, slot: int, words: str, replace: bool = False) -> str:
+    """Put a plug-in into a track's insert slot in one go: Plug-in Mixer view, the slot, a guard against
+    replacing what is there, the jump with read-back, the press, then a read of the slot to prove it."""
+    mixer_view(surface)
+    strip = strip_of(surface, track)
+    go_slot(surface, slot)
+    there = surface.screen.strip(strip)[1]
+    if there not in ("--", "") and not replace:
+        raise LookupError(f"insert {slot} on that track already holds {there}; say replace to swap it")
+    shown = jump(surface, strip, names, names[pick(names, words)])
+    surface.press("vpot", strip)
+    time.sleep(0.8)
+    mixer_view(surface)  # the press opened Plug-in Edit view; back to the slots to read the result
+    go_slot(surface, slot)
+    landed = surface.screen.strip(strip)[1]
+    if landed in ("--", ""):
+        raise LookupError(f"pressed {shown}, but insert {slot} reads empty")
+    return f"{shown} in insert {slot} (the strip reads {landed})"
+
+
+def remove(surface: Surface, track: str, slot: int) -> str:
+    mixer_view(surface)
+    strip = strip_of(surface, track)
+    go_slot(surface, slot)
+    there = surface.screen.strip(strip)[1]
+    if there in ("--", ""):
+        return f"insert {slot} was already empty"
+    to_empty(surface, strip)
+    if not slot_text(surface.screen, strip).startswith("--"):
+        raise LookupError("could not preselect the empty choice")
+    surface.press("vpot", strip)
+    time.sleep(0.8)
+    mixer_view(surface)
+    go_slot(surface, slot)
+    if surface.screen.strip(strip)[1] not in ("--", ""):
+        raise LookupError(f"insert {slot} still reads {surface.screen.strip(strip)[1]}")
+    return f"removed {there} from insert {slot}"
+
+
+PLUGIN_FOLDERS = ("/Library/Audio/Plug-Ins/Components", "~/Library/Audio/Plug-Ins/Components")
+WATCH_EVERY = 300.0  # seconds between looks at the plug-in folders
+
+
+def bundles(folders=PLUGIN_FOLDERS) -> set[str]:
+    """The Audio Unit bundles installed, the plug-ins Logic can list."""
+    from pathlib import Path
+
+    found = set()
+    for folder in folders:
+        path = Path(folder).expanduser()
+        if path.is_dir():
+            found |= {p.name for p in path.iterdir() if p.suffix == ".component"}
+    return found
+
+
+def idle(surface: Surface) -> bool:
+    """Logic is neither playing nor recording (the transport lights it sends the surface)."""
+    return not surface.lit.get(NOTE["play"]) and not surface.lit.get(NOTE["record"])
+
+
+def relearn(surface: Surface, index_path) -> list[str]:
+    """Scan again on an empty slot and return the names that are new to the index."""
+    import json as _json
+
+    old = set(_json.loads(index_path.read_text())) if index_path.exists() else set()
+    mixer_view(surface)
+    go_slot(surface, 15)
+    strip = next((n for n in range(8) if surface.screen.strip(n)[1] == "--" and surface.screen.strip(n)[0]), None)
+    if strip is None:
+        raise LookupError("no empty insert 15 to scan on")
+    names = scan(surface, strip)
+    surface.press("pan")
+    index_path.write_text(_json.dumps(names, indent=0))
+    return [n for n in names if n not in old]
+
+
+def watch(surface: Surface, lock, index_path, every: float = WATCH_EVERY, stop=None) -> None:
+    """When a plug-in is installed, learn Logic's list again once Logic is idle, and say what is new."""
+    import json as _json
+
+    snapshot = index_path.with_name("plugin_bundles.json")
+    learned = index_path.with_name("learned_plugins.json")
+    if not snapshot.exists():
+        snapshot.write_text(_json.dumps(sorted(bundles())))
+    while not (stop and stop.is_set()):
+        time.sleep(every)
+        now = bundles()
+        added = now - set(_json.loads(snapshot.read_text()))
+        if not added or not idle(surface):
+            continue
+        with lock:
+            surface.log(f"new plug-in bundles {sorted(added)}: learning Logic's list again")
+            try:
+                fresh = relearn(surface, index_path)
+            except LookupError as stopped:
+                surface.log(f"relearn stopped: {stopped}")
+                continue
+        snapshot.write_text(_json.dumps(sorted(now)))
+        learned.write_text(_json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S %z"), "new": fresh}))
+        surface.log(f"learned {len(fresh)} new plug-in(s): {', '.join(fresh) or 'none yet (Logic may list it after a restart)'}")
+
+
 def serve(sock_path, log_path) -> None:
     """Hold the ports open and take one command per connection on a Unix socket:
     ``press NAME [INDEX]``, ``turn STRIP CLICKS``, ``screen``. Every reply ends with the screen as it stands."""
@@ -277,10 +449,15 @@ def serve(sock_path, log_path) -> None:
     server.bind(str(sock_path))
     server.listen(4)
     surface.log(f"surface up on '{PORT}'")
+    import threading
+
+    lock = threading.Lock()
+    index_path = Path(log_path).with_name("maps") / "logic_plugins.json"
+    threading.Thread(target=watch, args=(surface, lock, index_path), daemon=True).start()
     try:
         while True:
             conn, _ = server.accept()
-            with conn:
+            with conn, lock:
                 words = conn.recv(1024).decode().split()
                 answer = "ok"
                 try:
@@ -302,6 +479,21 @@ def serve(sock_path, log_path) -> None:
                             index.write_text(_json.dumps(names, indent=0))
                         answer = (f"preselected {shown} in {time.monotonic() - started:.1f} s"
                                   + (f"; learned {len(names) - before} name(s)" if len(names) != before else ""))
+                    elif words and words[0] in ("insert", "replace"):
+                        import json as _json
+
+                        index = Path(log_path).with_name("maps") / "logic_plugins.json"
+                        names = _json.loads(index.read_text())
+                        started = time.monotonic()
+                        done = insert(surface, names, words[1], int(words[2]), " ".join(words[3:]),
+                                      replace=words[0] == "replace")
+                        index.write_text(_json.dumps(names, indent=0))
+                        answer = f"{done} in {time.monotonic() - started:.1f} s"
+                    elif words and words[0] == "learned":
+                        learned = index_path.with_name("learned_plugins.json")
+                        answer = learned.read_text() if learned.exists() else "nothing new learned yet"
+                    elif words and words[0] == "remove":
+                        answer = remove(surface, words[1], int(words[2]))
                     elif words and words[0] == "scan":
                         import json as _json
 

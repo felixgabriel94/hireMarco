@@ -115,3 +115,78 @@ def test_jump_learns_a_name_the_index_missed(monkeypatch):
     logic.surface.receive(lcd(56 + 7, "Plug 0150 (s/s)".ljust(49)))
     assert mcu.jump(logic.surface, 1, index, "Plug 0200 (s/s)") == "Plug 0200 (s/s)"
     assert index == real
+
+
+def test_mode_display_gives_the_insert_slot():
+    surface = Surface(send=lambda m: None)
+    for control, value in ((0x4B, 0x10), (0x4A, 0x32)):  # "P", "2"
+        surface.receive(mido.Message("control_change", control=control, value=value))
+    assert surface.mode == ["P", "2"] and mcu.slot_now(surface) == 2
+    surface.receive(mido.Message("control_change", control=0x4A, value=0x0E))  # "N": Pan mode, "PN"
+    assert mcu.slot_now(surface) is None
+
+
+def test_strip_of_matches_logic_short_names_inside_the_full_name():
+    surface = Surface(send=lambda m: None)
+    surface.screen.write(0, "ins117 Inst 1 OS_6x_ St Out Master ")
+    assert mcu.strip_of(surface, "OS_6ix_149_vocal_remnants_Em") == 2
+    assert mcu.strip_of(surface, "instrumental 117") == 0
+    assert mcu.strip_of(surface, "3") == 3
+
+
+def test_bundles_lists_audio_units(tmp_path):
+    (tmp_path / "Pro-R 2.component").mkdir()
+    (tmp_path / "notes.txt").write_text("")
+    assert mcu.bundles([str(tmp_path)]) == {"Pro-R 2.component"}
+
+
+def test_watch_relearns_when_a_bundle_appears_and_logic_is_idle(tmp_path, monkeypatch):
+    import json
+    import threading
+
+    folder = tmp_path / "Components"
+    folder.mkdir()
+    (folder / "Old.component").mkdir()
+    index = tmp_path / "maps" / "logic_plugins.json"
+    index.parent.mkdir()
+    index.write_text(json.dumps(["Old (s/s)"]))
+    monkeypatch.setattr(mcu, "PLUGIN_FOLDERS", (str(folder),))
+    monkeypatch.setattr(mcu, "bundles", lambda folders=None: {p.name for p in folder.iterdir()})
+    stop = threading.Event()
+    calls = []
+
+    def fake_relearn(surface, path):
+        calls.append(path)
+        stop.set()
+        return ["Pro-R 2 (s/s)"]
+
+    monkeypatch.setattr(mcu, "relearn", fake_relearn)
+    surface = Surface(send=lambda m: None)
+    (folder / "Pro-R 2.component").mkdir()
+    index.with_name("plugin_bundles.json").write_text(json.dumps(["Old.component"]))
+    mcu.watch(surface, threading.Lock(), index, every=0, stop=stop)
+    learned = json.loads(index.with_name("learned_plugins.json").read_text())
+    assert calls and learned["new"] == ["Pro-R 2 (s/s)"]
+
+
+def test_watch_waits_while_logic_records(tmp_path, monkeypatch):
+    import json
+    import threading
+
+    index = tmp_path / "logic_plugins.json"
+    index.with_name("plugin_bundles.json").write_text(json.dumps([]))
+    monkeypatch.setattr(mcu, "bundles", lambda folders=None: {"New.component"})
+    stop = threading.Event()
+    rounds = []
+
+    def fake_sleep(seconds):
+        rounds.append(seconds)
+        if len(rounds) > 3:
+            stop.set()
+
+    monkeypatch.setattr(mcu.time, "sleep", fake_sleep)
+    monkeypatch.setattr(mcu, "relearn", lambda s, p: (_ for _ in ()).throw(AssertionError("scanned mid-take")))
+    surface = Surface(send=lambda m: None)
+    surface.lit[mcu.NOTE["record"]] = True
+    mcu.watch(surface, threading.Lock(), index, every=1, stop=stop)
+    assert len(rounds) > 3
