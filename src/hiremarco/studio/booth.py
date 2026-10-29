@@ -15,6 +15,7 @@ one spot would fix it. "Marco, punch it" then punches that spot.
 from __future__ import annotations
 
 import subprocess
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -130,6 +131,19 @@ class Booth:
     heard_line: str = ""
     _asked_after_take: bool = False                   # the after-take answer is used once per take
     send_link: Callable[[str], str] | None = None     # a link to the artist's phone by text; None or a refusal: the Mac
+
+    def toggle(self) -> str:
+        """Control+Option+M: wake him if he is away, send him away if he is with you. Held while a take rolls."""
+        now = time.monotonic()
+        if self.rolling:
+            return self._done("shortcut", "held: a take is rolling", now)
+        if self.asleep or now - self.awake_at >= AWAKE:
+            self.asleep, self.awake_at = False, now
+            self._speak(self._answer_to_name())
+            return self._done("shortcut", "woken; listening without his name", now)
+        self.awake_at, self.asleep = -100.0, True
+        self._say("the artist is done talking for now; sign off", {}, DISMISSED)
+        return self._done("shortcut", "sent away; listening for his name only", now)
 
     def _answer_to_name(self) -> str:
         """One of the instant answers: none of the last three, and an after-the-take one when a take just ended."""
@@ -444,6 +458,25 @@ _LIVE: list = []
 _HALO: list = []
 
 
+SHORTCUT_PORT = 8790
+
+
+def _shortcut_listener(booth: "Booth") -> None:
+    """The halo app sends "toggle" here when Control+Option+M is pressed."""
+    import socket
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        sock.bind(("127.0.0.1", SHORTCUT_PORT))
+    except OSError:
+        print(f"   (shortcut off: port {SHORTCUT_PORT} is taken)")
+        return
+    while True:
+        data, _ = sock.recvfrom(64)
+        if data.strip() == b"toggle":
+            booth.toggle()
+
+
 def _text_owner(text: str) -> str:
     """One text to the Owner's WhatsApp, through the gate. Turned on by HIREMARCO_TEXT_LINKS=on, after the
     first WhatsApp message (filmed Thursday) has gone out, so nothing else is his first message from Marco."""
@@ -571,6 +604,7 @@ def run_booth(*, dry_run: bool = False) -> int:
                 halo = None
         if halo is not None:
             _HALO.append(halo)
+            threading.Thread(target=_shortcut_listener, args=(booth,), daemon=True).start()
         with audio:
             print(f"booth live on {audio.device or 'the default interface'}, mic channel {audio.mic_channel}, "
                   f"Marco on outputs {audio.out_pair[0]}-{audio.out_pair[1]}, one stream"

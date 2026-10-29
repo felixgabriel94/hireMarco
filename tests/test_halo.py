@@ -198,3 +198,21 @@ def test_his_answer_to_his_name_varies_and_asks_how_the_take_felt_once_after_it(
     b.awake_at = -100.0
     b.hear("Hey Marco.")
     assert said[-1] in HEARD
+
+
+def test_the_shortcut_wakes_him_sends_him_away_and_waits_out_a_take():
+    from hiremarco.studio.booth import AWAKE, HEARD
+
+    said = []
+    b = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: c.describe(), say=said.append,
+              feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None)
+    assert "woken" in b.toggle() and said[-1] in HEARD
+    assert "mode" in b.hear("What mode are you in?")  # awake: no name needed
+    assert "sent away" in b.toggle() and b.asleep
+    assert b.hear("What mode are you in?") is None
+    b.hear("Marco, record.")
+    count = len(said)
+    assert "held" in b.toggle() and len(said) == count  # nothing in the headphones during a take
+    b.hear("Marco, stop.")
+    b.awake_at -= AWAKE + 1
+    assert "woken" in b.toggle()

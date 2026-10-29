@@ -11,6 +11,7 @@
 //   MarcoHalo                 run, waiting for the booth
 //   MarcoHalo --preview DIR   write one picture per state to DIR and exit
 import AppKit
+import Carbon
 import Network
 import SwiftUI
 
@@ -298,6 +299,25 @@ NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .
     return nil
 }
 
+// Control+Option+M: wake him or send him away from the keyboard. A system shortcut, so it works while Logic is in
+// front; the booth hears it as "toggle" on 127.0.0.1:8790 and decides which way it goes.
+let booth = NWConnection(host: "127.0.0.1", port: 8790, using: .udp)
+
+func registerShortcut() {
+    booth.start(queue: .main)
+    var pressed = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+    InstallEventHandler(GetApplicationEventTarget(), { _, _, _ in
+        note("shortcut: toggle")
+        booth.send(content: "toggle".data(using: .utf8), completion: .contentProcessed { _ in })
+        return noErr
+    }, 1, &pressed, nil, nil)
+    var ref: EventHotKeyRef?
+    let id = EventHotKeyID(signature: OSType(0x4D52434F), id: 1)  // "MRCO"
+    let status = RegisterEventHotKey(UInt32(kVK_ANSI_M), UInt32(controlKey | optionKey), id,
+                                     GetApplicationEventTarget(), 0, &ref)
+    note(status == noErr ? "shortcut: Control+Option+M ready" : "shortcut: Control+Option+M is taken (\(status))")
+}
+
 func watch() {
     let option = NSEvent.modifierFlags.contains(.option)
     panel.ignoresMouseEvents = !(option || dragging)
@@ -313,5 +333,6 @@ let timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
 }
 keep.append(timer)
 keep.append(Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in watch() })
+registerShortcut()
 listen()
 app.run()
