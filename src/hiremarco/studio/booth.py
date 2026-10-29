@@ -130,7 +130,7 @@ class Booth:
     last_said: str = ""
     heard_line: str = ""
     _asked_after_take: bool = False                   # the after-take answer is used once per take
-    send_link: Callable[[str], str] | None = None     # a link to the artist's phone by text; None or a refusal: the Mac
+    send_link: Callable[[str, str], str] | None = None  # (body, url) to the artist's phone; None or a refusal: the Mac
 
     def toggle(self) -> str:
         """Command+Option+M: wake him if he is away, send him away if he is with you. Held while a take rolls."""
@@ -156,12 +156,12 @@ class Booth:
         self.recent_answers.append(line)
         return line
 
-    def _deliver(self, text: str) -> str:
-        """Links go to the artist's phone by text when Marco can send one; otherwise they stay on the Mac."""
+    def _deliver(self, body: str, url: str) -> str:
+        """Links go to the artist's phone as a message with a button when Marco can send one; else the Mac."""
         if self.send_link is None:
             return "printed and copied"
         try:
-            self.send_link(text)
+            self.send_link(body, url)
             return "texted"
         except Exception as exc:  # not set up yet, outside the 24-hour window, or held by the gate
             self.log(f"   (not texted: {getattr(exc, 'reason', None) or type(exc).__name__}; printed and copied)")
@@ -192,8 +192,6 @@ class Booth:
             return self._done(f"heard: {line}", f"held: {refused.reason}", started)
         if command is None:
             return None  # not addressed to Marco
-        if implied and command.action == "unknown":
-            return None  # maybe said to someone else in the room: he lets it pass instead of asking again
         self.awake_at = time.monotonic()
         self.asleep = False
         self.busy = True
@@ -378,7 +376,7 @@ class Booth:
                 return "no live view in this booth"
             link = self.live()
             self.log(f"   live view: {link}")
-            where = self._deliver(f"Live view: {link}")
+            where = self._deliver("Live view of the session. Open it on the same Wi-Fi as the Mac.", link)
             self._say("live view on", {"link": "texted to the artist's phone" if where == "texted"
                                        else "on the Mac's screen, copied"}, LIVE_TEXTED if where == "texted" else LIVE_ON)
             return f"live view on, link {where}"
@@ -471,12 +469,13 @@ def _shortcut_listener(booth: "Booth", sock) -> None:
             booth.hear("Marco, give me the live view")
 
 
-def _text_owner(text: str) -> str:
+def _text_owner(body: str, url: str) -> str:
     """One text to the Owner's WhatsApp, through the gate. Turned on by HIREMARCO_TEXT_LINKS=on, after the
     first WhatsApp message (filmed Thursday) has gone out, so nothing else is his first message from Marco."""
     from hiremarco.whatsapp import WhatsApp
 
-    return WhatsApp().send_text(config.require("OWNER_WHATSAPP"), text, idempotency_key=f"link:{time.time_ns()}")
+    return WhatsApp().send_link(config.require("OWNER_WHATSAPP"), body, url, "Open live view",
+                                idempotency_key=f"link:{time.time_ns()}")
 
 
 def _booth_live() -> str:

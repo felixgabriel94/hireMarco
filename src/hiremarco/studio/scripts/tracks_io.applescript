@@ -109,12 +109,14 @@ on run argv
 			delay 0.1
 			set waited to waited + 1
 		end repeat
-		if focusedLine() is "none" then error "Logic already has a field open; press Escape and try again"
+		-- after a new track the focus stays none (live 2026-10-29, 2 s and more), so none before is not proof a
+		-- field is open; the editor is then judged by the header alone, after the paste
+		set startedNone to (focusedLine() is "none")
 		tell application "System Events" to tell process "Logic Pro" to keystroke return using shift down
 		delay 0.5
 		-- Logic's name editor is invisible to Accessibility: with it open, the focused element reads as none, where
 		-- before it was the window (live 2026-10-29). Anything else means the editor did not open; nothing is typed.
-		if focusedLine() is not "none" then error "Rename Track (Shift+Return) did not open the track's name field"
+		if not startedNone and focusedLine() is not "none" then error "Rename Track (Shift+Return) did not open the track's name field"
 		-- Paste, not typed letters: in Logic a stray letter is a key command (R records).
 		set saved to the clipboard
 		set the clipboard to newName

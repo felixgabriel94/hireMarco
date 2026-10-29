@@ -110,6 +110,16 @@ class WhatsApp:
         return self._send(to, {"type": "text", "text": {"body": body}}, text_for_gate=body,
                           idempotency_key=idempotency_key, capability="send_message", critic=critic, now=now)
 
+    def send_link(self, to: str, body: str, url: str, label: str, *, idempotency_key: str, critic=None,
+                  now: datetime | None = None) -> str:
+        """A message with a button that opens the link. A plain link to an address on the home network is not
+        made tappable by WhatsApp (live 2026-10-29: the Owner had to copy it out), a button is."""
+        payload = {"type": "interactive", "interactive": {
+            "type": "cta_url", "body": {"text": body},
+            "action": {"name": "cta_url", "parameters": {"display_text": label[:20], "url": url}}}}
+        return self._send(to, payload, text_for_gate=f"{body} {url}", idempotency_key=idempotency_key,
+                          capability="send_message", critic=critic, now=now)
+
     def upload_media(self, data: bytes, mime_type: str, filename: str) -> str:
         """Upload a file to the phone number's media store. Returns the media id."""
         try:

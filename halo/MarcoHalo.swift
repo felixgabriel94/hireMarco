@@ -245,6 +245,9 @@ panel.backgroundColor = .clear
 panel.hasShadow = false
 panel.level = .floating
 panel.ignoresMouseEvents = true
+// An NSPanel hides whenever its app is not the active one, and this app never is: the halo stayed hidden in the
+// booth and only showed when the shortcut briefly activated it (live 2026-10-29). An overlay must not do that.
+panel.hidesOnDeactivate = false
 panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
 panel.contentView = NSHostingView(rootView: Orb(halo: state))
 panel.orderFrontRegardless()

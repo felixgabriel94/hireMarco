@@ -144,13 +144,18 @@ def test_once_awake_he_needs_no_name_until_a_take_or_a_quiet_stretch():
     from hiremarco.studio.booth import AWAKE, MISSED
 
     said, links, did = [], [], []
-    b = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: did.append(c.action) or c.describe(),
+    from hiremarco.studio.commands import Command
+
+    def hears(line):  # a line no fast rule places stands for what the model would call unknown
+        return Command("unknown") if "the thing" in line else understand(line, client=None)
+
+    b = Booth(understand=hears, logic=lambda c: did.append(c.action) or c.describe(),
               say=said.append, feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None,
-              live=lambda: "http://x", send_link=links.append)
+              live=lambda: "http://x", send_link=lambda body, url: links.append(url))
     b.hear("Hey Marco.")
-    assert "link texted" in b.hear("Give me the live view.") and links == ["Live view: http://x"]
+    assert "link texted" in b.hear("Give me the live view.") and links == ["http://x"]
     assert "play" in b.hear("Play it back.")  # still awake, still no name
-    assert b.hear("can you pass me the water") is None and MISSED not in said  # not for him: let pass
+    assert "asked him to say it again" in b.hear("make the thing a bit more") and said[-1] == MISSED  # awake: he asks
     b.hear("Record.")
     assert b.rolling and b.hear("stop") is None  # sung or said during the take: never a command without his name
     assert "stop" in b.hear("Marco, stop.")

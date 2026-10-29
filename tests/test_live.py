@@ -160,10 +160,10 @@ def test_the_link_is_texted_when_marco_can_and_kept_on_the_mac_when_he_cannot():
                      say=said.append, feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=logged.append,
                      live=lambda: "http://192.168.0.2:8788/?t=x", send_link=send)
 
-    assert "link texted" in booth(texts.append).hear("Marco, give me the live view")
-    assert texts == ["Live view: http://192.168.0.2:8788/?t=x"] and said[-1] == LIVE_TEXTED
+    assert "link texted" in booth(lambda body, url: texts.append(url)).hear("Marco, give me the live view")
+    assert texts == ["http://192.168.0.2:8788/?t=x"] and said[-1] == LIVE_TEXTED
 
-    def outside(text):
+    def outside(body, url):
         raise gate.Refused("outside the 24-hour window")
 
     assert "printed and copied" in booth(outside).hear("Marco, live view")
