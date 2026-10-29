@@ -37,6 +37,7 @@ DIALING = "Let me dial that in."
 MISSED = "I missed that. Say it again?"
 FAILED = "That one didn't take. I'll note it."
 THINKING = ["Hmm.", "Okay.", "Let me see.", "One sec.", "Mm, okay."]
+AUTO_NOTE_SECONDS = 8  # a take this long or longer gets his note when it stops; shorter is a test or a false start
 FILLER_AFTER = 0.7  # seconds of thinking before he lets you know he is on it
 MIC_TAIL = 0.4  # seconds his hearing stays muted after he stops talking
 ECHO_SECONDS = 15.0  # how long a line of his can come back through the mic as an echo
@@ -138,6 +139,7 @@ class Booth:
     spoken: list = field(default_factory=list)        # (when, line) of his last lines, to know his own echo
     on_place: Callable[[str], None] | None = None     # "booth" or "desk": chosen by the artist, not by the mode
     history: list[str] = field(default_factory=list)  # the recent exchanges and what was done, for his replies
+    auto_note: bool = False                           # a note after every take of AUTO_NOTE_SECONDS or more
     fillers: bool = True                              # "Hmm." while he thinks; off in tests that count lines
     _filled: bool = False
     _asked_after_take: bool = False                   # the after-take answer is used once per take
@@ -522,6 +524,15 @@ class Booth:
             self.rolling = False
             self.tape.mark_stop()
             self._asked_after_take = False  # a new take: the next answer to his name can ask how it felt
+            take = self.tape.last_take()
+            if self.auto_note and take.size >= AUTO_NOTE_SECONDS * self.tape.rate:
+                # after a real take he says how it went, like a producer would, then moves on: hype when it is
+                # good, the one spot to fix when it is not (Owner 2026-10-29)
+                note = self.feedback(take, self.tape.rate)
+                self.producer_notes.append(note.note)
+                self.pending_punch = note.punch_where if note.punch else ""
+                self._speak(note.spoken)
+                result = f"{result}; take note: {note.spoken}"
         return result
 
 
@@ -708,7 +719,7 @@ def run_booth(*, dry_run: bool = False) -> int:
     tracks = Tracks(dry_run=dry_run)
     session = tracks.scan() if not dry_run else None
     booth = Booth(understand=lambda line: understand(line, context=[booth.session_facts(), *booth.history]),
-                  logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(48000),
+                  logic=logic.do, auto_note=not dry_run, say=say, feedback=how_was_that_take, tape=Tape(48000),
                   tracks=tracks, session=session,
                   show=None if dry_run else __import__("hiremarco.studio.show", fromlist=["show"]).show,
                   live=None if dry_run else _booth_live,

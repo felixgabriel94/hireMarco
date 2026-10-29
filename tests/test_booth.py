@@ -150,3 +150,21 @@ def test_sound_works_the_chain_and_puts_it_back():
     assert said[-2:] == ["Let me dial that in.", "More air, softer attack."]
     b.hear("Marco, put it back")
     assert calls == ["brighter", "back"] and said[-1] == "Put it back."
+
+
+def test_after_a_real_take_he_says_how_it_went_without_being_asked():
+    from hiremarco.studio.booth import AUTO_NOTE_SECONDS
+    from hiremarco.studio.feedback import TakeNote
+
+    said, fed = [], []
+    b = Booth(understand=understand, logic=lambda c: c.describe(), say=said.append,
+              feedback=lambda audio, rate: fed.append(audio.size) or TakeNote("That was a great take, you're killing it.", False),
+              tape=Tape(RATE, seconds=30), log=lambda line: None, auto_note=True)
+    b.hear("Marco, record.")
+    b.tape.write(np.ones(RATE * 2))
+    b.hear("Marco, stop.")
+    assert fed == []  # two seconds: a false start, no note
+    b.hear("Marco, record.")
+    b.tape.write(np.ones(RATE * AUTO_NOTE_SECONDS))
+    result = b.hear("Marco, stop.")
+    assert fed and said[-1] == "That was a great take, you're killing it." and "take note" in result
