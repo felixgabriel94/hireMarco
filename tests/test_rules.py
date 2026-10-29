@@ -72,5 +72,8 @@ def test_read_grants_exact_address_and_domain(tmp_path):
     assert not rules.may_read("x@resy.com.evil.io", p, today)
 
 
-def test_repo_rules_file_grants_no_mail_yet():
-    assert rules.read_grants() == []
+def test_repo_rules_file_grants_only_vendor_receipts():
+    """The Owner's yes of 2026-10-29: plug-in vendors' receipts, for licenses and serials, and nothing else."""
+    grants = rules.read_grants()
+    assert grants and all(g.sender.startswith("@") and "license receipts" in g.purpose for g in grants)
+    assert not rules.may_read("someone@gmail.com")

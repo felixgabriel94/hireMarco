@@ -88,8 +88,10 @@ class Mail:
             raise RuntimeError(f"Gmail returned HTTP {response.status_code}")
         return response.json()
 
-    def recent(self, newer_than: str = "2d", limit: int = 10) -> list[MailItem]:
-        grants = rules.read_grants(self.rules_path)
+    def recent(self, newer_than: str = "2d", limit: int = 10, purpose: str | None = None) -> list[MailItem]:
+        """Granted senders' mail; ``purpose`` keeps only the grants whose purpose mentions it."""
+        grants = [g for g in rules.read_grants(self.rules_path)
+                  if purpose is None or purpose.lower() in g.purpose.lower()]
         if not grants:
             return []
         listing = self._get("/messages", q=query(grants, newer_than), maxResults=limit)

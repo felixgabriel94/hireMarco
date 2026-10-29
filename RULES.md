@@ -39,7 +39,23 @@ One line each:
 
     read: mail <- <address or @domain> ; <purpose> ; until <YYYY-MM-DD>
 
-(none yet)
+Owner's yes to receipts and serials, 2026-10-29:
+
+    read: mail <- @native-instruments.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
+    read: mail <- @order.native-instruments.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
+    read: mail <- @izotope.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
+    read: mail <- @fabfilter.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
+    read: mail <- @waves.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
+    read: mail <- @slatedigital.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
+    read: mail <- @uaudio.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
+    read: mail <- @ilok.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
+    read: mail <- @celemony.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
+    read: mail <- @pluginalliance.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
+    read: mail <- @soundtoys.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
+    read: mail <- @valhalladsp.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
+    read: mail <- @arturia.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
+    read: mail <- @antarestech.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
+    read: mail <- @splice.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
 
 ## Money
 
@@ -57,6 +73,12 @@ mode 600, as `KEY=value` lines. No secret appears in this repository, a log,
 a test, a commit message or a chat. Code reports which keys are present,
 not their values. Check: `scripts/check.sh` greps tracked and staged files
 for secret shapes; `.gitignore` excludes env files.
+
+**A client's serials and license keys live in the client's macOS Keychain**
+(service "hireMarco license"), put there by `studio/vault.py` straight from the
+receipt. No model call receives one; the ledger and every message carry a
+pointer and the last four characters; showing one asks the Mac's owner first
+and logs the item and time, never the value. Check: `tests/test_vault.py`.
 
 ## What counts as built here
 

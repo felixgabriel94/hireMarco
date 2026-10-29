@@ -615,6 +615,37 @@ def cmd_ledger(args) -> int:
     return 0
 
 
+def cmd_vault(args) -> int:
+    """Serials: ``keep`` reads granted receipts into the Keychain, ``list`` shows pointers, ``show ITEM`` asks first."""
+    import os
+    from pathlib import Path
+
+    from hiremarco import config
+    from hiremarco.studio.vault import Vault
+
+    state = Path(os.environ.get("HIREMARCO_STATE", config.STATE_DIR))
+    vault = Vault(log_path=state / "vault.jsonl")
+    if args.action == "keep":
+        from hiremarco.google import Mail
+
+        mail = Mail()
+        try:
+            items = mail.recent(newer_than="15y", limit=200, purpose="license receipts")
+        finally:
+            mail.close()
+        pointers = vault.keep([(item.sender.rpartition("@")[2], item.subject, item.text) for item in items])
+        print(f"read {len(items)} receipt(s); kept {len(pointers)} serial(s)")
+        for line in pointers:
+            print(f"  {line}")
+    elif args.action == "list":
+        for item in vault.keychain.items():
+            print(f"  {item}")
+    elif args.action == "show":
+        value = vault.show(" ".join(args.words))
+        print(value if value else "not shown")
+    return 0
+
+
 def cmd_ears(args) -> int:
     """Measure a folder of exported tracks, and the mix if given."""
     import json
@@ -976,6 +1007,11 @@ def main(argv: list[str] | None = None) -> int:
     co.add_argument("--channel", type=int, default=0, help="Console input, 0 = ANALOG 1")
     co.add_argument("--slot", type=int, default=1, help="1 to 4 for inserts, 0 for Unison")
     co.set_defaults(func=cmd_console)
+
+    va = sub.add_parser("vault", help="serials in the Keychain: keep | list | show ITEM")
+    va.add_argument("action", choices=["keep", "list", "show"])
+    va.add_argument("words", nargs="*")
+    va.set_defaults(func=cmd_vault)
 
     le = sub.add_parser("ledger", help="license ledger: build | show [owned|unknown|not_owned]")
     le.add_argument("action", choices=["build", "show", "renewals"])
