@@ -176,5 +176,56 @@ on run argv
 		if committed is "" then set committed to "HEADER UNCHANGED"
 		return "renamed" & tab & prior & tab & committed
 	end if
+	if mode is "where" then
+		-- the playhead from the Control Bar: "bar beat division tick tempo beats_per_bar"
+		set bar to part(main, "Control Bar")
+		tell application "System Events"
+			set found to missing value
+			repeat with g in (every group of bar)
+				repeat with h in (every group of g)
+					try
+						if (description of h) is "Playhead Position" and (description of slider 1 of h) is "bar" then set found to contents of h
+					end try
+				end repeat
+			end repeat
+			if found is missing value then error "the Control Bar's playhead position is not showing"
+			set b to value of slider 1 of found
+			set bt to value of slider 2 of found
+			set dv to value of slider 3 of found
+			set tk to value of slider 4 of found
+			set tempo to 120
+			set meter to "4/4"
+			repeat with g in (every group of bar)
+				try
+					set tempo to value of (first slider of g whose description is "Tempo")
+				end try
+				try
+					set meter to value of (first pop up button of g whose description is "Time Signature")
+				end try
+			end repeat
+		end tell
+		set AppleScript's text item delimiters to "/"
+		set beatsPerBar to text item 1 of (meter as text)
+		set AppleScript's text item delimiters to ""
+		return (b as text) & " " & (bt as text) & " " & (dv as text) & " " & (tk as text) & " " & (tempo as text) & " " & beatsPerBar
+	end if
+	if mode is "solo" then
+		-- the selected track's own Solo button: "solo on" or "solo off"; read back
+		set want to (item 2 of argv) is "on"
+		set header to part(main, "Tracks header")
+		tell application "System Events"
+			set picked to missing value
+			repeat with trk in (every UI element of header whose role is "AXLayoutItem")
+				try
+					if (value of (first radio button of trk whose description is "Has Focus")) is 1 then set picked to contents of trk
+				end try
+			end repeat
+			if picked is missing value then error "no track is selected"
+			set box to first checkbox of picked whose description is "Solo"
+			if ((value of box) is 1) is not want then click box
+			delay 0.2
+			return (description of picked) & tab & ((value of box) as text)
+		end tell
+	end if
 	error "unknown mode " & mode
 end run

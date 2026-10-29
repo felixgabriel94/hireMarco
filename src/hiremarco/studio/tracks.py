@@ -149,6 +149,24 @@ class Tracks:
 
         return self._gated(run, "rename_track", f"rename track to {name}")
 
+    def where(self):
+        """The playhead, the tempo and the beats per bar, read from Logic's Control Bar (no change to anything)."""
+        from hiremarco.studio.position import parse_where
+
+        return parse_where(self.run(["where"]).strip())
+
+    def solo(self, on: bool) -> str:
+        message = f"solo {'on' if on else 'off'} on the selected track"
+
+        def run() -> str:
+            parts = self.run(["solo", "on" if on else "off"]).strip().split("\t")
+            if len(parts) != 2 or (parts[1] == "1") != on:
+                raise RuntimeError(f"solo did not take (reads {parts[-1]!r})")
+            quoted = re.search(r"“(.*)”", parts[0])
+            return f"solo {'on' if on else 'off'}: {quoted.group(1) if quoted else parts[0]}"
+
+        return self._gated(run, "solo_track", message)
+
     def color(self, color: str) -> str:
         """Planned and recorded; performed once Logic's color palette is mapped live."""
         message = f"color track {color}"

@@ -21,7 +21,8 @@ ACTIONS = (
     "play", "stop", "record", "go_to_start", "go_to_section", "go_to_bar", "new_track", "arm_track",
     "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
     "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "live_view", "hearing", "reference",
-    "kill", "summon", "dismiss", "chat", "unknown",
+    "kill", "summon", "dismiss", "chat", "play_take", "play_from_lyric", "solo", "unsolo", "play_from",
+    "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
 
@@ -52,7 +53,9 @@ INSTRUCTIONS = (
     "'give me my chain' means preset with text 'adlib' or 'my chain'. 'How's the run on love you' or 'check the "
     "pitch on love you' means run_check with text 'love you'. 'We're in F minor' means set_key with text 'F minor'. "
     "'Make it more spacey' or 'I want my voice a bit more metallic' means sound with text describing the sound; "
-    "'put it back' or 'undo that sound' means put_back. 'New track for harmonies' means new_track with text "
+    "'put it back' or 'undo that sound' means put_back. 'Play my take back' means play_take; 'take me back to "
+    "where I say let me love you' means play_from_lyric with text 'let me love you'; 'solo my vocal' means solo, "
+    "'unsolo' means unsolo. 'New track for harmonies' means new_track with text "
     "'harmony' (or 'lead', 'ad-lib', 'double'). 'Rename this to harmony one' or 'call it lead vox' means "
     "name_track with the name in text, written as a track name ('Harmony 1', 'Lead Vox'). "
     "When the line is conversation rather than a command (a question about what Marco just did, a yes or no, "
@@ -185,6 +188,16 @@ MIX_SAID = re.compile(r"^(?:give me |do |run |let'?s do )?(?:a |the )?(?:quick )
                       r"^(?:clean up|balance) (?:the mix|what we have(?: so far)?|the session)$")
 WATCH_SAID = re.compile(r"^keep (?:it|things|the mix|the frequencies) balanced(?: as we (?:go|work|record))?$|"
                         r"^(?:stop|no more) (?:watching|balancing)(?: the mix)?$")
+PLAY_TAKE_SAID = re.compile(r"^(?:(?:can you |let'?s )?(?:play|run) (?:it|that|the take|my take|that take|the last take)"
+                            r"(?: back| again)?|let me hear (?:it|that|the take|my take|that take|the last take)"
+                            r"(?: back| again)?|i want to hear (?:my|the|that) take(?: again)?|play back)$")
+PLAY_FROM_SAID = re.compile(r"^(?:take me back to|go back to|play (?:it )?from|start (?:it )?from|let me hear)"
+                            r"(?: where i (?:say|sing|said|sang)| the part where i (?:say|sing)| the part| when i say)?"
+                            r" (?:the )?[\"'“]?(?P<lyric>.+?)[\"'”]?(?: part)?$")
+SOLO_SAID = re.compile(r"^(?:solo (?:it|that|this|the track|my vocals?|the vocals?|my take|me|this track)"
+                       r"|let me hear (?:just )?(?:my vocals?|the vocals?|my take)(?: alone| by itself| solo)?)$")
+UNSOLO_SAID = re.compile(r"^(?:unsolo(?: it| that| the track| me)?|take (?:it|the track|me) off solo|"
+                         r"(?:turn |take )?(?:the )?solo off|bring everything back)$")
 DISMISS_SAID = re.compile(r"^(?:that'?s (?:all|it)(?: for now)?|thanks?(?: you)?(?:,? marco)?|thank you(?:,? marco)?|"
                           r"go to sleep|you can go|i'?m good|we'?re good|bye(?:,? marco)?|later|dismissed|step out)$")
 KILL_SAID = re.compile(r"^(?:stop everything|stop it all|kill (?:it|switch|everything)|hands off|freeze|abort)$")
@@ -267,6 +280,15 @@ def understand(line: str, client: MuseSpark | None = None, context: list[str] | 
         return None
     if not said:
         return Command("summon")  # "Marco." or "Hey Marco" alone: he answers and waits, like a name called in a room
+    if PLAY_TAKE_SAID.match(said):
+        return Command("play_take")
+    if SOLO_SAID.match(said):
+        return Command("solo")
+    if UNSOLO_SAID.match(said):
+        return Command("unsolo")
+    m = PLAY_FROM_SAID.match(said)
+    if m:
+        return Command("play_from_lyric", text=m.group("lyric").strip(" '\"“”"))
     if DISMISS_SAID.match(said):
         return Command("dismiss")  # the conversation is over: he goes quiet until his name is said again
     if KILL_SAID.match(said):

@@ -154,7 +154,7 @@ def test_once_awake_he_needs_no_name_until_a_take_or_a_quiet_stretch():
               live=lambda: "http://x", send_link=lambda body, url: links.append(url))
     b.hear("Hey Marco.")
     assert "link texted" in b.hear("Give me the live view.") and links == ["http://x"]
-    assert "play" in b.hear("Play it back.")  # still awake, still no name
+    assert "mode" in b.hear("What mode are you in?")  # still awake, still no name
     assert "asked him to say it again" in b.hear("make the thing a bit more") and said[-1] == MISSED  # awake: he asks
     b.hear("Record.")
     assert b.rolling and b.hear("what mode are you in") is None  # during the take: only "stop" on its own, else his name

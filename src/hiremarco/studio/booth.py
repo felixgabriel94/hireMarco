@@ -14,6 +14,7 @@ one spot would fix it. "Marco, punch it" then punches that spot.
 
 from __future__ import annotations
 
+import os
 import random
 import re
 import subprocess
@@ -39,6 +40,7 @@ FAILED = "That one didn't take. I'll note it."
 THINKING = ["Hmm.", "Okay.", "Let me see.", "One sec.", "Mm, okay."]
 STOP_ALONE = {"stop", "stop stop", "okay stop", "ok stop", "cut", "cut it", "stop recording", "stop the take",
               "hold on", "hold up", "stop there", "let's stop", "lets stop"}
+COUNT_IN_SECONDS = float(os.environ.get("HIREMARCO_COUNT_IN_SECONDS", "0"))  # Logic's count-in, if on
 AUTO_NOTE_SECONDS = 8  # a take this long or longer gets his note when it stops; shorter is a test or a false start
 FILLER_AFTER = 0.7  # seconds of thinking before he lets you know he is on it
 MIC_TAIL = 0.4  # seconds his hearing stays muted after he stops talking
@@ -141,6 +143,7 @@ class Booth:
     spoken: list = field(default_factory=list)        # (when, line) of his last lines, to know his own echo
     on_place: Callable[[str], None] | None = None     # "booth" or "desk": chosen by the artist, not by the mode
     history: list[str] = field(default_factory=list)  # the recent exchanges and what was done, for his replies
+    take_start: object | None = None                  # (Position, tempo, beats per bar) read when the take began
     auto_note: bool = False                           # a note after every take of AUTO_NOTE_SECONDS or more
     fillers: bool = True                              # "Hmm." while he thinks; off in tests that count lines
     _filled: bool = False
@@ -364,6 +367,46 @@ class Booth:
             return str(later)
         return "nothing to do"
 
+    def _play_back(self, command: Command) -> str:
+        """Play the last take from its start, or from a line in it; then it plays and he stays quiet."""
+        from hiremarco.studio import pitch
+        from hiremarco.studio.logic import markers
+
+        lyric = command.text.strip().lower()
+        if command.action == "play_from_lyric" and lyric in ("that", "it", "this", "that part", "it back"):
+            command = Command("play_take")
+        if command.action == "play_from_lyric":
+            try:
+                bar = markers().get(lyric)
+            except Exception:
+                bar = None
+            if bar:  # "play from the chorus": a marker, not a lyric
+                return self.logic(Command("play_from", text=f"{bar} 1 1 1"))
+        if self.rolling:
+            self.logic(Command("stop"))
+            self.rolling = False
+            self.tape.mark_stop()
+        if self.take_start is None:
+            self._say("cannot play the take back: its start was not read", {}, "I didn't catch where that take started.")
+            return "no take start known"
+        start, tempo, beats_per_bar = self.take_start
+        if command.action == "play_take":
+            result = self.logic(Command("play_from", text=start.typed()))
+            self.rolling = True
+            return f"playing the take from {start.typed()}: {result}"
+        take = self.tape.last_take()
+        if take.size == 0 or self.transcribe is None:
+            return "no take on the tape to search"
+        window = pitch.locate(lyric, self.transcribe(take, self.tape.rate))
+        if window is None:
+            self._say("could not find that line in the take", {"line": lyric}, f"I couldn't find {lyric} in that take.")
+            return f"lyric not found: {lyric}"
+        lead_in = max(0.0, window[0] - 1.0 - COUNT_IN_SECONDS)  # a second before the line, so it lands on the word
+        at = start.later(lead_in, tempo, beats_per_bar)
+        result = self.logic(Command("play_from", text=at.typed()))
+        self.rolling = True
+        return f"playing from {lyric!r} at {at.typed()} (estimate): {result}"
+
     def _run_check(self, lyric: str) -> str:
         from hiremarco.studio import pitch
 
@@ -518,6 +561,18 @@ class Booth:
             self._say("made a new track and named it", {"role": command.text, "name": name},
                       f"{name}. Rolling when you are.")
             return f"{made}; {what}"
+        if a in ("play_take", "play_from_lyric"):
+            return self._play_back(command)
+        if a in ("solo", "unsolo"):
+            if self.tracks is None:
+                return "no track control in this booth"
+            return self.tracks.solo(a == "solo")  # silent: you hear the result
+        if a == "record" and self.tracks is not None and not self.rolling:
+            try:
+                self.take_start = self.tracks.where()  # where this take begins, to play it back or find a line
+            except Exception as exc:  # recording matters more than knowing where; playback will say it cannot
+                self.take_start = None
+                self.log(f"   (playhead not read: {type(exc).__name__}: {str(exc)[-100:]})")
         if a in ROLLING and not self.rolling:
             self._speak("Rolling")  # said while stopped, before the take starts
         result = self.logic(command)

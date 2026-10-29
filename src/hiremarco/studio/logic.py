@@ -140,6 +140,8 @@ def plan(command: Command) -> Plan:
         return Plan([p("new_audio_track"), p("record_arm")])
     if a == "arm_track":
         return Plan([p("record_arm")])
+    if a == "play_from" and command.text:
+        return Plan([p("go_to_position", command.text), p("play_stop")])  # text: "bar beat division tick"
     if a == "go_to_bar" and command.bar > 0:
         return Plan([pos(command.bar)])
     if a == "go_to_section":
