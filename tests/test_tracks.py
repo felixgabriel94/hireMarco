@@ -93,3 +93,10 @@ def test_a_name_committed_only_to_the_field_is_reported_not_claimed(tmp_path):
 def test_the_name_is_read_from_the_quotes_whatever_logic_adds_after_it():
     report = "1\tTrack 1 “Audio 1”, mute\t3\n2\tTrack 2 “Inst 1”\t0\n3\tTrack 3 “Lead, take 2”, solo\t1"
     assert [t.name for t in parse_list(report)] == ["Audio 1", "Inst 1", "Lead, take 2"]
+
+
+def test_a_new_name_counts_on_from_the_tracks_already_in_the_session():
+    counts = {}
+    existing = ["Audio 1", "Harmony 2", "Lead Vox"]
+    assert track_name("harmony", counts, existing) == "Harmony 3" and track_name("harmony", counts, existing) == "Harmony 4"
+    assert track_name("lead", counts, existing) == "Lead Vox 2" and track_name("ad-lib", counts, existing) == "Ad-lib 1"

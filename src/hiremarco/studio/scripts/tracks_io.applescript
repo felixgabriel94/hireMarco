@@ -37,7 +37,8 @@ on findDesc(el, wanted, depth)
 			end try
 		end tell
 		if d is wanted then return kid
-		if d does not start with "Track " then -- a track's own items hold no further parts
+		-- a track's own items hold no further parts, and the panels around the Tracks area hold none of them
+		if d does not start with "Track " and d is not in {"Control Bar", "Inspector", "Library", "Mixer", "Tracks contents", "Tracks time ruler"} then
 			set found to findDesc(kid, wanted, depth + 1)
 			if found is not missing value then return found
 		end if

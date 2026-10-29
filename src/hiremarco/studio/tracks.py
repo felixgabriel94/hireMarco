@@ -87,11 +87,20 @@ def _osascript(args: list[str]) -> str:
     return done.stdout
 
 
-def track_name(kind: str, counts: dict[str, int]) -> str:
-    """'Lead Vox', 'Harmony 2', 'Ad-lib 3': numbered from the second of a kind."""
-    counts[kind] = counts.get(kind, 0) + 1
+def track_name(kind: str, counts: dict[str, int], existing: list[str] | None = None) -> str:
+    """'Lead Vox', 'Harmony 2', 'Ad-lib 3': numbered from the second of a kind, after any already in the session."""
     base = {"lead": "Lead Vox", "ad-lib": "Ad-lib", "harmony": "Harmony", "double": "Double",
             "reference": "Reference", "beat": "Beat", "other": "Track"}[kind]
+    if kind not in counts:
+        taken = [0]
+        for name in existing or []:
+            if name == base:
+                taken.append(1)
+            m = re.fullmatch(re.escape(base) + r" (\d+)", name)
+            if m:
+                taken.append(int(m.group(1)))
+        counts[kind] = max(taken)
+    counts[kind] += 1
     return base if counts[kind] == 1 and kind in ("lead", "beat") else f"{base} {counts[kind]}"
 
 
@@ -135,7 +144,8 @@ class Tracks:
             parts = self.run(["rename", name]).strip().split("\t")
             if len(parts) != 3 or parts[2] != name:
                 raise RuntimeError(f"the name did not take (track header: {parts[-1]!r})")
-            return f"renamed {parts[1]!r} to {name!r}"
+            quoted = re.search(r"“(.*)”", parts[1])
+            return f"renamed {quoted.group(1) if quoted else parts[1]!r} to {name!r}"
 
         return self._gated(run, "rename_track", f"rename track to {name}")
 
@@ -158,7 +168,7 @@ class Tracks:
         """Name and color the selected track for its kind. Returns (name, what happened)."""
         if kind not in TRACK_KINDS:
             raise gate.Refused(f"{kind!r} is not a track kind Marco names")
-        name = track_name(kind, state.counts)
+        name = track_name(kind, state.counts, [t.name for t in state.tracks])
         said = [self.rename(name)]
         try:
             said.append(self.color(self.colors.get(kind, "gray")))
