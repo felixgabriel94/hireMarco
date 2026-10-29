@@ -31,6 +31,7 @@ LISTENING = "Let me listen."
 DIALING = "Let me dial that in."
 MISSED = "I missed that. Say it again?"
 FAILED = "That one didn't take. I'll note it."
+LIVE_ON = "Live view's on. The link's on the Mac."
 STOPPED = "Stopped. Everything's held until you clear it from the desk."
 # Lines Marco says often, made once at the start so they play the moment they are needed.
 STOCK = ["Rolling", NOTED, LISTENING, DIALING, MISSED, FAILED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
@@ -103,6 +104,7 @@ class Booth:
     session: object | None = None         # studio.tracks.SessionState, from the scan at start
     mix_pass: Callable[[str], str] | None = None
     show: Callable[[str], str] | None = None
+    live: Callable[[], str] | None = None             # starts the live view once, returns its link
     say_stopped: Callable[[], bool] | None = None     # the cache-only player for STOPPED, after the switch is on
     hearing: Callable[[], str] | None = None          # the full read, spoken, then the question
     reference: Callable[[str], str] | None = None     # "sound like X" -> the signature, spoken short
@@ -281,6 +283,13 @@ class Booth:
             except gate.Refused as held:
                 return f"held: {held.reason}"
             return f"shown on the phone ({message_id[-6:]})"
+        if a == "live_view":
+            if self.live is None:
+                return "no live view in this booth"
+            link = self.live()
+            self.log(f"   live view: {link}")
+            self._speak(LIVE_ON)
+            return "live view on, link printed and copied"
         if a in ("label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode"):
             return self._tidy(command)
         if a == "set_key":
@@ -348,6 +357,20 @@ def _song() -> str:
     return config.get("HIREMARCO_SONG") or "untitled"
 
 
+_LIVE: list = []
+
+
+def _booth_live() -> str:
+    """The live view beside the booth: started on the first ask, the same link after that."""
+    from hiremarco.studio.live import LiveView
+
+    if not _LIVE:
+        view = LiveView.prepare()
+        view.start_in_background()
+        _LIVE.append(view)
+    return _LIVE[0].link
+
+
 def _booth_hearing() -> str:
     """The full read of the exported tracks in HIREMARCO_STEMS, spoken; or what Marco needs first."""
     from pathlib import Path
@@ -413,6 +436,7 @@ def run_booth(*, dry_run: bool = False) -> int:
     booth = Booth(understand=understand, logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(48000),
                   tracks=tracks, session=session,
                   show=None if dry_run else __import__("hiremarco.studio.show", fromlist=["show"]).show,
+                  live=None if dry_run else _booth_live,
                   say_stopped=None if talkback is None else (lambda: talkback.say_stock(STOPPED)),
                   hearing=None if dry_run else _booth_hearing, reference=None if dry_run else _booth_reference,
                   key=config.get("HIREMARCO_SONG_KEY") or "",
@@ -462,5 +486,7 @@ def run_booth(*, dry_run: bool = False) -> int:
         asyncio.run(main())
     except KeyboardInterrupt:
         pass
+    if _LIVE:
+        _LIVE[0].stop()
     print(f"booth closed: {len(booth.notes)} note(s), {len(booth.producer_notes)} producer note(s)")
     return 0

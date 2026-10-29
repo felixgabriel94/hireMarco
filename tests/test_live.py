@@ -108,3 +108,24 @@ def test_the_page_tries_video_first_and_keeps_pictures_as_the_fallback():
     client, _ = app()
     page = client.get("/?t=tok-123").text
     assert "RTCPeerConnection" in page and 'fetch("offer?t=" + token' in page and '"stream?t=" + token' in page
+
+
+@pytest.mark.parametrize("line", ["Marco, give me the live view", "Marco, live view", "Marco, put it on my phone",
+                                  "Marco, stream the session", "Marco, open live video"])
+def test_the_booth_starts_the_live_view_on_the_line(line):
+    from hiremarco.studio.booth import LIVE_ON, Booth, Tape
+    from hiremarco.studio.commands import Command, understand
+
+    assert understand(line, client=None) == Command("live_view")
+    said, logged = [], []
+    b = Booth(understand=lambda text: understand(text, client=None), logic=lambda c: c.describe(), say=said.append,
+              feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=logged.append,
+              live=lambda: "http://192.168.0.2:8788/?t=x")
+    assert "live view on" in b.hear(line)
+    assert said == [LIVE_ON] and any("http://192.168.0.2:8788/?t=x" in entry for entry in logged)
+
+
+def test_show_me_still_sends_the_picture():
+    from hiremarco.studio.commands import Command, understand
+
+    assert understand("Marco, show me the session", client=None) == Command("show")

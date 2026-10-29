@@ -219,3 +219,58 @@ def make_app(frames: Frames, token: str, *, max_frames: int | None = None, peers
 
     return Starlette(routes=[Route("/", page), Route("/frame.jpg", frame), Route("/stream", stream),
                              Route("/offer", offer, methods=["POST"])], lifespan=lifespan)
+
+
+class NotReady(RuntimeError):
+    """The live view cannot start on this Mac yet; the message says what to do."""
+
+
+class LiveView:
+    """The server, its link and its video, ready to run in the foreground (``marco live``) or beside the booth."""
+
+    def __init__(self, server, link: str, video_line: str):
+        self.server = server
+        self.link = link
+        self.video_line = video_line
+        self.thread: threading.Thread | None = None
+
+    @classmethod
+    def prepare(cls, *, port: int = 8788, new_link: bool = False, pictures: bool = False) -> "LiveView":
+        from functools import partial
+
+        import uvicorn
+
+        token = link_token(new=new_link)
+        width = int(config.get("HIREMARCO_LIVE_WIDTH") or 1600)
+        frames = Frames(partial(grab_logic, width), fps=float(config.get("HIREMARCO_LIVE_FPS") or 4))
+        frames.capture_once()
+        if frames.error:
+            raise NotReady(f"first frame failed: {frames.error}\nallow the terminal in System Settings > "
+                           "Privacy & Security > Screen Recording, then run this again")
+        peers, video_line = None, "video off: pictures only"
+        if not pictures:
+            from hiremarco.studio import webrtc
+
+            video = webrtc.LogicVideo(max_width=width)
+            video_line = video.probe()
+            if video_line.startswith("video on"):
+                webrtc.tune_h264()
+                peers = webrtc.Peers(video.latest, on_first=video.start, on_last=video.stop)
+        link = f"http://{lan_address() or '127.0.0.1'}:{port}/?t={token}"
+        subprocess.run(["pbcopy"], input=link.encode(), check=True)
+        # an open phone page keeps its stream open: on Ctrl+C the stream ends itself, and two seconds is the limit
+        holder: dict = {}
+        app = make_app(frames, token, peers=peers, stopping=lambda: bool(holder and holder["s"].should_exit))
+        holder["s"] = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=port, log_level="warning",
+                                                    timeout_graceful_shutdown=2))
+        return cls(holder["s"], link, video_line)
+
+    def start_in_background(self) -> None:
+        """Beside the booth: uvicorn skips its signal handlers off the main thread, so the booth keeps Ctrl+C."""
+        self.thread = threading.Thread(target=self.server.run, daemon=True)
+        self.thread.start()
+
+    def stop(self) -> None:
+        self.server.should_exit = True
+        if self.thread is not None:
+            self.thread.join(timeout=3)

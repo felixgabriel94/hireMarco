@@ -598,43 +598,19 @@ def cmd_show(args) -> int:
 
 def cmd_live(args) -> int:
     """Serve Logic's window as a live view on this Mac's network, and print the link for the phone."""
-    from functools import partial
-
-    import uvicorn
-
     from hiremarco.studio import live
 
-    token = live.link_token(new=args.new_link)
-    width = int(config.get("HIREMARCO_LIVE_WIDTH") or 1600)
-    frames = live.Frames(partial(live.grab_logic, width), fps=float(config.get("HIREMARCO_LIVE_FPS") or 4))
-    frames.capture_once()
-    if frames.error:
-        print(f"first frame failed: {frames.error}")
-        print("allow the terminal in System Settings > Privacy & Security > Screen Recording, then run this again")
-        return 1
-    peers = None
-    if not args.pictures:
-        from hiremarco.studio import webrtc
-
-        video = webrtc.LogicVideo(max_width=width)
-        probed = video.probe()
-        print(probed)
-        if probed.startswith("video on"):
-            webrtc.tune_h264()
-            peers = webrtc.Peers(video.latest, on_first=video.start, on_last=video.stop)
-    address = live.lan_address() or "127.0.0.1"
-    link = f"http://{address}:{args.port}/?t={token}"
-    subprocess.run(["pbcopy"], input=link.encode(), check=True)
-    print(f"live view: {link}")
-    print("copied to the clipboard; open it on the phone on the same Wi-Fi. Ctrl+C stops it.")
-    Trace("live").done(f"serving on port {args.port}, frame {len(frames.latest) // 1024} KB")
-    # an open phone page keeps its stream open: on Ctrl+C the stream ends itself, and two seconds is the limit
-    server = None
-    app = live.make_app(frames, token, peers=peers, stopping=lambda: bool(server and server.should_exit))
-    server = uvicorn.Server(uvicorn.Config(app, host="0.0.0.0", port=args.port, log_level="warning",
-                                           timeout_graceful_shutdown=2))
     try:
-        server.run()
+        view = live.LiveView.prepare(port=args.port, new_link=args.new_link, pictures=args.pictures)
+    except live.NotReady as why:
+        print(why)
+        return 1
+    print(view.video_line)
+    print(f"live view: {view.link}")
+    print("copied to the clipboard; open it on the phone on the same Wi-Fi. Ctrl+C stops it.")
+    Trace("live").done(f"serving on port {args.port}")
+    try:
+        view.server.run()
     except KeyboardInterrupt:  # uvicorn hands Ctrl+C back once it has closed everything
         pass
     print("live view stopped")

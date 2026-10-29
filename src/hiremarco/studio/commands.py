@@ -20,7 +20,7 @@ TENANT = "owner"
 ACTIONS = (
     "play", "stop", "record", "go_to_start", "go_to_section", "go_to_bar", "new_track", "arm_track",
     "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
-    "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "hearing", "reference",
+    "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "live_view", "hearing", "reference",
     "kill", "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
@@ -184,6 +184,8 @@ REFERENCE_SAID = re.compile(r"^(?:i want (?:it |this |my vocal |my voice )?to so
                             r"(?:the )?reference is|like) (?P<who>.+)$")
 SHOW_SAID = re.compile(r"^(?:show me|show me the (?:session|screen|logic)|send me (?:a |the )?(?:screenshot|picture|screen)|"
                        r"what does it look like)$")
+LIVE_SAID = re.compile(r"^(?:(?:give me|open|start|turn on|put up) (?:the )?live(?: view| video)?|live view|"
+                       r"(?:put|stream) (?:it|the session|logic) (?:on|to) my phone|stream (?:it|the session|logic))$")
 MODE_SAID = re.compile(r"^(?:what mode(?: are you in)?|are we recording or mixing|"
                        r"(?:we'?re |let'?s |let'?s do |switch to |go to |back to )?(?:recording|mixing)(?: now| mode)?)$")
 
@@ -195,6 +197,8 @@ def tidy_command(said: str) -> Command | None:
             KIND_WORDS.get(m.group("kind"), None)
         if kind:
             return Command("label_track", text=kind)
+    if LIVE_SAID.match(said):
+        return Command("live_view")
     if SHOW_SAID.match(said):
         return Command("show")
     if HEARING_SAID.match(said):
