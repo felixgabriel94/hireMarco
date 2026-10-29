@@ -37,6 +37,8 @@ DIALING = "Let me dial that in."
 MISSED = "I missed that. Say it again?"
 FAILED = "That one didn't take. I'll note it."
 THINKING = ["Hmm.", "Okay.", "Let me see.", "One sec.", "Mm, okay."]
+STOP_ALONE = {"stop", "stop stop", "okay stop", "ok stop", "cut", "cut it", "stop recording", "stop the take",
+              "hold on", "hold up", "stop there", "let's stop", "lets stop"}
 AUTO_NOTE_SECONDS = 8  # a take this long or longer gets his note when it stops; shorter is a test or a false start
 FILLER_AFTER = 0.7  # seconds of thinking before he lets you know he is on it
 MIC_TAIL = 0.4  # seconds his hearing stays muted after he stops talking
@@ -254,6 +256,10 @@ class Booth:
         implied = (not self.rolling and started - self.awake_at < AWAKE and strip_wake(line) is None)
         if implied:
             line = f"Marco, {line}"
+        elif self.rolling and strip_wake(line) is None and " ".join(_words(line)) in STOP_ALONE:
+            # a take: "stop" said on its own ends it without his name (Owner 2026-10-29); a lyric is never
+            # just the word, and everything else sung stays the artist's
+            line = "Marco, stop."
         self._filled = False
         try:
             command = self._in_time(lambda: self.understand(line))

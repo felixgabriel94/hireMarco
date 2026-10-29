@@ -237,3 +237,14 @@ def test_his_own_voice_through_the_mic_is_not_answered():
     assert "mode" in b.hear("What mode are you in?")  # the artist still gets through
     b.spoken = [(t - ECHO_SECONDS - 1, line) for t, line in b.spoken]
     assert b.hear(said[-1]) is not None  # long after, the same words are the artist's
+
+
+def test_during_a_take_stop_on_its_own_ends_it_and_a_lyric_with_stop_does_not():
+    said = []
+    b = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: c.describe(), say=said.append,
+              feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None)
+    b.hear("Marco, record.")
+    assert b.hear("Don't stop me now, I'm having such a good time") is None and b.rolling
+    assert "stop" in b.hear("Stop.") and not b.rolling
+    b.hear("Marco, record.")
+    assert "stop" in b.hear("Okay, stop.") and not b.rolling
