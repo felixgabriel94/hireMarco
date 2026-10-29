@@ -43,6 +43,7 @@ STOP_ALONE = {"stop", "stop stop", "okay stop", "ok stop", "cut", "cut it", "sto
               "hold on", "hold up", "stop there", "let's stop", "lets stop"}
 COUNT_IN_SECONDS = float(os.environ.get("HIREMARCO_COUNT_IN_SECONDS", "0"))  # Logic's count-in, if on
 TUNE_CENTER, TUNE_DRIFT = 80.0, 30.0  # a first pass that still sounds like the artist; the last 20% is theirs
+FLEX_REFERENCE_LIMIT = 5.0  # cents off 440 beyond which Flex Pitch is skipped for the session (Owner 2026-10-29)
 AUTO_NOTE_SECONDS = 8  # a take this long or longer gets his note when it stops; shorter is a test or a false start
 FILLER_AFTER = 0.7  # seconds of thinking before he lets you know he is on it
 MIC_TAIL = 0.4  # seconds his hearing stays muted after he stops talking
@@ -425,6 +426,19 @@ class Booth:
         self._beat_region = regions[0]
         return self._in_time(lambda: analyze.read(path)), path
 
+    def console_check(self) -> str:
+        """At the booth's start: what the Console's Auto-Tune still holds from the last session. It is reset
+        from this session's beat at setup ("what key is the beat in?" and yes); until then it is not trusted."""
+        if self.console is None:
+            return "no Console in this booth"
+        try:
+            controls = self.console.params(self.vocal_input, self.console._auto_tune_slot(self.vocal_input))
+        except Exception as exc:
+            return f"Console Auto-Tune not read: {type(exc).__name__}: {str(exc)[-100:]}"
+        shown = {name: (controls.get(name) or {}).get("shown") for name in ("Key", "Scale", "Detune")}
+        held = f"{shown['Key']} {str(shown['Scale']).lower()}, {shown['Detune'] or '0'} cents"
+        return f"Console Auto-Tune holds {held} from before; reset at setup from this session's beat"
+
     def _logic_tempo(self, region: str) -> tuple[list[float], str]:
         """Logic's Smart Tempo on the beat, as an engineer starts a session (Owner 2026-10-29): the region selected
         from the surface, Apply Region Tempo to Project Tempo, the map read, then undone, so only the settled
@@ -584,6 +598,15 @@ class Booth:
         if not self.key:
             self._speak("What key are we in?")
             return "asked for the key before Flex"
+        if abs(self.reference_cents) > FLEX_REFERENCE_LIMIT:
+            # Flex Pitch corrects to A = 440 here; on a beat tuned elsewhere the vocal would land off the beat
+            # (Owner ruling 2026-10-29: skip Flex for those sessions, Auto-Tune and his own pass instead)
+            self._say("Flex Pitch would tune to 440 but the beat is tuned elsewhere; offer his own pass instead",
+                      {"beat_tuning_cents": self.reference_cents},
+                      f"This beat sits {self.reference_cents:+g} cents off 440, so Flex would pull you off it. "
+                      "Want my tuning pass instead? It follows the beat.")
+            self.offer = self._tune_take
+            return f"Flex skipped: beat at {self.reference_cents:+g} cents; offered his own pass"
         try:
             shown = self._in_time(lambda: self.flex(self.key))
         except Exception as exc:  # the editor not open on the take, or Logic not showing Flex
@@ -1131,6 +1154,9 @@ def run_booth(*, dry_run: bool = False) -> int:
                   transcribe=lambda audio, r: transcribe(audio, r, diarize=False),
                   play_clip=(lambda pcm, label: print(f"   (guide, dry run: {label})")) if dry_run
                   else (lambda pcm, label: talkback.play_clip(pcm, label)))
+
+    if not dry_run:
+        print(booth.console_check())
 
     async def main() -> None:
         loop = asyncio.get_running_loop()

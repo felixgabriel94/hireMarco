@@ -278,3 +278,29 @@ def test_a_reference_tuning_moves_the_grid_the_pass_tunes_to():
     at_440 = plan(np.zeros(rate * 2), rate, "A minor", track=(midi, voiced))
     at_446 = plan(np.zeros(rate * 2), rate, "A minor", track=(midi, voiced), reference_cents=24.0)
     assert at_440.summary()["median_cents_off"] > 20 and at_446.summary()["median_cents_off"] < 2
+
+
+def test_flex_is_skipped_for_a_beat_off_440_and_his_own_pass_offered():
+    ran = []
+    b, said = booth(flex=lambda key: ran.append(key) or "applied", key="E minor", reference_cents=24.0)
+    assert "Flex skipped: beat at +24 cents" in b.hear("Marco, first pass in Flex") and ran == []
+    assert "Flex would pull you off it" in said[-1] and b.offer is not None
+
+
+def test_flex_runs_for_a_beat_at_440():
+    ran = []
+    b, _ = booth(flex=lambda key: ran.append(key) or "applied", key="E minor", reference_cents=2.0)
+    b.hear("Marco, first pass in Flex")
+    assert ran == ["E minor"]
+
+
+def test_the_console_check_reports_what_auto_tune_still_holds():
+    class Held(FakeConsole):
+        def _auto_tune_slot(self, channel):
+            return 1
+
+        def params(self, channel, slot):
+            return {"Key": {"shown": "E"}, "Scale": {"shown": "MINOR"}, "Detune": {"shown": "24"}}
+
+    b, _ = booth(console=Held())
+    assert b.console_check() == "Console Auto-Tune holds E minor, 24 cents from before; reset at setup from this session's beat"
