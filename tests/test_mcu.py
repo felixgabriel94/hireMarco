@@ -277,3 +277,32 @@ def test_to_empty_keeps_turning_until_the_empty_choice_shows(monkeypatch):
     surface.turn = turn
     mcu.to_empty(surface, 2)
     assert turns["n"] == 40 and mcu.slot_text(surface.screen, 2).startswith("--")  # twenty turns stopped short
+
+
+def test_send_steps_the_destination_to_the_bus_and_confirms(monkeypatch):
+    sent = []
+    surface = Surface(send=sent.append)
+    monkeypatch.setattr(mcu.time, "sleep", lambda s: None)
+    monkeypatch.setattr(mcu, "mixer_view", lambda s: None)
+    monkeypatch.setattr(mcu, "send_mode_slot", lambda s, n: None)
+    surface.screen.write(0, "ins117 Inst 1  OS_6x_ St Out Master ")
+    choices = ["--", "Output 1", "Output 2", "Bus 1", "Bus 2"]
+    at = {"i": 0}
+
+    def turn(strip, clicks):
+        at["i"] = max(0, min(len(choices) - 1, at["i"] + (1 if clicks > 0 else -1)))
+        surface.screen.write(56 + 7 * strip, f"{choices[at['i']]:<7}")
+        surface.version += 1
+
+    surface.turn = turn
+    surface.screen.write(56 + 14, "--     ")
+    assert mcu.send(surface, "2", 2, 2) == "send 2 to Bus 2"
+    assert sent[-2].type == "note_on" and sent[-2].note == mcu.NOTE["vpot"] + 2   # the press that confirms
+
+
+def test_send_level_reads_back_the_db():
+    from hiremarco.studio.tracks import Tracks
+
+    tracks = Tracks(run=lambda args: "send\tBus 1\t-15.0", conn=__import__("sqlite3").connect(":memory:"))
+    tracks._gated = lambda run, capability, message: run()
+    assert tracks.send_level("Lead", "Bus 1", -15) == "Lead send to Bus 1 -15 dB"

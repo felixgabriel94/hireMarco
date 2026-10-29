@@ -197,6 +197,16 @@ class Tracks:
 
         return self._gated(run, "region_gain", f"set {region}'s gain to {db:+.1f} dB")
 
+    def send_level(self, track: str, bus: str, db: float) -> str:
+        """A track's send to a bus ("Bus 1") in dB, stepped on the Inspector's strip and read back."""
+        def run() -> str:
+            shown = self.run(["send_level", track, bus, f"{db:g}"]).strip().split("\t")[-1]
+            if abs(float(shown) - db) > 0.35:
+                raise RuntimeError(f"the send on {bus} stopped at {shown}")
+            return f"{track} send to {bus} {float(shown):g} dB"
+
+        return self._gated(run, "send_level", f"set {track}'s send to {bus} to {db:g} dB")
+
     def undo(self, step: str) -> str:
         """Logic's Undo, only when the last step is the one named."""
         return self._gated(lambda: self.run(["undo", step]).strip(), "undo", f"undo {step}")

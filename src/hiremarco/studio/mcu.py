@@ -385,6 +385,52 @@ def first_empty(surface: Surface, strip: int) -> int:
     raise LookupError("all 15 insert slots on that track are full")
 
 
+def send_mode_slot(surface: Surface, send: int) -> None:
+    """Send mode on Send ``send`` with its Destination page showing ("S2" on the mode display). The Send button
+    toggles between the Destination page across the strips and a one-channel view, so it is pressed until the
+    top line names the destination page (mapped live 2026-10-29)."""
+    for _ in range(3):
+        surface.press("send")
+        if wait_for(lambda: "Destination" in surface.screen.lines[0], 1.0):
+            break
+    else:
+        raise LookupError("Logic did not show the send destination page")
+    for _ in range(12):
+        now = surface.mode[1]
+        if surface.mode[0] == "S" and now.isdigit() and int(now) == send:
+            time.sleep(0.25)
+            return
+        if surface.mode[0] != "S" or not now.isdigit():
+            raise LookupError("not in Send mode")
+        surface.press("down" if send > int(now) else "up")
+        wait_for(lambda: surface.mode[1] != now, 0.8)
+    raise LookupError(f"could not reach send {send}")
+
+
+def send(surface: Surface, track: str, number: int, bus: int, limit: int = 60) -> str:
+    """Route a track's Send ``number`` to Bus ``bus``: the destination V-pot steps through "--", the outputs,
+    then the buses; the press confirms, and Logic makes the aux for a new bus itself ("Instantiate")."""
+    mixer_view(surface)
+    strip = strip_of(surface, track)
+    send_mode_slot(surface, number)
+    wanted = f"Bus {bus}"
+    for _ in range(limit):
+        shown = surface.screen.strip(strip)[1].strip()
+        if shown == wanted:
+            break
+        if shown.startswith("Bus ") and shown[4:].isdigit() and int(shown[4:]) > bus:
+            surface.turn(strip, -1)
+        else:
+            surface.turn(strip, 1)
+        before = surface.version
+        wait_for(lambda: surface.version != before, 0.6)
+    else:
+        raise LookupError(f"{wanted} never showed on send {number}")
+    surface.press("vpot", strip)
+    time.sleep(0.8)
+    return f"send {number} to {wanted}"
+
+
 def remove(surface: Surface, track: str, slot: int) -> str:
     mixer_view(surface)
     strip = strip_of(surface, track)
@@ -638,6 +684,8 @@ def serve(sock_path, log_path) -> None:
                         strip = strip_of(surface, words[1].replace("+", " "))
                         surface.press("select", strip)
                         answer = f"selected strip {strip}"
+                    elif words and words[0] == "send":  # send TRACK NUMBER BUS
+                        answer = send(surface, words[1].replace("+", " "), int(words[2]), int(words[3]))
                     elif words and words[0] == "remove":
                         answer = remove(surface, words[1], int(words[2]))
                     elif words and words[0] == "scan":

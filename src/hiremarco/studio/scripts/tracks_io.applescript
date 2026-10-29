@@ -426,6 +426,48 @@ on run argv
 			return "gain" & tab & (value of attribute "AXValueDescription" of gainSlider)
 		end tell
 	end if
+	if mode is "send_level" then
+		-- a track's send to a bus, in dB, on the Inspector's channel strip (mapped live 2026-10-29): each send is a
+		-- group described "Bus N" with a "send knob" slider at the same height; its value description reads in dB
+		-- ("-15.0", "-∞"). AXIncrement / AXDecrement move ten dB, a written value one step toward it, so it is
+		-- stepped there and read back. The track must be selected so the Inspector shows its strip.
+		set wantedTrack to item 2 of argv
+		set busName to item 3 of argv
+		set target to (item 4 of argv) as real
+		tell application "System Events"
+			set insp to first UI element of main whose description is "Inspector" and role is "AXGroup"
+			set strip to first UI element of (UI element 1 of UI element 3 of UI element 1 of insp) whose description is wantedTrack
+			set busRow to first UI element of strip whose description is busName
+			set busPos to position of busRow
+			set y to item 2 of busPos
+			set k to missing value
+			repeat with e in (every UI element of strip whose description is "send knob")
+				set knobPos to position of e
+				if (item 2 of knobPos) is y then set k to contents of e
+			end repeat
+			if k is missing value then error "no send knob beside " & busName
+			repeat 200 times
+				set d to value of attribute "AXValueDescription" of k
+				if d is "-∞" then
+					set now to -200
+				else
+					set now to d as real
+				end if
+				if now ≥ target - 0.3 and now ≤ target + 0.3 then return "send" & tab & busName & tab & d
+				if target - now ≥ 10 then
+					perform action "AXIncrement" of k
+				else if now - target ≥ 10 then
+					perform action "AXDecrement" of k
+				else if now < target then
+					set value of k to 2.0E+9
+				else
+					set value of k to 0
+				end if
+				delay 0.05
+			end repeat
+			error "the send on " & busName & " stopped at " & d
+		end tell
+	end if
 	if mode is "tempo" then
 		-- set the project tempo on the Control Bar's Tempo control, then read it back
 		-- a write moves the slider one BPM toward the value and AXIncrement / AXDecrement move it ten (live
