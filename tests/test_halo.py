@@ -140,14 +140,19 @@ def test_the_listener_hands_on_each_partial_and_yields_only_finished_sentences(m
     assert asyncio.run(run()) == ["Hey Marco, record."] and partials == ["Hey Mar", "Hey Marco, re"]
 
 
-def test_after_yeah_the_next_sentence_needs_no_name_and_later_ones_do():
-    from hiremarco.studio.booth import FOLLOW_UP
+def test_once_awake_he_needs_no_name_until_a_take_or_a_quiet_stretch():
+    from hiremarco.studio.booth import AWAKE, MISSED
 
-    said, links = [], []
-    b = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: c.describe(), say=said.append,
-              feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None,
+    said, links, did = [], [], []
+    b = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: did.append(c.action) or c.describe(),
+              say=said.append, feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None,
               live=lambda: "http://x", send_link=links.append)
     b.hear("Hey Marco.")
     assert "link texted" in b.hear("Give me the live view.") and links == ["Live view: http://x"]
-    b.answered_at -= FOLLOW_UP + 1
+    assert "play" in b.hear("Play it back.")  # still awake, still no name
+    assert b.hear("can you pass me the water") is None and MISSED not in said  # not for him: let pass
+    b.hear("Record.")
+    assert b.rolling and b.hear("stop") is None  # sung or said during the take: never a command without his name
+    assert "stop" in b.hear("Marco, stop.")
+    b.awake_at -= AWAKE + 1
     assert b.hear("Give me the live view.") is None and len(links) == 1
