@@ -374,6 +374,9 @@ def insert(surface: Surface, names: list[str], track: str, slot: int, words: str
     time.sleep(0.8)
     mixer_view(surface)  # the press opened Plug-in Edit view; back to the slots to read the result
     go_slot(surface, slot)
+    # Logic can redraw the slot a second or more after the press (live 2026-10-29: Console Recall read empty, then
+    # landed), so the read waits for it before calling the insert a failure
+    wait_for(lambda: surface.screen.strip(strip)[1] not in ("--", ""), 2.5)
     landed = surface.screen.strip(strip)[1]
     if landed in ("--", ""):
         raise LookupError(f"pressed {shown}, but insert {slot} reads empty")
@@ -449,6 +452,7 @@ def remove(surface: Surface, track: str, slot: int) -> str:
     time.sleep(0.8)
     mixer_view(surface)
     go_slot(surface, slot)
+    wait_for(lambda: surface.screen.strip(strip)[1] in ("--", ""), 2.5)  # the same late redraw as insert's
     if surface.screen.strip(strip)[1] not in ("--", ""):
         raise LookupError(f"insert {slot} still reads {surface.screen.strip(strip)[1]}")
     return f"removed {there} from insert {slot}"
