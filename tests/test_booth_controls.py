@@ -150,3 +150,32 @@ def test_the_booth_reuses_a_running_surface_and_starts_one_otherwise(tmp_path):
 
     assert start_surface(tmp_path, ask=ask, spawn=spawned.append) == "surface started"
     assert "mcu', 'serve" in spawned[0][-1]
+
+
+def test_a_loop_of_whole_bars_snaps_to_its_tempo():
+    from hiremarco.studio.analyze import loop_tempo
+
+    assert loop_tempo(118.6, 8 * 240 / 117) == 117.0      # eight bars of 117 read slightly fast
+    assert loop_tempo(118.6, 135.0) == 118.6              # a whole beat is not a loop
+    assert loop_tempo(90.0, 8 * 240 / 117) == 90.0        # nothing within 3%: the ear stands
+
+
+def test_relatives_share_their_notes():
+    from hiremarco.studio.analyze import relative, same_notes
+
+    assert relative("G major") == "E minor" and relative("E minor") == "G major"
+    assert same_notes("E minor", "G major") and not same_notes("E minor", "A major")
+
+
+class Heard:
+    key, bpm, bpm_other = "G major", 117.0, 0.0
+
+
+def test_a_producer_label_outranks_the_ear(tmp_path):
+    session = SessionState("recording", [TrackInfo(1, "instrumental 117", 1), TrackInfo(3, "OS_6ix_149_vocal_remnants_Em", 1)])
+    b, _ = booth(session=session)
+    key, why = b._beat_key(Heard(), tmp_path / "instrumental 117.wav")
+    assert key == "E minor" and "same notes" in why
+    bare, _ = booth()
+    key, why = bare._beat_key(Heard(), tmp_path / "instrumental 117.wav")
+    assert key == "G major" and "E minor" in why
