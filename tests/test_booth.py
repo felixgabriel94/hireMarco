@@ -128,3 +128,25 @@ def test_spoken_key_and_run_commands_skip_the_model():
     assert real("Marco, we're in F sharp minor", client=None) == Command("set_key", text="f sharp minor")
     assert real("Marco, how's the run on love you", client=None) == Command("run_check", text="love you")
     assert real("Marco, check the pitch", client=None) == Command("run_check", text="")
+
+
+def test_sound_works_the_chain_and_puts_it_back():
+    from hiremarco.studio.plugins import PluginState
+
+    b, said, _, _ = booth()
+    calls = []
+
+    class FakeChannel:
+        def design(self, words):
+            calls.append(words)
+            return {1: PluginState("Pro-Q 3"), 2: PluginState("CLA-76")}, "More air, softer attack."
+
+        def put_back(self):
+            calls.append("back")
+
+    b.plugin = FakeChannel()
+    b.understand = lambda line: Command("sound", text="brighter") if "brighter" in line else Command("put_back")
+    assert "2 plugin(s)" in b.hear("Marco, make it brighter")
+    assert said[-2:] == ["Let me dial that in.", "More air, softer attack."]
+    b.hear("Marco, put it back")
+    assert calls == ["brighter", "back"] and said[-1] == "Put it back."

@@ -28,8 +28,9 @@ ROLLING = {"record", "play", "punch"}
 TAPE_SECONDS = 10 * 60
 NOTED = "That's in the mix notes."
 LISTENING = "Let me listen."
+DIALING = "Let me dial that in."
 # Lines Marco says often, made once at the start so they play the moment they are needed.
-STOCK = ["Rolling", NOTED, LISTENING, "Here's how it goes.", "What key are we in?", "Put it back.",
+STOCK = ["Rolling", NOTED, LISTENING, DIALING, "Here's how it goes.", "What key are we in?", "Put it back.",
          "Morning. Your session's up. Where do you want to start?"]
 
 
@@ -182,9 +183,10 @@ class Booth:
                 self.plugin.put_back()
                 self._speak("Put it back.")
                 return "sound put back"
-            state, said = self.plugin.design(command.text)
+            self._speak(DIALING)  # the whole chain takes Muse Wonder several seconds
+            changed, said = self.plugin.design(command.text)
             self._speak(said)
-            return f"sound on {state.plugin}: {said}"
+            return f"sound across {len(changed)} plugin(s): {said}"
         if a == "preset" and self.rolling:
             return "holding the preset until the take stops"
         if a == "export":
@@ -224,7 +226,7 @@ def run_booth(*, dry_run: bool = False) -> int:
     from hiremarco.studio.commands import understand
     from hiremarco.studio.feedback import how_was_that_take
     from hiremarco.studio.logic import Logic
-    from hiremarco.studio.plugins import Plugin
+    from hiremarco.studio.chain import Channel
     from hiremarco.voice import Talkback
 
     device = config.get("HIREMARCO_MIC_DEVICE") or None
@@ -247,7 +249,7 @@ def run_booth(*, dry_run: bool = False) -> int:
 
     booth = Booth(understand=understand, logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(rate),
                   key=config.get("HIREMARCO_SONG_KEY") or "",
-                  plugin=None if dry_run else Plugin(),
+                  plugin=None if dry_run else Channel(),
                   transcribe=lambda audio, r: transcribe(audio, r, diarize=False),
                   play_clip=(lambda pcm, label: print(f"   (guide, dry run: {label})")) if dry_run
                   else (lambda pcm, label: talkback.play_clip(pcm, label)))

@@ -29,6 +29,8 @@
     uv run marco preset my chain         load a saved Performance on the selected track (--list shows them)
     uv run marco sound more spacey       Muse Spark sets the open plugin (Controls view) from a description
     uv run marco sound --read            every parameter of the open plugin and its value
+    uv run marco chain list|read         the selected track's inserts, and every active plugin's settings
+    uv run marco chain sound warmer      Muse Wonder sets the whole chain from a description
     uv run marco run-check FILE --key "F minor" [--start S --end S] [--play] [--midi out.mid]
                                          the notes of a vocal run, cents off each, and the corrected guide
 """
@@ -426,6 +428,42 @@ def cmd_sound(args) -> int:
     return 0
 
 
+def cmd_chain(args) -> int:
+    """The selected track's whole insert chain: list it, read it, set it from a description, put it back."""
+    from hiremarco.studio.chain import Channel
+    from hiremarco.studio.plugins import PluginError
+
+    channel = Channel()
+    try:
+        if args.action in ("list", "read"):
+            chain = channel.read() if args.action == "read" else None
+            if chain is None:
+                from hiremarco.studio.chain import parse_list
+
+                for slot in parse_list(channel.run(["list"])):
+                    print(f"  {slot.number:>2}  {slot.name:<20} {'bypassed' if slot.bypassed else 'on'}")
+                return 0
+            for slot in chain.slots:
+                print(f"{slot.number:>2}  {slot.name}  ({'bypassed' if slot.bypassed else 'on'})")
+                for name, value in (slot.state.params.items() if slot.state else []):
+                    print(f"      {name:<24} {value:g}")
+            return 0
+        trace = Trace(f"chain sound: {' '.join(args.words)}")
+        channel.read()
+        before = {s.number: dict(s.state.params) for s in channel.chain.active() if s.state}
+        changed, said = channel.design(" ".join(args.words))
+    except (PluginError, gate.Refused) as stopped:
+        print(f"stopped: {getattr(stopped, 'reason', stopped)}")
+        return 1
+    for number, state in changed.items():
+        for name, value in state.params.items():
+            old = before.get(number, {}).get(name)
+            if old is not None and abs(old - value) > 0.05:
+                print(f"  {state.plugin:<20} {name:<24} {old:g} -> {value:g}")
+    trace.done(said)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -522,6 +560,11 @@ def main(argv: list[str] | None = None) -> int:
     so.add_argument("--read", action="store_true")
     so.add_argument("--plugin")
     so.set_defaults(func=cmd_sound)
+
+    ch = sub.add_parser("chain")
+    ch.add_argument("action", choices=["list", "read", "sound"])
+    ch.add_argument("words", nargs="*")
+    ch.set_defaults(func=cmd_chain)
 
     args = parser.parse_args(argv)
     if args.command == "say" and not (args.tone or args.text):
