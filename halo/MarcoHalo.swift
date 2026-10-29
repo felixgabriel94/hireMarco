@@ -1,7 +1,8 @@
 // Marco's halo: a floating orb over Logic that shows when he listens, thinks and speaks.
 //
-// A borderless, transparent window above other apps; clicks pass through to Logic. It centers itself on Logic's
-// main window (the largest normal window Logic has on screen) and follows it. The booth sends its state over UDP
+// A borderless, transparent window over Logic; clicks pass through to Logic, and it shows only while Logic is the
+// app in front. It sits on Logic's main window (the largest normal window Logic has on screen) and follows it;
+// hold Option to drag it somewhere else on Logic, Option and double-click to put it back in the center. The booth sends its state over UDP
 // on 127.0.0.1:8789, one line per message: "listening 0.12", "thinking 0", "speaking 0.6", "recording 0",
 // "idle 0", "quit".
 // Four seconds without a message and it closes itself, so a booth that dies never leaves it on screen.
@@ -20,6 +21,7 @@ final class HaloState: ObservableObject {
     var shown: Double = 0          // 0 hidden, 1 fully there; eased every frame
     var lastActive: Double = -100  // when he last thought or spoke
     var lastFrame: Double = 0
+    var inLogic = true             // Logic is the app in front: the halo lives inside Logic only
 }
 
 // He is there for the conversation and gone for the take. He fades in when he answers, stays while the two of
@@ -53,7 +55,7 @@ struct Orb: View {
             if halo.mode == "speaking" || halo.mode == "thinking" { halo.lastActive = t }
             if halo.mode == "listening" && halo.shown > 0.5 && halo.target > voiced { halo.lastActive = t }
             if halo.mode == "recording" { halo.lastActive = -100 }
-            let wanted = t - halo.lastActive < hold ? 1.0 : 0.0
+            let wanted = t - halo.lastActive < hold && halo.inLogic ? 1.0 : 0.0
             let step = dt / (wanted > halo.shown ? fadeIn : fadeOut)
             halo.shown = wanted > halo.shown ? min(wanted, halo.shown + step) : max(wanted, halo.shown - step)
         }
@@ -237,13 +239,60 @@ panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary
 panel.contentView = NSHostingView(rootView: Orb(halo: state))
 panel.orderFrontRegardless()
 
-func place() {
-    guard let screen = NSScreen.screens.first else { return }
-    let target = logicFrame() ?? CGRect(x: screen.frame.midX - 1, y: screen.frame.height / 2 - 1, width: 2, height: 2)
+// Where he sits: Logic's center plus the offset you gave him by dragging, kept between runs.
+var offset = CGPoint(x: UserDefaults.standard.double(forKey: "offsetX"), y: UserDefaults.standard.double(forKey: "offsetY"))
+var dragging = false
+var grabbedAt = CGPoint.zero
+
+func logicCenter() -> CGPoint? {
+    guard let screen = NSScreen.screens.first, let frame = logicFrame() else { return nil }
     // the window list is top-left origin; AppKit is bottom-left on the primary screen
-    let x = target.midX - size.width / 2
-    let y = screen.frame.height - target.midY - size.height / 2
-    panel.setFrameOrigin(CGPoint(x: x, y: y))
+    return CGPoint(x: frame.midX, y: screen.frame.height - frame.midY)
+}
+
+func place() {
+    guard !dragging, let center = logicCenter() else { return }
+    panel.setFrameOrigin(CGPoint(x: center.x + offset.x - size.width / 2, y: center.y + offset.y - size.height / 2))
+}
+
+func saveOffset() {
+    guard let center = logicCenter() else { return }
+    offset = CGPoint(x: panel.frame.midX - center.x, y: panel.frame.midY - center.y)
+    UserDefaults.standard.set(offset.x, forKey: "offsetX")
+    UserDefaults.standard.set(offset.y, forKey: "offsetY")
+}
+
+// Clicks pass through to Logic, except while you hold Option: then you can drag him anywhere over Logic, and
+// Option with a double-click puts him back in the center.
+NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { event in
+    switch event.type {
+    case .leftMouseDown:
+        if event.clickCount == 2 {
+            offset = .zero
+            UserDefaults.standard.set(0.0, forKey: "offsetX")
+            UserDefaults.standard.set(0.0, forKey: "offsetY")
+            place()
+        } else {
+            dragging = true
+            let mouse = NSEvent.mouseLocation
+            grabbedAt = CGPoint(x: mouse.x - panel.frame.origin.x, y: mouse.y - panel.frame.origin.y)
+        }
+    case .leftMouseDragged:
+        let mouse = NSEvent.mouseLocation
+        panel.setFrameOrigin(CGPoint(x: mouse.x - grabbedAt.x, y: mouse.y - grabbedAt.y))
+    case .leftMouseUp:
+        if dragging { saveOffset() }
+        dragging = false
+    default:
+        break
+    }
+    return nil
+}
+
+func watch() {
+    let option = NSEvent.modifierFlags.contains(.option)
+    panel.ignoresMouseEvents = !(option || dragging)
+    state.inLogic = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.logic10"
 }
 place()
 // The booth sends 30 times a second; four seconds of silence means it has gone, so the halo goes too.
@@ -252,5 +301,6 @@ let timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
     if Date().timeIntervalSince(lastHeard) > 4 { NSApp.terminate(nil) }
 }
 keep.append(timer)
+keep.append(Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in watch() })
 listen()
 app.run()
