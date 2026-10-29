@@ -299,7 +299,8 @@ NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .
     return nil
 }
 
-// Control+Option+M: wake him or send him away from the keyboard. A system shortcut, so it works while Logic is in
+// Command+Option+M: wake him or send him away from the keyboard (the Owner's pick, 2026-10-29; it takes over
+// the system's minimize-all on that combination). A system shortcut, so it works while Logic is in
 // front; the booth hears it as "toggle" on 127.0.0.1:8790 and decides which way it goes.
 let booth = NWConnection(host: "127.0.0.1", port: 8790, using: .udp)
 
@@ -313,9 +314,9 @@ func registerShortcut() {
     }, 1, &pressed, nil, nil)
     var ref: EventHotKeyRef?
     let id = EventHotKeyID(signature: OSType(0x4D52434F), id: 1)  // "MRCO"
-    let status = RegisterEventHotKey(UInt32(kVK_ANSI_M), UInt32(controlKey | optionKey), id,
+    let status = RegisterEventHotKey(UInt32(kVK_ANSI_M), UInt32(cmdKey | optionKey), id,
                                      GetApplicationEventTarget(), 0, &ref)
-    note(status == noErr ? "shortcut: Control+Option+M ready" : "shortcut: Control+Option+M is taken (\(status))")
+    note(status == noErr ? "shortcut: Command+Option+M ready" : "shortcut: Command+Option+M is taken (\(status))")
 }
 
 func watch() {

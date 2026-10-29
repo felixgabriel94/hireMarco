@@ -133,7 +133,7 @@ class Booth:
     send_link: Callable[[str], str] | None = None     # a link to the artist's phone by text; None or a refusal: the Mac
 
     def toggle(self) -> str:
-        """Control+Option+M: wake him if he is away, send him away if he is with you. Held while a take rolls."""
+        """Command+Option+M: wake him if he is away, send him away if he is with you. Held while a take rolls."""
         now = time.monotonic()
         if self.rolling:
             return self._done("shortcut", "held: a take is rolling", now)
@@ -462,7 +462,7 @@ SHORTCUT_PORT = 8790
 
 
 def _shortcut_listener(booth: "Booth") -> None:
-    """The halo app sends "toggle" here when Control+Option+M is pressed."""
+    """The halo app sends "toggle" here when Command+Option+M is pressed."""
     import socket
 
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
