@@ -33,6 +33,9 @@
     uv run marco chain sound warmer      Muse Wonder sets the whole chain from a description
     uv run marco chain back              put every control the last change moved back where it was
     uv run marco ears FOLDER [--mix F]   each exported track's loudness, bands and collisions; the mix's headroom
+    uv run marco hearing hear --song S --folder STEMS       the full read, spoken, and Marco's question
+    uv run marco hearing answer --song S --folder STEMS "the lead is right, 808 harder"   the artist's guardrails
+    uv run marco hearing reference --song S [--file ref.wav] "Travis Scott"               the reference sound
     uv run marco show ["caption"]        a picture of Logic's window to the Owner's WhatsApp, for the ISO box
     uv run marco tracks list             every track with its region count, and whether this is recording or mixing
     uv run marco tracks rename "Lead Vox"  rename the selected track, read back
@@ -592,6 +595,35 @@ def cmd_show(args) -> int:
     return 0
 
 
+def cmd_hearing(args) -> int:
+    """The mix hearing: read the exported tracks, say what Marco hears, keep the artist's answer or a reference."""
+    from pathlib import Path
+
+    from hiremarco.mix import hearing
+
+    if args.action == "answer":
+        from hiremarco.mix.ears import listen
+
+        names = [t.name for t in listen(Path(args.folder).expanduser()).tracks]
+        prefs = hearing.answer(args.song, " ".join(args.words), names)
+    elif args.action == "reference":
+        prefs = hearing.reference(args.song, " ".join(args.words),
+                                  reference_file=Path(args.file).expanduser() if args.file else None)
+        print(prefs.signature)
+    else:
+        from hiremarco.mix.ears import listen
+
+        _, prefs = hearing.hear(listen(Path(args.folder).expanduser()), args.song)
+        print(prefs.heard)
+    rails = prefs.guardrails()
+    print(f"keep: {', '.join(rails['keep_as_is']) or 'nothing yet'}")
+    for track, wish in rails["wishes"].items():
+        print(f"wish: {track}: {wish}")
+    if rails["reference"]:
+        print(f"reference: {rails['reference']}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -719,6 +751,14 @@ def main(argv: list[str] | None = None) -> int:
     tr.add_argument("name", nargs="*")
     tr.add_argument("--dry-run", action="store_true")
     tr.set_defaults(func=cmd_tracks)
+
+    he = sub.add_parser("hearing")
+    he.add_argument("action", choices=["hear", "answer", "reference"])
+    he.add_argument("--song", required=True)
+    he.add_argument("--folder", help="the exported tracks (hear, answer)")
+    he.add_argument("--file", help="a reference track to measure (reference)")
+    he.add_argument("words", nargs="*")
+    he.set_defaults(func=cmd_hearing)
 
     sh = sub.add_parser("show")
     sh.add_argument("caption", nargs="*")

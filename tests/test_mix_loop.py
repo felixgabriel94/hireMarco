@@ -127,3 +127,13 @@ def test_session_for_model_names_kinds_and_placement():
     view = session_for_model(FakeSession(report()).list)
     assert view[0]["inserts"][0]["kind"] == "eq" and view[0]["inserts"][0]["belongs_on"] == "insert"
     assert view[0]["inserts"][0]["parameters"]["Band 1 Gain"] == 50.0
+
+
+def test_a_kept_track_is_never_touched(tmp_path, rules):
+    session = FakeSession(after=report(gap=None))
+    mixer = Mixer(session, client=wonder(tmp_path, PLAN, []), conn=gate.connect(":memory:"), rules_path=rules,
+                  log=lambda line: None, owned={}, guardrails={"keep_as_is": ["Bass"], "wishes": {"Vocal": "less wash"}})
+    result = mixer.pass_("give the kick room", report(gap=2.0))
+    assert not any(c[1] == "Bass" for c in session.calls if c[0] in ("plugin", "fader"))  # Bass stays as it is
+    assert ("plugin", "Vocal", 1, {"Mix": 20.0}) in session.calls
+    assert result.plan.fader_moves == {}

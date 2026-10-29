@@ -20,7 +20,7 @@ from dataclasses import dataclass, field, replace
 
 import numpy as np
 
-from hiremarco import gate
+from hiremarco import config, gate
 from hiremarco.studio.commands import Command
 from hiremarco.studio.feedback import TakeNote
 
@@ -100,6 +100,8 @@ class Booth:
     session: object | None = None         # studio.tracks.SessionState, from the scan at start
     mix_pass: Callable[[str], str] | None = None
     show: Callable[[str], str] | None = None
+    hearing: Callable[[], str] | None = None          # the full read, spoken, then the question
+    reference: Callable[[str], str] | None = None     # "sound like X" -> the signature, spoken short
 
     def _speak(self, text: str) -> None:
         try:
@@ -220,6 +222,21 @@ class Booth:
             self.pending_punch = note.punch_where if note.punch else ""
             self._speak(note.spoken)
             return f"take note: {note.spoken}"
+        if a == "hearing":
+            if self.hearing is None:
+                return "no session to hear in this booth"
+            if self.rolling:
+                return "holding the hearing until the take stops"
+            self._speak(LISTENING)
+            said = self.hearing()
+            self._speak(said)
+            return f"hearing: {said}"
+        if a == "reference":
+            if self.reference is None:
+                return "no reference memory in this booth"
+            line = self.reference(command.text)
+            self._speak(line)
+            return f"reference {command.text}: {line}"
         if a == "show":
             if self.show is None:
                 return "no phone to show it on in this booth"
@@ -277,6 +294,32 @@ class Booth:
         return result
 
 
+def _song() -> str:
+    return config.get("HIREMARCO_SONG") or "untitled"
+
+
+def _booth_hearing() -> str:
+    """The full read of the exported tracks in HIREMARCO_STEMS, spoken; or what Marco needs first."""
+    from pathlib import Path
+
+    from hiremarco.mix import hearing
+    from hiremarco.mix.ears import listen
+
+    stems = config.get("HIREMARCO_STEMS")
+    if not stems or not Path(stems).expanduser().is_dir():
+        return "Export the tracks first and I'll give you a proper read."
+    _, prefs = hearing.hear(listen(Path(stems).expanduser()), _song())
+    return prefs.heard
+
+
+def _booth_reference(who: str) -> str:
+    from hiremarco.mix import hearing
+
+    prefs = hearing.reference(_song(), who)
+    first = prefs.signature.split(". ")[0]
+    return f"{who}. Got it: {first}."
+
+
 def run_booth(*, dry_run: bool = False) -> int:
     """The live loop on the booth mic, until Ctrl+C.
 
@@ -322,6 +365,7 @@ def run_booth(*, dry_run: bool = False) -> int:
     booth = Booth(understand=understand, logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(rate),
                   tracks=tracks, session=session,
                   show=None if dry_run else __import__("hiremarco.studio.show", fromlist=["show"]).show,
+                  hearing=None if dry_run else _booth_hearing, reference=None if dry_run else _booth_reference,
                   key=config.get("HIREMARCO_SONG_KEY") or "",
                   plugin=None if dry_run else Channel(),
                   transcribe=lambda audio, r: transcribe(audio, r, diarize=False),

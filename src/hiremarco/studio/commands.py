@@ -20,7 +20,8 @@ TENANT = "owner"
 ACTIONS = (
     "play", "stop", "record", "go_to_start", "go_to_section", "go_to_bar", "new_track", "arm_track",
     "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
-    "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "unknown",
+    "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "hearing", "reference",
+    "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
 
@@ -159,6 +160,10 @@ MIX_SAID = re.compile(r"^(?:give me |do |run |let'?s do )?(?:a |the )?(?:quick )
                       r"^(?:clean up|balance) (?:the mix|what we have(?: so far)?|the session)$")
 WATCH_SAID = re.compile(r"^keep (?:it|things|the mix|the frequencies) balanced(?: as we (?:go|work|record))?$|"
                         r"^(?:stop|no more) (?:watching|balancing)(?: the mix)?$")
+HEARING_SAID = re.compile(r"^(?:how does it sound|how'?s it sounding|give me (?:a |the )?(?:hearing|read)(?: of the mix| on the mix)?|"
+                          r"read the (?:mix|session)|what do you hear|how'?s the mix)$")
+REFERENCE_SAID = re.compile(r"^(?:i want (?:it |this |my vocal |my voice )?to sound like|make (?:it|me) sound like|"
+                            r"(?:the )?reference is|like) (?P<who>.+)$")
 SHOW_SAID = re.compile(r"^(?:show me|show me the (?:session|screen|logic)|send me (?:a |the )?(?:screenshot|picture|screen)|"
                        r"what does it look like)$")
 MODE_SAID = re.compile(r"^(?:what mode(?: are you in)?|are we recording or mixing|"
@@ -174,6 +179,11 @@ def tidy_command(said: str) -> Command | None:
             return Command("label_track", text=kind)
     if SHOW_SAID.match(said):
         return Command("show")
+    if HEARING_SAID.match(said):
+        return Command("hearing")
+    m = REFERENCE_SAID.match(said)
+    if m:
+        return Command("reference", text=m.group("who").strip(" '\"").title())
     m = NAME_SAID.match(said)
     if m:
         # the line arrives lowercased; a track name reads better in title case ("hook vox" -> "Hook Vox")
