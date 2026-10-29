@@ -50,3 +50,25 @@ def test_a_failure_is_explained_in_his_words_with_the_plain_line_behind_it():
               feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None,
               writer=Writer(complete=lambda p: (_ for _ in ()).throw(RuntimeError("down"))))
     assert "failed" in b.hear("Marco, record.") and said[-1] == FAILED
+
+
+def test_a_slow_answer_gets_one_short_thinking_sound_and_a_quick_one_none():
+    from hiremarco.studio.booth import THINKING
+    from hiremarco.studio.commands import Command
+
+    said = []
+
+    def slow(line):
+        time.sleep(0.9)
+        return Command("mode")
+
+    b = Booth(understand=slow, logic=lambda c: c.describe(), say=said.append, feedback=lambda a, r: None,
+              tape=Tape(1000, seconds=2), log=lambda line: None,
+              writer=Writer(complete=lambda p: time.sleep(0.9) or "Still tracking."))
+    b.hear("Marco, which mode")
+    assert said[0] in THINKING and said[1:] == ["Still tracking."]  # one filler, though both steps were slow
+    said.clear()
+    quick = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: c.describe(),
+                  say=said.append, feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None)
+    quick.hear("Marco, what mode are you in?")
+    assert said == ["We're recording."]

@@ -14,6 +14,7 @@ one spot would fix it. "Marco, punch it" then punches that spot.
 
 from __future__ import annotations
 
+import random
 import re
 import subprocess
 import threading
@@ -35,6 +36,8 @@ LISTENING = "Let me listen."
 DIALING = "Let me dial that in."
 MISSED = "I missed that. Say it again?"
 FAILED = "That one didn't take. I'll note it."
+THINKING = ["Hmm.", "Okay.", "Let me see.", "One sec.", "Mm, okay."]
+FILLER_AFTER = 0.7  # seconds of thinking before he lets you know he is on it
 MIC_TAIL = 0.4  # seconds his hearing stays muted after he stops talking
 ECHO_SECONDS = 15.0  # how long a line of his can come back through the mic as an echo
 HERE = "Yeah?"
@@ -49,7 +52,7 @@ LIVE_ON = "Live view's on. The link's on the Mac."
 LIVE_TEXTED = "Live view's on. I texted you the link."
 STOPPED = "Stopped. Everything's held until you clear it from the desk."
 # Lines Marco says often, made once at the start so they play the moment they are needed.
-STOCK = ["Rolling", *HEARD, *AFTER_TAKE, DISMISSED, LIVE_ON, LIVE_TEXTED, NOTED, LISTENING, DIALING, MISSED, FAILED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
+STOCK = ["Rolling", *HEARD, *THINKING, *AFTER_TAKE, DISMISSED, LIVE_ON, LIVE_TEXTED, NOTED, LISTENING, DIALING, MISSED, FAILED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
          "Morning. Your session's up. Where do you want to start?"]
 
 
@@ -133,6 +136,8 @@ class Booth:
     last_said: str = ""
     heard_line: str = ""
     spoken: list = field(default_factory=list)        # (when, line) of his last lines, to know his own echo
+    fillers: bool = True                              # "Hmm." while he thinks; off in tests that count lines
+    _filled: bool = False
     _asked_after_take: bool = False                   # the after-take answer is used once per take
     send_link: Callable[[str, str], str] | None = None  # (body, url) to the artist's phone; None or a refusal: the Mac
 
@@ -173,7 +178,35 @@ class Booth:
 
     def _say(self, moment: str, facts: dict, plain: str) -> None:
         """A line with content: written for this moment when a writer is wired, the plain line otherwise."""
-        self._speak(self.writer.line(moment, facts, plain) if self.writer is not None else plain)
+        if self.writer is None:
+            self._speak(plain)
+            return
+        self._speak(self._in_time(lambda: self.writer.line(moment, facts, plain)))
+
+    def _in_time(self, work: Callable[[], object]) -> object:
+        """Run ``work``; if it is still thinking after FILLER_AFTER, say a short "Hmm." once per exchange, the
+        way a person does, instead of a silence that feels like a dropped line."""
+        box: dict = {}
+
+        def run() -> None:
+            try:
+                box["value"] = work()
+            except BaseException as exc:  # handed back to the caller as it was
+                box["error"] = exc
+
+        worker = threading.Thread(target=run, daemon=True)
+        worker.start()
+        worker.join(FILLER_AFTER)
+        if worker.is_alive() and not self._filled and not self.rolling and self.fillers:
+            self._filled = True
+            fresh = [line for line in THINKING if line not in self.recent_answers[-2:]] or THINKING
+            line = random.choice(fresh)
+            self.recent_answers.append(line)
+            self._speak(line)
+        worker.join()
+        if "error" in box:
+            raise box["error"]
+        return box["value"]
 
     def _echo(self, line: str) -> bool:
         """His own voice coming back through the mic. Live 2026-10-29: once awake, he heard his own line as the
@@ -209,8 +242,9 @@ class Booth:
         implied = (not self.rolling and started - self.awake_at < AWAKE and strip_wake(line) is None)
         if implied:
             line = f"Marco, {line}"
+        self._filled = False
         try:
-            command = self.understand(line)
+            command = self._in_time(lambda: self.understand(line))
         except gate.Refused as refused:
             return self._done(f"heard: {line}", f"held: {refused.reason}", started)
         if command is None:
