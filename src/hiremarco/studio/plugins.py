@@ -104,7 +104,30 @@ class PluginState:
         context = dict(self.fixed)
         context.update({n: f"{v:g}" for n, v in self.params.items() if n not in movable
                         and not any(n.startswith(p + " ") for p in idle)})
-        return {"plugin": self.plugin, "parameters": {n: self.percent(n) for n in movable}, "fixed": context}
+        view = {"plugin": self.plugin, "parameters": {n: self.percent(n) for n in movable}, "fixed": context}
+        profile = self.profile()
+        if profile is not None:
+            from hiremarco.mix.profiles import for_model as profile_view
+
+            view["expert"] = profile_view(profile)
+            view["in_units"] = {n: f"{u.to_unit(self.params[n])} {u.unit}" for n in movable
+                                if (u := profile.unit_for(n)) is not None}
+        return view
+
+    def profile(self):
+        from hiremarco.mix.profiles import profile_for
+
+        return profile_for(self.plugin, list(self.params))
+
+    def percent_of(self, name: str, value: float, unit: str = "") -> float:
+        """An answer in percent, or in the control's real unit when its profile has one, as percent of range."""
+        profile = self.profile() if unit and unit != "%" else None
+        u = profile.unit_for(name) if profile else None
+        if u is None or u.unit.lower() != unit.lower():
+            return float(value)
+        lo, hi = self.ranges[name]
+        raw = min(max(u.to_raw(float(value)), lo), hi)
+        return (raw - lo) / (hi - lo) * 100
 
 
 def parse(report: str) -> PluginState:

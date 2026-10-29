@@ -83,7 +83,7 @@ def test_level_controls_move_at_most_one_step():
 def test_design_across_the_chain_then_put_back(tmp_path, rules):
     fake, seen = FakeChain(), []
     reply = json.dumps({"changes": [
-        {"slot": 1, "parameter": "Band 1 Gain", "value": 62, "why": "air above 10 kHz"},
+        {"slot": 1, "parameter": "Band 1 Gain", "value": 62, "unit": "%", "why": "air above 10 kHz"},
         {"slot": 1, "parameter": "Output Gain", "value": 95},     # level: held to one step
         {"slot": 2, "parameter": "Attack", "value": 45},
         {"slot": 3, "parameter": "Mix", "value": 70},             # bypassed: left alone
