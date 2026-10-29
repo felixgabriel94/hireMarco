@@ -264,3 +264,17 @@ def test_the_beat_gain_selects_the_region_then_sets_it():
     b, _ = booth(tracks=tracks, surface=lambda line: sent.append(line) or "selected strip 0\n")
     assert b._set_beat_gain("instrumental 117", -9.4) == "instrumental 117 gain -9.4 dB"
     assert sent == ["select instrumental+117"] and tracks.calls == [("gain", "instrumental 117", -9.4)]
+
+
+def test_a_reference_tuning_moves_the_grid_the_pass_tunes_to():
+    import numpy as np
+
+    from hiremarco.studio.tune import plan
+
+    rate = 48000
+    n = rate * 2 // 512 + 1
+    midi = np.full(n, 69.24)                         # an A sung at 446 Hz, in tune with a 446 beat
+    voiced = np.ones(n, dtype=bool)
+    at_440 = plan(np.zeros(rate * 2), rate, "A minor", track=(midi, voiced))
+    at_446 = plan(np.zeros(rate * 2), rate, "A minor", track=(midi, voiced), reference_cents=24.0)
+    assert at_440.summary()["median_cents_off"] > 20 and at_446.summary()["median_cents_off"] < 2

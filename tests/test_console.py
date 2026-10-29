@@ -18,7 +18,7 @@ class Engine:
                            "UAD Fairchild 670": False}
         self.slots = {0: "", 1: AUTO_TUNE, 2: "", 3: "", 4: ""}
         self.norm = {"Key": 0.0, "Scale": 0.0, "Retune Speed": 0.0096, "Flex-Tune": 0.19, "Humanize": 0.18,
-                     "Natural Vibrato": 0.66}
+                     "Natural Vibrato": 0.66, "Detune": 0.5}
         self.sent = []
 
     def shown(self, name):
@@ -31,6 +31,9 @@ class Engine:
             return f"{400 * v ** 1.5:.0f}"  # not linear, like the real control
         if name == "Natural Vibrato":
             return f"{(v - 0.5) * 24:.1f}"
+        if name == "Detune":  # cents, -100 to +100, and empty at the center (live 2026-10-29)
+            cents = round((v - 0.5) * 200)
+            return "" if cents == 0 else f"{cents}"
         return f"{v * 100:.0f}"
 
     def slot_of(self, path):
@@ -187,3 +190,9 @@ def test_may_run_judges_uad_names_by_console_and_leaves_others_alone(engine, con
     assert not console.may_run("UAD Fairchild 670 (s/s)")
     assert not console.may_run("UAD Neve 1084 (s/s)")
     assert console.may_run("Pro-Q 3 (s/s)") and console.may_run("CLA-76 (s) (s/s)")
+
+
+def test_detune_points_auto_tune_at_the_beats_tuning(console, engine):
+    assert console.detune(0, 24.0) == "+24 cents" and abs(engine.norm["Detune"] - 0.62) < 1e-9
+    assert console.detune(0, 0.0) == "+0 cents"            # the center reads empty
+    assert console.detune(0, -130) == "-100 cents"         # the control stops at a semitone

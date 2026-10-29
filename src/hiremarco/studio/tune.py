@@ -134,11 +134,14 @@ def nearest_in_key(midi: float, scale: tuple[int, ...], tonic: int) -> int:
 
 
 def plan(audio: np.ndarray, rate: int, key: str, *, center: float = 80, drift: float = 30,
-         track: tuple[np.ndarray, np.ndarray] | None = None) -> Pass:
+         track: tuple[np.ndarray, np.ndarray] | None = None, reference_cents: float = 0.0) -> Pass:
+    """``reference_cents`` is the beat's tuning against A = 440 (+24 for a beat at 446 Hz): notes are judged
+    and corrected on that grid, so a vocal is pulled to the beat, not to 440 (Owner 2026-10-29, standard)."""
     from hiremarco.studio.pitch import parse_key
 
     tonic, scale = parse_key(key)
     midi, voiced = track if track is not None else pitch_track(audio, rate)
+    midi = midi - reference_cents / 100.0
     fps = rate / HOP
     min_frames = max(2, int(NOTE_MIN_S * fps))
     # which note is being sung is judged on the pitch with vibrato averaged out (a 0.2 s window spans one
@@ -244,15 +247,16 @@ def align(original: np.ndarray, shifted: np.ndarray, max_lag_s: float = 0.5, rat
     return out[:original.shape[0]]
 
 
-def first_pass(source: Path, key: str, *, center: float = 80, drift: float = 30) -> tuple[Path, dict, dict]:
+def first_pass(source: Path, key: str, *, center: float = 80, drift: float = 30,
+               reference_cents: float = 0.0) -> tuple[Path, dict, dict]:
     """Plan, render, and measure again: the before and after are both heard by the same ear."""
     import soundfile as sf
 
     audio, rate = sf.read(str(source), dtype="float32", always_2d=True)
     mono = audio.mean(axis=1)
-    tuned = plan(mono, rate, key, center=center, drift=drift)
+    tuned = plan(mono, rate, key, center=center, drift=drift, reference_cents=reference_cents)
     target = source.with_name(f"{source.stem} (Marco tuned){source.suffix}")
     render(source, target, tuned)
     after_audio, _ = sf.read(str(target), dtype="float32", always_2d=True)
-    after = plan(after_audio.mean(axis=1), rate, key, center=0, drift=0)
+    after = plan(after_audio.mean(axis=1), rate, key, center=0, drift=0, reference_cents=reference_cents)
     return target, tuned.summary(), after.summary()

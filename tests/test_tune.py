@@ -62,7 +62,7 @@ def test_the_booth_asks_for_the_key_then_tunes_the_selected_take(monkeypatch, tm
 
     take = tmp_path / "Lead Vox#03.wav"
     monkeypatch.setattr(analyze, "find_audio", lambda region: take)
-    monkeypatch.setattr(tune, "first_pass", lambda path, key, center, drift: (
+    monkeypatch.setattr(tune, "first_pass", lambda path, key, center, drift, reference_cents=0.0: (
         tmp_path / "Lead Vox#03 (Marco tuned).wav", {"notes": 6, "median_cents_off": 35.0, "vibrato_notes": 1},
         {"notes": 6, "median_cents_off": 9.2, "vibrato_notes": 4}))
     monkeypatch.setattr("hiremarco.studio.booth.subprocess.run", lambda *a, **k: None)

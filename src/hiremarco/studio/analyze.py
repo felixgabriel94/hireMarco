@@ -187,6 +187,17 @@ def loop_tempo(bpm: float, seconds: float) -> float:
     return float(round(best)) if best is not None and abs(best - round(best)) < 0.3 else bpm
 
 
+def tuning(path: Path, seconds: float = 120.0) -> tuple[float, float]:
+    """The beat's tuning: (A4 in Hz, cents from 440), from its harmonic part in fifth-of-a-semitone bins. Waves
+    Key Detector and this agreed on the Owner's beat of 2026-10-29: 446 and 446.1 Hz (+24 cents)."""
+    import librosa
+
+    audio = load(path, seconds=seconds)
+    offset = float(librosa.estimate_tuning(y=librosa.effects.harmonic(audio), sr=RATE, bins_per_octave=60))
+    cents = round(offset * 100, 1)
+    return round(440.0 * 2 ** (cents / 1200), 1), cents
+
+
 def settle_tempo(ear: float, labelled: float | None = None, logic: list[float] | None = None) -> tuple[float, str]:
     """The session tempo from up to three readers: the producer's label, Logic's Smart Tempo map, Marco's ear.
     A beat is programmed at one whole tempo; Logic's map wobbles around it (115.2 to 118.5, mean 117.03, on the

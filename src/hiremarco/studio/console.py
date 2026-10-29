@@ -248,6 +248,24 @@ class Console:
             raise ConsoleError(f"set {label!r}, it shows {shown!r}")
         return shown
 
+    def detune(self, channel: int, cents: float, slot: int | None = None) -> str:
+        """Auto-Tune's reference pitch, in cents from A = 440: its Detune control runs -100 to +100 cents across
+        0 to 1 (0.5 reads empty, 0.55 reads "10"; mapped live 2026-10-29). Read back to the cent."""
+        slot = self._auto_tune_slot(channel) if slot is None else slot
+        path = self.params(channel, slot)["Detune"]["path"]
+        cents = max(-100.0, min(100.0, round(cents)))
+        shown = self._put(path, 0.5 + cents / 200.0)
+        got = float(shown) if shown.strip() else 0.0
+        if abs(got - cents) > 1:
+            raise ConsoleError(f"Detune shows {shown!r}, wanted {cents:g}")
+        return f"{got:+g} cents"
+
+    def _auto_tune_slot(self, channel: int) -> int:
+        slot = next((s.number for s in self.slots(channel) if s.name == AUTO_TUNE), None)
+        if slot is None:
+            raise ConsoleError(f"no {AUTO_TUNE} on {self.channel_name(channel)}")
+        return slot
+
     def tune(self, channel: int, key: str, scale: str, slot: int | None = None) -> dict[str, str]:
         """Point the channel's Auto-Tune at a key and scale, with the gentle base."""
         if slot is None:

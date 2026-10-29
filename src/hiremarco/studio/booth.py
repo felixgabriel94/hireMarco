@@ -121,6 +121,7 @@ class Booth:
     producer_notes: list[str] = field(default_factory=list)
     pending_punch: str = ""
     key: str = ""
+    reference_cents: float = 0.0                      # the beat's tuning against A = 440: Auto-Tune and his pass follow it
     transcribe: Callable[[np.ndarray, int], list] | None = None
     play_clip: Callable[[np.ndarray, str], object] | None = None
     last_run: list = field(default_factory=list)
@@ -395,7 +396,8 @@ class Booth:
                       "I can't find that take's file. Select the vocal track and ask me again.")
             return "no take file found"
         target, before, after = self._in_time(lambda: tune.first_pass(path, self.key, center=TUNE_CENTER,
-                                                                      drift=TUNE_DRIFT))
+                                                                      drift=TUNE_DRIFT,
+                                                                      reference_cents=self.reference_cents))
         subprocess.run(["open", "-R", str(target)], capture_output=True)  # in Finder, to drag under the take
         self._say("finished a first tuning pass; the tuned take is a new file next to the original, shown in Finder",
                   {"notes": before["notes"], "median_cents_off_before": before["median_cents_off"],
@@ -468,9 +470,16 @@ class Booth:
             gain, loud, peak = self._beat_level(path)
         except Exception as exc:  # key and tempo still stand; the level is left as it is and the log says why
             gain, loud, peak = None, None, f"not measured: {type(exc).__name__}"
+        try:
+            from hiremarco.studio.analyze import tuning
+
+            a4, cents = self._in_time(lambda: tuning(path))
+        except Exception:  # the reference stays at 440 and the log line says so
+            a4, cents = None, None
 
         def apply() -> str:
             self.key = key
+            self.reference_cents = cents or 0.0
             done = [f"key {key} for pitch checks"]
             try:
                 done.append(self.tracks.set_tempo(bpm))
@@ -481,6 +490,8 @@ class Booth:
 
                 try:
                     self.console.tune(self.vocal_input, *split_key(key))
+                    if cents is not None:
+                        done.append(f"Auto-Tune reference {self.console.detune(self.vocal_input, cents)} (A = {a4:g} Hz)")
                     done.append(f"Auto-Tune on {key}")
                 except Exception as exc:
                     done.append(f"Auto-Tune not set: {type(exc).__name__}: {str(exc)[-80:]}")
@@ -494,12 +505,12 @@ class Booth:
         self._say("read the beat's key and tempo and its level; offer to set the session to it", {
             "key": key, "how_the_key_was_found": why, "bpm": bpm, "how_the_tempo_was_found": tempo_why,
             "or_half_double": reading.bpm_other or None, "beat_loudness_lufs": loud, "beat_true_peak_db": peak,
-            "region_gain_to_reach_minus_20_lufs": gain},
+            "region_gain_to_reach_minus_20_lufs": gain, "beat_tuning_a4_hz": a4},
             f"Sounds like {key}, {bpm:g} BPM. The beat's hot, so I'll bring it down {abs(gain):g} dB. Set the session?"
             if gain is not None and gain < 0 else f"Sounds like {key}, {bpm:g} BPM. Want me to set the session to that?")
         return (f"beat read from {path.name}: {key} ({why}), {bpm:g} BPM ({tempo_why}; {logic_note}); "
                 + (f"level {loud} LUFS, true peak {peak} dBTP, gain {gain:+.1f} dB to reach -20 LUFS" if gain is not None
-                   else f"level {peak}"))
+                   else f"level {peak}") + (f"; tuning A = {a4:g} Hz ({cents:+g} cents)" if a4 else "; tuning not measured"))
 
     def _beat_level(self, path) -> tuple[float, float, float]:
         """The region gain that puts this beat at -20 LUFS with peaks under -6 dBTP, from the file itself."""
