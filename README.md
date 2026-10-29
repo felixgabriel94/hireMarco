@@ -15,8 +15,15 @@ Every action he takes passes one gate first, and anything that cannot be
 taken back also passes a critic on Muse Wonder that checks the plan
 against `RULES.md`. If either says no, Marco holds and asks.
 
-Built for the **Meta Global AI Developer Hackathon**, Oct 26 to Nov 4, 2026
-(Indie track, theme "Build for Your World").
+Built for the **Meta Global AI Developer Hackathon**, Oct 26 to Nov 4, 2026,
+Indie track, for the problem statement **Build for Your World**: bring Meta's
+models into your domain, solve a problem you know firsthand, free up time and
+mental space. Marco's domain is one artist's studio and the day around it.
+
+Timing, stated plainly for the judges: this repository opened the evening of
+kickoff day, Oct 26, after the opening remarks; the guide's building period
+is Oct 27 to Nov 4. Every package in the "Built here" table carries the date
+it was written, and `git log` carries the hour.
 
 ## Meta models in Marco
 
@@ -28,12 +35,13 @@ only once the code that calls it is committed.
 |---|---|---|
 | `muse-spark-1.3` | His answers | live |
 | `muse-wonder-1.0` | The critic: approves or holds anything that cannot be taken back, so only high-stakes calls use the top-tier model | live |
-| `muse-wonder-1.0` | Computer use: clicks through Logic's export dialog for the ready-to-mix folder | this week |
+| `muse-wonder-1.0` | The mix engineer's judgment: the whole channel from one description, the mix pass across the session with the rulebook and the measurements, the hearing's spoken read, a named reference turned into a signature | live |
+| `muse-wonder-1.0` | Computer use: clicks through Logic's export dialog for the ready-to-mix folder, on a short leash | live, not yet run against Logic |
 | `muse-spark-1.3` | Turning a spoken studio command into one Logic action (structured output, minimal reasoning); reading the 6176 from a photo; the brain on the restaurant call; checking the restaurant's hours with search grounding before it dials | this week |
-| `muse-spark-1.2` | "Marco, how was that take?": listens to the take and gives a producer's note (Meta's recommended version for audio input) | this week |
-| `muse-voice-transcribe-1.0` | Hearing studio commands and take notes live from the mic (keyword biasing, endpointing); the call transcript with speaker labels behind the proof card | this week |
-| `sam-3.1` | Isolating the 6176's knobs in the glasses photo before Muse Spark reads them; the clothes on the bed for Dress me | this week |
-| `muse-image-1.0` | The look board for Dress me | this week |
+| `muse-spark-1.2` | "Marco, how was that take?": listens to the take and gives a producer's note (Meta's recommended version for audio input) | live |
+| `muse-voice-transcribe-1.0` | Hearing studio commands and take notes live from the mic (keyword biasing, endpointing); the call transcript with speaker labels behind the proof card | live |
+| `sam-3.1` | Isolating the 6176's knobs in the glasses photo before Muse Spark reads them | live |
+| `sam-3.1`, `muse-image-1.0` | Dress me: the clothes on the bed, and the look board | planned, last in the queue |
 
 ## Built here
 
@@ -114,6 +122,21 @@ Requires Python 3.12+ and [uv](https://docs.astral.sh/uv/).
 
 Secrets go in `~/.config/hiremarco/env` as `KEY=value` lines (see
 `src/hiremarco/config.py` for the key names). The file is never committed.
+
+## Run it yourself
+
+These need no account, no key and no Logic: Marco's own measurement code on
+any audio you have. Export a few tracks of a song to a folder of WAVs, then:
+
+    uv run marco ears STEMS                      loudness, bands, collisions, headroom
+    uv run marco ears STEMS --picture Kick Bass  the collision picture, as an SVG in that folder
+    uv run marco session STEMS                   roles, the ranked fights, what is masked, each track against its target
+    uv run marco run-check vocal.wav --key "A minor" --start 40 --end 46   the notes of a run, in cents
+    uv run marco handoff master-ready mix.wav --song "Name"              is this mix ready for mastering
+
+The test suite runs sealed from the network and from any real key:
+
+    uv run pytest
 
 ## Rules
 
