@@ -5,7 +5,7 @@
 -- Grounded in the live map of 2026-10-29: the editor's header has a checkbox "Show/Hide Flex" and a pop-up whose
 -- value is the flex mode ("Flex Pitch"); its left inspector holds the static texts "Scale Quantize" (with a root
 -- pop-up, "Off" or a note, and a scale pop-up, "Major (Ionian)") and "Pitch Correction" (with a 0 to 100 slider).
--- Pitch Correction and Scale Quantize act on the selected notes, or on every note when none is selected.
+-- Pitch Correction and Scale Quantize act on the selected notes, so apply selects every note in the editor first.
 on mainWindow()
 	tell application "System Events"
 		tell process "Logic Pro"
@@ -134,15 +134,27 @@ on run argv
 		set wantRoot to item 2 of argv
 		set wantScale to item 3 of argv
 		set wantAmount to (item 4 of argv) as real
-		-- no click and no Select All: with no notes selected, Scale Quantize and Pitch Correction act on every
-		-- note of the region in the editor (Logic's Flex Pitch inspector); a click placed by coordinates landed on
-		-- the Show/Hide Flex button and turned Flex off (live 2026-10-29), so nothing here clicks by position
+		-- the root takes only with the notes selected (live 2026-10-29: with none selected it stayed Off and the scale
+		-- list never opened), so the editor's notes get key focus by their own element and Logic's Edit menu selects
+		-- all; nothing here clicks by position (a coordinate click turned Flex off, live 2026-10-29)
+		set notesArea to findDesc(main, "Track contents", 0)
+		if notesArea is missing value then error "the editor's notes are not showing"
 		tell application "System Events"
 			tell process "Logic Pro"
+				try
+					set value of attribute "AXFocused" of notesArea to true
+				end try
+				delay 0.2
+				click menu item "Select All" of menu 1 of menu bar item "Edit" of menu bar 1
+				delay 0.3
 				click rootPop
 				delay 0.4
 				click menu item wantRoot of menu 1 of rootPop
 				delay 0.3
+				if (value of rootPop) is not wantRoot then
+					key code 53
+					error "the root stayed " & (value of rootPop) & ": the notes were not selected; click once in the editor's notes, press Cmd+A, and run apply again"
+				end if
 				-- the scale list opens only once a root is set (it read empty with root Off, live 2026-10-29), so it is
 				-- read now and the wanted scale is matched by name: "minor" finds "Minor (Aeolian)"
 				click scalePop
