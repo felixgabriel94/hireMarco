@@ -5,8 +5,8 @@
 --   per track, described as Track N “name”, and a group "Tracks contents" holds one layout area per track,
 --   with one layout item per region.
 -- list prints "N<TAB>Track N “name”<TAB>regions" per track.
--- rename uses Logic's Rename Track key command (Shift+Return) on the selected track: setting the Inspector's
--- field by Accessibility only edited the field (live 2026-10-28 and 2026-10-29), the track kept its name.
+-- rename uses Logic's Rename Track key command (Shift+Return) on the selected track and pastes the name: setting the
+-- Inspector's field or the header's field by Accessibility left the track's name as it was (live 2026-10-28, -29).
 on mainWindow()
 	tell application "System Events"
 		tell process "Logic Pro"
@@ -53,6 +53,20 @@ on part(main, wanted)
 	return found
 end part
 
+on focusedLine()
+	tell application "System Events"
+		tell process "Logic Pro"
+			try
+				set f to value of attribute "AXFocusedUIElement"
+				if f is missing value then return "none"
+				return role of f
+			on error
+				return "none"
+			end try
+		end tell
+	end tell
+end focusedLine
+
 on headerNames(main)
 	set header to part(main, "Tracks header")
 	tell application "System Events"
@@ -88,26 +102,31 @@ on run argv
 		set namesBefore to headerNames(main)
 		tell application "Logic Pro" to activate
 		delay 0.3
+		if focusedLine() is "none" then error "Logic already has a field open; press Escape and try again"
+		tell application "System Events" to tell process "Logic Pro" to keystroke return using shift down
+		delay 0.5
+		-- Logic's name editor is invisible to Accessibility: with it open, the focused element reads as none, where
+		-- before it was the window (live 2026-10-29). Anything else means the editor did not open; nothing is typed.
+		if focusedLine() is not "none" then error "Rename Track (Shift+Return) did not open the track's name field"
+		-- Paste, not typed letters: in Logic a stray letter is a key command (R records).
+		set saved to the clipboard
+		set the clipboard to newName
 		tell application "System Events"
 			tell process "Logic Pro"
-				keystroke return using shift down
-				delay 0.4
-				set editing to false
-				try
-					set f to value of attribute "AXFocusedUIElement"
-					if (role of f) is "AXTextField" then set editing to true
-				end try
-				if not editing then error "Rename Track (Shift+Return) did not open the track's name field"
 				keystroke "a" using command down
-				keystroke newName
+				keystroke "v" using command down
+				delay 0.2
 				key code 36
-				delay 0.4
 			end tell
 		end tell
+		delay 0.5
+		try
+			set the clipboard to saved
+		end try
 		set namesAfter to headerNames(main)
 		set committed to ""
 		repeat with h in namesAfter
-			if (h as text) ends with ("“" & newName & "”") then set committed to newName
+			if (h as text) contains ("“" & newName & "”") then set committed to newName
 		end repeat
 		set prior to ""
 		repeat with h in namesBefore

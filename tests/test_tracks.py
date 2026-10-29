@@ -88,3 +88,8 @@ def test_a_name_committed_only_to_the_field_is_reported_not_claimed(tmp_path):
                     rules_path=rules(tmp_path))
     with pytest.raises(RuntimeError, match="did not take"):
         tracks.rename("Harmony 1")
+
+
+def test_the_name_is_read_from_the_quotes_whatever_logic_adds_after_it():
+    report = "1\tTrack 1 “Audio 1”, mute\t3\n2\tTrack 2 “Inst 1”\t0\n3\tTrack 3 “Lead, take 2”, solo\t1"
+    assert [t.name for t in parse_list(report)] == ["Audio 1", "Inst 1", "Lead, take 2"]

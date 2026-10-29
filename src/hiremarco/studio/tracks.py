@@ -69,7 +69,9 @@ def parse_list(report: str) -> list[TrackInfo]:
     for line in report.strip().splitlines():
         parts = line.split("\t")
         if len(parts) == 3 and parts[0].isdigit():
-            name = re.sub(r'^Track \d+\s*[“"]?(.*?)[”"]?$', r"\1", parts[1])
+            # 'Track 1 “Audio 1”', or with Logic's state after it: 'Track 1 “Audio 1”, mute'
+            quoted = re.search(r'[“"](.*)[”"]', parts[1])
+            name = quoted.group(1) if quoted else re.sub(r"^Track \d+\s*", "", parts[1])
             try:
                 out.append(TrackInfo(int(parts[0]), name, int(parts[2])))
             except ValueError:
