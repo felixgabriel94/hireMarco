@@ -35,6 +35,9 @@ class Inbound:
     media_id: str = ""
     caption: str = ""
     timestamp: str = ""
+    filename: str = ""   # a document's own file name, as sent
+    mime_type: str = ""  # an audio's or a document's type, as WhatsApp reports it
+    voice: bool = False  # an audio recorded in WhatsApp as a voice note, not a file
 
 
 def verify_signature(app_secret: str, body: bytes, header: str | None) -> bool:
@@ -60,6 +63,9 @@ def parse_payload(payload: dict[str, Any]) -> list[Inbound]:
                     media_id=body.get("id", "") if kind in ("audio", "image", "video", "document") else "",
                     caption=body.get("caption", "") if isinstance(body, dict) else "",
                     timestamp=m.get("timestamp", ""),
+                    filename=body.get("filename", "") if isinstance(body, dict) else "",
+                    mime_type=body.get("mime_type", "") if isinstance(body, dict) else "",
+                    voice=bool(body.get("voice")) if isinstance(body, dict) else False,
                 ))
     return found
 

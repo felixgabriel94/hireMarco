@@ -2,10 +2,14 @@
 
 When the Owner writes, Marco marks it read, shows the typing dots, answers
 through Muse Spark and replies, each step on his live log. Voice notes and
-photos are acknowledged here and handled by the packages that need them.
+photos are acknowledged here and handled by the packages that need them. A
+beat he sends as an audio file or a document is saved into the beat inbox,
+where the booth puts it on the Beat track of a new session.
 """
 
 from __future__ import annotations
+
+from pathlib import Path
 
 from hiremarco import config, gate
 from hiremarco.livelog import Trace
@@ -18,12 +22,40 @@ def listen_only(message: Inbound) -> str:
     return Trace(f"heard: {(message.text or message.kind)[:60]}").done("listening only, no reply")
 
 
-def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None = None) -> str:
+def save_beat(message: Inbound, wa: WhatsApp, inbox: Path | None = None) -> Path | None:
+    """A beat or instrumental he sends (an audio file or a document, not a voice note) saved into the beat inbox,
+    where the booth puts it on the Beat track of a new session (Owner 2026-10-29). None for anything else."""
+    from hiremarco.studio.beat_in import INBOX, beat_file_name
+
+    if message.kind not in ("audio", "document") or message.voice or not message.media_id:
+        return None
+    name = beat_file_name(message.filename, message.mime_type, f"beat {message.id[-6:] or 'sent'}")
+    if name is None:
+        return None
+    data, _ = wa.download_media(message.media_id)
+    folder = inbox or INBOX
+    folder.mkdir(parents=True, exist_ok=True)
+    target, n = folder / name, 2
+    while target.exists():
+        target, n = folder / f"{Path(name).stem} {n}{Path(name).suffix}", n + 1
+    partial = target.with_name(f".{target.name}.part")  # hidden until whole, so the inbox never takes half a file
+    partial.write_bytes(data)
+    partial.rename(target)
+    return target
+
+
+def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None = None,
+           inbox: Path | None = None) -> str:
     wa = wa or WhatsApp()
     heard = message.text or f"[{message.kind}]"
     trace = Trace(f"heard: {heard[:60]}")
     try:
         wa.mark_read(message.id, typing=True)
+        beat = save_beat(message, wa, inbox)
+        if beat is not None:
+            wa.send_text(message.sender, "Got the beat. It's going on the Beat track in a new session.",
+                         idempotency_key=f"beat:{message.id}")
+            return trace.done(f"beat saved to the inbox as {beat.name}")
         if message.kind != "text":
             return trace.done(f"{message.kind} noted, no handler yet")
         reply = (marco or Marco()).answer(message.text, job="whatsapp-reply")

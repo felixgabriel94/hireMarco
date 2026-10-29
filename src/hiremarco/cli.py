@@ -802,6 +802,21 @@ def cmd_beat(args) -> int:
     return 0
 
 
+def cmd_load_beat(args) -> int:
+    """A beat onto the Beat track of a new session from the template, as when it lands in his inbox."""
+    from pathlib import Path
+
+    from hiremarco.studio.beat_in import BeatLoader, LoadError
+
+    trace = Trace(f"load beat: {Path(args.file).name}")
+    try:
+        trace.done(BeatLoader().load(Path(args.file).expanduser()))
+    except (LoadError, gate.Refused, RuntimeError) as stopped:
+        trace.done(f"stopped: {getattr(stopped, 'reason', stopped)}")
+        return 1
+    return 0
+
+
 def cmd_place(args) -> int:
     """Tell the running booth where you are, the same as the menu bar's Listen in the booth / at the desk."""
     import socket
@@ -1081,6 +1096,10 @@ def main(argv: list[str] | None = None) -> int:
     bt = sub.add_parser("beat")
     bt.add_argument("file")
     bt.set_defaults(func=cmd_beat)
+
+    lb = sub.add_parser("load-beat", help="a beat onto the Beat track of a new session from the template")
+    lb.add_argument("file")
+    lb.set_defaults(func=cmd_load_beat)
 
     pl = sub.add_parser("place")
     pl.add_argument("where", choices=["booth", "desk"])

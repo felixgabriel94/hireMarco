@@ -161,6 +161,26 @@ class Booth:
     surface: Callable[[str], str] | None = None       # one command to his Mackie surface, its reply
     flex: Callable[[str], str] | None = None          # Flex Pitch's first pass in the given key, its read-back
     vocal_input: int = 0                              # the Console channel the vocal mic comes in on (ANALOG 1)
+    load_beat: Callable[[Path], str] | None = None    # studio.beat_in.BeatLoader.load: a session with the beat on Beat
+
+    def beat_arrived(self, path: Path) -> str:
+        """A beat in his inbox (Owner 2026-10-29): a new session from the template with the beat on the Beat track
+        inside PROD, then read and offered, as when he asks what key the beat is in. Held while a take rolls."""
+        if self.load_beat is None:
+            return "no beat loader in this booth"
+        if self.rolling:
+            return "holding the beat until the take stops"
+        self._say("a beat arrived; opening a session from the template with it on the Beat track",
+                  {"file": path.name}, "Got the beat. Setting up the session.")
+        try:
+            loaded = self.load_beat(path)
+        except Exception as exc:  # the file stays where it was; he hears why
+            self._say("could not put the beat in a session", {"file": path.name, "why": str(exc)[-160:]},
+                      "I couldn't put the beat in the session. It's still in the inbox.")
+            return f"beat not loaded: {type(exc).__name__}: {str(exc)[-160:]}"
+        if self.tracks is not None:
+            self.session = self.tracks.scan()
+        return f"{loaded}; {self._read_beat()}"
 
     def toggle(self) -> str:
         """Command+Option+M: wake him if he is away, send him away if he is with you. Held while a take rolls."""
@@ -1084,6 +1104,36 @@ def start_surface(state=None, ask=None, spawn=None) -> str:
     return "surface did not answer; plug-in inserts will say so"
 
 
+def watch_inbox(booth: "Booth", inbox=None, *, poll: float = 2.0, rounds: int | None = None,
+                sleep: Callable[[float], None] = time.sleep) -> list[str]:
+    """His beat inbox, every ``poll`` seconds: each new beat once. A beat held for a rolling take comes back on a
+    later poll; a loaded one moves to the inbox's "loaded" folder; a failed one stays where it is, tried once."""
+    from hiremarco.studio.beat_in import Inbox
+
+    inbox = inbox or Inbox()
+    tried: set = set()
+    results: list[str] = []
+    n = 0
+    while rounds is None or n < rounds:
+        n += 1
+        try:
+            for path in inbox.ready():
+                if path in tried:
+                    continue
+                result = booth.beat_arrived(path)
+                booth.log(f"beat inbox: {result}")
+                results.append(result)
+                if result.startswith("holding"):
+                    continue
+                tried.add(path)
+                if not result.startswith(("beat not loaded", "no beat loader")):
+                    inbox.done(path)
+        except Exception as exc:  # the booth keeps running; the log says what broke
+            booth.log(f"beat inbox: {type(exc).__name__}: {str(exc)[-120:]}")
+        sleep(poll)
+    return results
+
+
 def run_booth(*, dry_run: bool = False) -> int:
     """The live loop on the booth mic, until Ctrl+C.
 
@@ -1151,12 +1201,15 @@ def run_booth(*, dry_run: bool = False) -> int:
                   console=None if dry_run else Console(),
                   surface=None if dry_run else (lambda line: mcu.ask(config.STATE_DIR / "mcu.sock", line)),
                   flex=None if dry_run else flex.first_pass,
+                  load_beat=None if dry_run else __import__("hiremarco.studio.beat_in", fromlist=["BeatLoader"])
+                  .BeatLoader().load,
                   transcribe=lambda audio, r: transcribe(audio, r, diarize=False),
                   play_clip=(lambda pcm, label: print(f"   (guide, dry run: {label})")) if dry_run
                   else (lambda pcm, label: talkback.play_clip(pcm, label)))
 
     if not dry_run:
         print(booth.console_check())
+        threading.Thread(target=watch_inbox, args=(booth,), daemon=True).start()
 
     async def main() -> None:
         loop = asyncio.get_running_loop()

@@ -7,6 +7,10 @@
 -- list prints "N<TAB>Track N “name”<TAB>regions" per track.
 -- rename uses Logic's Rename Track key command (Shift+Return) on the selected track and pastes the name: setting the
 -- Inspector's field or the header's field by Accessibility left the track's name as it was (live 2026-10-28, -29).
+on frontName()
+	tell application "System Events" to return name of (first process whose frontmost is true)
+end frontName
+
 on mainWindow()
 	tell application "System Events"
 		tell process "Logic Pro"
@@ -520,6 +524,91 @@ on run argv
 			delay 0.2
 			return (description of picked) & tab & ((value of box) as text)
 		end tell
+	end if
+	if mode is "window" then
+		-- the open project's Tracks window title, "Name - Tracks"
+		tell application "System Events" to return name of main
+	end if
+	if mode is "header" then
+		-- one track's header by name: "x<TAB>y<TAB>w<TAB>h<TAB>focus<TAB>triangle" in screen points, focus 1 when it is
+		-- the selected track, triangle 1 open / 0 closed / - for a track that is not a stack; "missing" when no header
+		-- shows that name (inside a closed stack). Read only.
+		set wanted to item 2 of argv
+		set header to part(main, "Tracks header")
+		tell application "System Events"
+			set trk to missing value
+			repeat with t in (every UI element of header whose role is "AXLayoutItem")
+				if (description of t) ends with ("“" & wanted & "”") then set trk to contents of t
+			end repeat
+			if trk is missing value then return "missing"
+			set p to position of trk
+			set z to size of trk
+			set focus to 0
+			try
+				set focus to value of (first radio button of trk whose description is "Has Focus")
+			end try
+			set tri to "-"
+			try
+				set tri to (value of (first UI element of trk whose role is "AXDisclosureTriangle")) as text
+			end try
+			return ((item 1 of p) as text) & tab & ((item 2 of p) as text) & tab & ((item 1 of z) as text) & tab & ((item 2 of z) as text) & tab & (focus as text) & tab & tri
+		end tell
+	end if
+	if mode is "import" then
+		-- File > Import > Audio File... onto the selected track at the playhead (mapped live 2026-10-29): the panel is a
+		-- dialog window "Open File"; Shift-Command-G opens its Go to field, the path is pasted (never typed: a stray
+		-- letter in Logic is a key command, R records), Return goes to the file and selects it, Return again opens it.
+		-- Every keystroke first checks that Logic is the app in front and that the panel is the one receiving it.
+		set wanted to item 2 of argv
+		tell application "Logic Pro" to activate
+		delay 0.3
+		tell application "System Events"
+			if my frontName() is not "Logic Pro" then error "Logic is not in front"
+			tell process "Logic Pro"
+				click menu item "Audio File…" of menu 1 of menu item "Import" of menu 1 of menu bar item "File" of menu bar 1
+				set waited to 0
+				repeat until (exists window "Open File") or waited > 50
+					delay 0.1
+					set waited to waited + 1
+				end repeat
+				if not (exists window "Open File") then error "the Import Audio File panel did not open"
+			end tell
+		end tell
+		set saved to the clipboard
+		set the clipboard to wanted
+		tell application "System Events"
+			if my frontName() is not "Logic Pro" then error "Logic is not in front"
+			tell process "Logic Pro"
+				keystroke "g" using {command down, shift down}
+				set waited to 0
+				repeat until (count of sheets of window "Open File") > 0 or waited > 30
+					delay 0.1
+					set waited to waited + 1
+				end repeat
+				if (count of sheets of window "Open File") is 0 then
+					key code 53
+					error "the panel's Go to field did not open"
+				end if
+				keystroke "a" using command down
+				keystroke "v" using command down
+				delay 0.4
+				key code 36
+				delay 1.2
+				if my frontName() is not "Logic Pro" then error "Logic is not in front"
+				if not (exists window "Open File") or (count of sheets of window "Open File") > 0 then error "the panel did not go to the file"
+				key code 36
+				set waited to 0
+				repeat while (exists window "Open File") and waited < 50
+					delay 0.1
+					set waited to waited + 1
+				end repeat
+				if exists window "Open File" then error "the panel did not open the file"
+			end tell
+		end tell
+		try
+			set the clipboard to saved
+		end try
+		return "imported"
 	end if
 	error "unknown mode " & mode
 end run
