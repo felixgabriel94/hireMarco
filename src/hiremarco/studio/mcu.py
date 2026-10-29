@@ -81,6 +81,8 @@ class Surface:
         self.screen = Screen()
         self.version = 0  # counts display writes, so a move can wait for Logic to redraw
         self.mode = ["", ""]  # the two-character mode display: "P2" is insert slot 2 in Plug-in view
+        self.on_hello: Callable[[], None] | None = None  # Logic queried the surface: it launched or rescanned
+        self.on_idle: Callable[[], None] | None = None   # the play or record light went out
         self.lit: dict[int, bool] = {}
         self.log = log or (lambda line: None)
         self._send = send
@@ -120,10 +122,15 @@ class Surface:
 
                 self.send(mido.Message("sysex", data=reply))
                 self.log(f"handshake {data[4]:02x} answered")
+                if data[4] == 0x00 and self.on_hello:
+                    self.on_hello()
                 return
             self.log("sysex " + " ".join(f"{b:02x}" for b in data))
         elif message.type == "note_on":
+            was = self.lit.get(message.note)
             self.lit[message.note] = message.velocity > 0
+            if was and not self.lit[message.note] and message.note in (NOTE["play"], NOTE["record"]) and self.on_idle:
+                self.on_idle()
         elif message.type == "control_change" and message.control in (0x4A, 0x4B):
             value = message.value & 0x3F
             self.mode[0x4B - message.control] = chr(value + 0x40) if value < 0x20 else chr(value)
@@ -372,7 +379,6 @@ def remove(surface: Surface, track: str, slot: int) -> str:
 
 
 PLUGIN_FOLDERS = ("/Library/Audio/Plug-Ins/Components", "~/Library/Audio/Plug-Ins/Components")
-WATCH_EVERY = 300.0  # seconds between looks at the plug-in folders
 
 
 def bundles(folders=PLUGIN_FOLDERS) -> set[str]:
@@ -408,30 +414,84 @@ def relearn(surface: Surface, index_path) -> list[str]:
     return [n for n in names if n not in old]
 
 
-def watch(surface: Surface, lock, index_path, every: float = WATCH_EVERY, stop=None) -> None:
-    """When a plug-in is installed, learn Logic's list again once Logic is idle, and say what is new."""
-    import json as _json
+class Learner:
+    """Learns a new plug-in only when one is installed: no timer anywhere.
 
-    snapshot = index_path.with_name("plugin_bundles.json")
-    learned = index_path.with_name("learned_plugins.json")
-    if not snapshot.exists():
-        snapshot.write_text(_json.dumps(sorted(bundles())))
-    while not (stop and stop.is_set()):
-        time.sleep(every)
-        now = bundles()
-        added = now - set(_json.loads(snapshot.read_text()))
-        if not added or not idle(surface):
-            continue
-        with lock:
-            surface.log(f"new plug-in bundles {sorted(added)}: learning Logic's list again")
+    Three events start it: macOS's file events on the plug-in folders (an installer wrote a bundle), the
+    one comparison at startup (something was installed while Marco was off), and Logic querying the
+    surface (Logic launched; it lists a new plug-in only after validating it, often at launch). If Logic
+    is playing or recording, the learn waits for the transport light to go out."""
+
+    def __init__(self, surface: Surface, lock, index_path, relearn=relearn, bundles=bundles):
+        self.surface, self.lock, self.index_path = surface, lock, index_path
+        self.known_path = index_path.with_name("plugin_bundles.json")
+        self.learned_path = index_path.with_name("learned_plugins.json")
+        self._relearn, self._bundles = relearn, bundles
+        self.pending: set[str] = set()
+        surface.on_hello = lambda: self.later(10.0)  # let Logic finish loading before scanning
+        surface.on_idle = lambda: self.later(2.0)
+
+    def known(self) -> set[str]:
+        import json as _json
+
+        if not self.known_path.exists():
+            self.known_path.write_text(_json.dumps(sorted(self._bundles())))
+        return set(_json.loads(self.known_path.read_text()))
+
+    def changed(self) -> None:
+        """A plug-in folder changed, or Marco just started: is there a bundle he has not learned?"""
+        self.pending |= self._bundles() - self.known()
+        if self.pending:
+            self.surface.log(f"new plug-in bundles: {sorted(self.pending)}")
+            self.later(2.0)
+
+    def later(self, seconds: float) -> None:
+        import threading
+
+        if self.pending:
+            threading.Timer(seconds, self.learn).start()
+
+    def learn(self) -> None:
+        import json as _json
+
+        if not self.pending or not idle(self.surface):
+            return
+        with self.lock:
+            if not self.pending:
+                return
             try:
-                fresh = relearn(surface, index_path)
+                fresh = self._relearn(self.surface, self.index_path)
             except LookupError as stopped:
-                surface.log(f"relearn stopped: {stopped}")
-                continue
-        snapshot.write_text(_json.dumps(sorted(now)))
-        learned.write_text(_json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S %z"), "new": fresh}))
-        surface.log(f"learned {len(fresh)} new plug-in(s): {', '.join(fresh) or 'none yet (Logic may list it after a restart)'}")
+                self.surface.log(f"learning stopped: {stopped}")
+                return
+            if not fresh:
+                self.surface.log("Logic does not list the new plug-in yet; learning again when Logic next launches")
+                return
+            self.known_path.write_text(_json.dumps(sorted(self.known() | self.pending)))
+            self.pending.clear()
+            self.learned_path.write_text(_json.dumps({"at": time.strftime("%Y-%m-%d %H:%M:%S %z"), "new": fresh}))
+            self.surface.log(f"learned {len(fresh)} new plug-in(s): {', '.join(fresh)}")
+
+    def watch_folders(self) -> None:
+        """macOS file events on the plug-in folders; this thread sleeps in its run loop until one arrives."""
+        from pathlib import Path
+
+        import FSEvents
+        from Foundation import NSRunLoop, NSDate
+
+        folders = [str(Path(f).expanduser()) for f in PLUGIN_FOLDERS if Path(f).expanduser().is_dir()]
+
+        def callback(stream, info, count, paths, flags, ids):
+            self.changed()
+
+        stream = FSEvents.FSEventStreamCreate(None, callback, None, folders,
+                                              FSEvents.kFSEventStreamEventIdSinceNow, 2.0,
+                                              FSEvents.kFSEventStreamCreateFlagNone)
+        FSEvents.FSEventStreamScheduleWithRunLoop(stream, FSEvents.CFRunLoopGetCurrent(),
+                                                  FSEvents.kCFRunLoopDefaultMode)
+        FSEvents.FSEventStreamStart(stream)
+        while True:
+            NSRunLoop.currentRunLoop().runUntilDate_(NSDate.distantFuture())
 
 
 def serve(sock_path, log_path) -> None:
@@ -453,7 +513,9 @@ def serve(sock_path, log_path) -> None:
 
     lock = threading.Lock()
     index_path = Path(log_path).with_name("maps") / "logic_plugins.json"
-    threading.Thread(target=watch, args=(surface, lock, index_path), daemon=True).start()
+    learner = Learner(surface, lock, index_path)
+    threading.Thread(target=learner.watch_folders, daemon=True).start()
+    learner.changed()  # the one look at startup
     try:
         while True:
             conn, _ = server.accept()

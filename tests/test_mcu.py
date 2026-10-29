@@ -140,53 +140,55 @@ def test_bundles_lists_audio_units(tmp_path):
     assert mcu.bundles([str(tmp_path)]) == {"Pro-R 2.component"}
 
 
-def test_watch_relearns_when_a_bundle_appears_and_logic_is_idle(tmp_path, monkeypatch):
-    import json
+def make_learner(tmp_path, installed, found):
     import threading
 
-    folder = tmp_path / "Components"
-    folder.mkdir()
-    (folder / "Old.component").mkdir()
-    index = tmp_path / "maps" / "logic_plugins.json"
-    index.parent.mkdir()
-    index.write_text(json.dumps(["Old (s/s)"]))
-    monkeypatch.setattr(mcu, "PLUGIN_FOLDERS", (str(folder),))
-    monkeypatch.setattr(mcu, "bundles", lambda folders=None: {p.name for p in folder.iterdir()})
-    stop = threading.Event()
+    index = tmp_path / "logic_plugins.json"
+    index.with_name("plugin_bundles.json").write_text('["Old.component"]')
+    surface = Surface(send=lambda m: None)
     calls = []
 
     def fake_relearn(surface, path):
         calls.append(path)
-        stop.set()
-        return ["Pro-R 2 (s/s)"]
+        return list(found)
 
-    monkeypatch.setattr(mcu, "relearn", fake_relearn)
-    surface = Surface(send=lambda m: None)
-    (folder / "Pro-R 2.component").mkdir()
-    index.with_name("plugin_bundles.json").write_text(json.dumps(["Old.component"]))
-    mcu.watch(surface, threading.Lock(), index, every=0, stop=stop)
-    learned = json.loads(index.with_name("learned_plugins.json").read_text())
-    assert calls and learned["new"] == ["Pro-R 2 (s/s)"]
+    learner = mcu.Learner(surface, threading.Lock(), index, relearn=fake_relearn, bundles=lambda: set(installed))
+    learner.later = lambda seconds: learner.learn()  # run at once instead of after the settle delay
+    surface.on_hello = lambda: learner.later(0)
+    surface.on_idle = lambda: learner.later(0)
+    return learner, surface, calls
 
 
-def test_watch_waits_while_logic_records(tmp_path, monkeypatch):
+def test_nothing_happens_until_a_plugin_is_installed(tmp_path):
+    learner, surface, calls = make_learner(tmp_path, {"Old.component"}, [])
+    learner.changed()
+    assert calls == [] and not learner.pending
+
+
+def test_a_new_bundle_is_learned_once(tmp_path):
     import json
-    import threading
 
-    index = tmp_path / "logic_plugins.json"
-    index.with_name("plugin_bundles.json").write_text(json.dumps([]))
-    monkeypatch.setattr(mcu, "bundles", lambda folders=None: {"New.component"})
-    stop = threading.Event()
-    rounds = []
+    learner, surface, calls = make_learner(tmp_path, {"Old.component", "Pro-R 2.component"}, ["Pro-R 2 (s/s)"])
+    learner.changed()
+    learner.changed()
+    assert len(calls) == 1 and not learner.pending
+    assert json.loads((tmp_path / "learned_plugins.json").read_text())["new"] == ["Pro-R 2 (s/s)"]
+    assert "Pro-R 2.component" in json.loads((tmp_path / "plugin_bundles.json").read_text())
 
-    def fake_sleep(seconds):
-        rounds.append(seconds)
-        if len(rounds) > 3:
-            stop.set()
 
-    monkeypatch.setattr(mcu.time, "sleep", fake_sleep)
-    monkeypatch.setattr(mcu, "relearn", lambda s, p: (_ for _ in ()).throw(AssertionError("scanned mid-take")))
-    surface = Surface(send=lambda m: None)
-    surface.lit[mcu.NOTE["record"]] = True
-    mcu.watch(surface, threading.Lock(), index, every=1, stop=stop)
-    assert len(rounds) > 3
+def test_learning_waits_for_the_take_to_end(tmp_path):
+    learner, surface, calls = make_learner(tmp_path, {"Old.component", "New.component"}, ["New (s/s)"])
+    surface.receive(mido.Message("note_on", note=mcu.NOTE["record"], velocity=0x7F))
+    learner.changed()
+    assert calls == []
+    surface.receive(mido.Message("note_on", note=mcu.NOTE["record"], velocity=0))
+    assert len(calls) == 1 and not learner.pending
+
+
+def test_a_plugin_logic_has_not_validated_waits_for_logic_to_launch(tmp_path):
+    learner, surface, calls = make_learner(tmp_path, {"Old.component", "New.component"}, [])
+    learner.changed()
+    assert len(calls) == 1 and learner.pending == {"New.component"}
+    learner._relearn = lambda s, p: calls.append(p) or ["New (s/s)"]
+    surface.receive(mido.Message("sysex", data=HEADER + [0x00]))  # Logic launched and queried the surface
+    assert len(calls) == 2 and not learner.pending

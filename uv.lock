@@ -548,6 +548,7 @@ dependencies = [
     { name = "librosa" },
     { name = "mido" },
     { name = "numpy" },
+    { name = "pyobjc-framework-fsevents" },
     { name = "pyobjc-framework-quartz" },
     { name = "pyobjc-framework-screencapturekit" },
     { name = "python-rtmidi" },
@@ -572,6 +573,7 @@ requires-dist = [
     { name = "librosa", specifier = ">=1.0.0" },
     { name = "mido", specifier = ">=1.3" },
     { name = "numpy", specifier = ">=2.0" },
+    { name = "pyobjc-framework-fsevents", specifier = ">=10" },
     { name = "pyobjc-framework-quartz", specifier = ">=10" },
     { name = "pyobjc-framework-screencapturekit", specifier = ">=10" },
     { name = "python-rtmidi", specifier = ">=1.5" },
@@ -1370,6 +1372,25 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/17/33/1e2ab0438a546cc33ac18dcdb939c0a7cbbfcc070744f6451d08ccd80d6b/pyobjc_framework_coremedia-12.2.2-cp314-cp314t-macosx_10_15_universal2.whl", hash = "sha256:bb4c56edd411a5c0152a0a9eeb0138f9c173820041beff0cfaff291b9376bade", size = 29525, upload-time = "2026-08-11T19:33:52.943Z" },
     { url = "https://files.pythonhosted.org/packages/99/7f/1a5e92a337e924f4cf3781f61b30a0e9fba84eb6fbf2c377959bb842d1e8/pyobjc_framework_coremedia-12.2.2-cp315-cp315-macosx_10_15_universal2.whl", hash = "sha256:49b53bbe1eea893f94bbf05f1f5220fcef3ccac7310a96d78434c0df6318dc79", size = 29503, upload-time = "2026-08-11T19:33:53.724Z" },
     { url = "https://files.pythonhosted.org/packages/db/f6/09e85dc8bffbafdcf74c53d8495db1411f9cc03b32a10593832f4fa81318/pyobjc_framework_coremedia-12.2.2-cp315-cp315t-macosx_10_15_universal2.whl", hash = "sha256:0bf4cd65f87bd073e74b3ede2381dc9355529e6f1b12184da22090f016e68bf7", size = 29560, upload-time = "2026-08-11T19:33:54.712Z" },
+]
+
+[[package]]
+name = "pyobjc-framework-fsevents"
+version = "12.2.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyobjc-core" },
+    { name = "pyobjc-framework-cocoa" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/57/d3/769d666f81b303e64a42ffe02f5d92cd5d0d05b9613ddf09e455878ffc34/pyobjc_framework_fsevents-12.2.2.tar.gz", hash = "sha256:85230473b0007a9f9654e08eb1215b5632f36a83b0b431a562f193384695388d", size = 27302, upload-time = "2026-08-11T19:44:31.145Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/3c/44/648f08c6dbc63fb1514aec5f59e363a86f5cce92ad9ae0b12e3b93f0c818/pyobjc_framework_fsevents-12.2.2-cp312-cp312-macosx_10_13_universal2.whl", hash = "sha256:cd12259660a74bc703c73c3802e1dc19e276dff77241c30ad6df17b26eb982ff", size = 13161, upload-time = "2026-08-11T19:35:46.864Z" },
+    { url = "https://files.pythonhosted.org/packages/85/9d/44937b00f5f38e1c092946516d2b9d76feaf4abd25b2cf76e6fa50a746fd/pyobjc_framework_fsevents-12.2.2-cp313-cp313-macosx_10_13_universal2.whl", hash = "sha256:ff6d30dae070b0f3908912eab573b13d8a1612523eaf4216736df0201c75f4ff", size = 13163, upload-time = "2026-08-11T19:35:47.76Z" },
+    { url = "https://files.pythonhosted.org/packages/27/a2/d89815677cdac0f4ec2aeca04f6d935d6ff054eb643772531bcd88ca42dd/pyobjc_framework_fsevents-12.2.2-cp313-cp313t-macosx_10_13_universal2.whl", hash = "sha256:0383df806e3de8b3870b5a6181963a652d391f3ac67a2f9f47950a8d9937d319", size = 13523, upload-time = "2026-08-11T19:35:48.548Z" },
+    { url = "https://files.pythonhosted.org/packages/4a/c8/a29e540bf3faa20a1ff7ba3e58cc9459db6f9fb416df4fc4f3d17e092211/pyobjc_framework_fsevents-12.2.2-cp314-cp314-macosx_10_15_universal2.whl", hash = "sha256:efdb4bb1425273e44acae13c376a8ad6ddbb10c47b62fcd7977161c01639049f", size = 13057, upload-time = "2026-08-11T19:35:49.317Z" },
+    { url = "https://files.pythonhosted.org/packages/bc/1e/c01b817a43cdf9c55e9c635e7579fdfcce3bb92ee2d4eb85305c5a5713e6/pyobjc_framework_fsevents-12.2.2-cp314-cp314t-macosx_10_15_universal2.whl", hash = "sha256:7009d5a2242b89f261bfe388cf09f69257ebce3244bdd4a48548d24f909b6bc1", size = 13517, upload-time = "2026-08-11T19:35:50.08Z" },
+    { url = "https://files.pythonhosted.org/packages/39/d7/ce8d15c0ceefc03963ab336d8b8c174ced03f4321dfc11391d066392fe82/pyobjc_framework_fsevents-12.2.2-cp315-cp315-macosx_10_15_universal2.whl", hash = "sha256:5544b994c825538bd236177b680f0e11dcdeb34fc3abb46d4373e610acd0b518", size = 13066, upload-time = "2026-08-11T19:35:50.83Z" },
+    { url = "https://files.pythonhosted.org/packages/11/2b/4309db4234728176a021dce345452ce921b43da4f217fc79827e8d37b0e7/pyobjc_framework_fsevents-12.2.2-cp315-cp315t-macosx_10_15_universal2.whl", hash = "sha256:234fe522358efeefb9e25c2fbe8f00a9d2734429003ea75f91e005f98b91ffe5", size = 13539, upload-time = "2026-08-11T19:35:51.577Z" },
 ]
 
 [[package]]
