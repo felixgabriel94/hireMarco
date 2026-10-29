@@ -1,9 +1,9 @@
 -- The session's tracks: list them, or rename the selected one.
 --   osascript tracks_io.applescript list
 --   osascript tracks_io.applescript rename "New name"
--- Grounded in the live map of 2026-10-28: window > group > group "Tracks" > split group > split group >
---   scroll area 1 > group "Tracks header" > layout item per track, described as Track N “name”;
---   scroll area 2 > group "Tracks contents" > layout area per track, holding one layout item per region.
+-- Grounded in the live map of 2026-10-28: inside the group "Tracks", a group "Tracks header" holds one layout item
+--   per track, described as Track N “name”, and a group "Tracks contents" holds one layout area per track,
+--   with one layout item per region.
 -- list prints "N<TAB>Track N “name”<TAB>regions" per track.
 -- rename uses Logic's Rename Track key command (Shift+Return) on the selected track: setting the Inspector's
 -- field by Accessibility only edited the field (live 2026-10-28 and 2026-10-29), the track kept its name.
@@ -18,39 +18,43 @@ on mainWindow()
 	error "Logic's Tracks window is not open"
 end mainWindow
 
-on tracksArea(main)
+-- The layout around the Tracks area moves with what is showing (Inspector, Library, Mixer), so the parts are found
+-- by their description, searched downward, not by a fixed path (a fixed path failed live 2026-10-29).
+on findDesc(el, wanted, depth)
+	if depth > 7 then return missing value
+	set kids to {}
 	tell application "System Events"
-		repeat with g in (every group of main)
-			try
-				if (description of g) is "Tracks" then return g
-			end try
-			try
-				repeat with g2 in (every group of g)
-					if (description of g2) is "Tracks" then return g2
-				end repeat
-			end try
-		end repeat
+		try
+			set kids to every UI element of el
+		end try
 	end tell
-	error "the Tracks area is not showing"
-end tracksArea
+	repeat with k in kids
+		set kid to contents of k
+		set d to ""
+		tell application "System Events"
+			try
+				set d to description of kid
+			end try
+		end tell
+		if d is wanted then return kid
+		if d does not start with "Track " then -- a track's own items hold no further parts
+			set found to findDesc(kid, wanted, depth + 1)
+			if found is not missing value then return found
+		end if
+	end repeat
+	return missing value
+end findDesc
 
-on part(area, wanted)
-	tell application "System Events"
-		repeat with sg in (every splitter group of area)
-			repeat with sg2 in (every splitter group of sg)
-				repeat with sa in (every scroll area of sg2)
-					repeat with g in (every group of sa)
-						if (description of g) is wanted then return g
-					end repeat
-				end repeat
-			end repeat
-		end repeat
-	end tell
-	error "the Tracks area has no " & wanted
+-- "Tracks header" and "Tracks contents" are unique in the window; searched from the window itself, since a plain
+-- "Tracks" also names other controls.
+on part(main, wanted)
+	set found to findDesc(main, wanted, 0)
+	if found is missing value then error "Logic's window has no " & wanted & " showing"
+	return found
 end part
 
 on headerNames(main)
-	set header to part(tracksArea(main), "Tracks header")
+	set header to part(main, "Tracks header")
 	tell application "System Events"
 		return description of (every UI element of header whose role is "AXLayoutItem")
 	end tell
@@ -60,9 +64,8 @@ on run argv
 	set mode to item 1 of argv
 	set main to mainWindow()
 	if mode is "list" then
-		set area to tracksArea(main)
-		set header to part(area, "Tracks header")
-		set lanes to part(area, "Tracks contents")
+		set header to part(main, "Tracks header")
+		set lanes to part(main, "Tracks contents")
 		set out to {}
 		tell application "System Events"
 			set n to 0

@@ -572,6 +572,9 @@ def cmd_tracks(args) -> int:
         for t in state.tracks:
             print(f"  {t.number:>3}  {t.name:<32} {t.regions} region(s)")
         print(f"{len(state.tracks)} track(s): {state.mode} mode")
+        if state.scan_error:
+            print(f"scan failed: {state.scan_error}")
+            return 1
         return 0
     trace = Trace(f"rename: {' '.join(args.name)}")
     try:
