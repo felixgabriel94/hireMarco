@@ -1015,5 +1015,10 @@ def run_booth(*, dry_run: bool = False) -> int:
         _LIVE[0].stop()
     if _HALO:
         _HALO[0].stop()
-    print(f"booth closed: {len(booth.notes)} note(s), {len(booth.producer_notes)} producer note(s)")
-    return 0
+    print(f"booth closed: {len(booth.notes)} note(s), {len(booth.producer_notes)} producer note(s)", flush=True)
+    # Leave now: a screen-capture callback still in flight would call into a Python that is shutting down and
+    # abort the process (live 2026-10-29: "'NoneType' object is not callable" from ScreenCaptureKit at exit).
+    import sys as _sys
+
+    _sys.stdout.flush()
+    os._exit(0)
