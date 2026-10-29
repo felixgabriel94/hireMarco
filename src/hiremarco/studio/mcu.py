@@ -190,10 +190,17 @@ def seek(surface: Surface, strip: int, wanted: str, limit: int = 900) -> str:
     raise LookupError(f"{wanted!r} is not in Logic's plug-in list")
 
 
-def to_empty(surface: Surface, strip: int) -> None:
-    for _ in range(20):
+def to_empty(surface: Surface, strip: int, rounds: int = 80) -> None:
+    """Turn back to the empty choice at the top of the list, reading as it goes: Logic moves about two entries
+    for every three clicks, so twenty full turns from a plug-in near the end of 1,209 stopped short (live
+    2026-10-29, removing Auto-Tune from slot 1)."""
+    for done in range(rounds):
         surface.turn(strip, -63)
         time.sleep(0.03)
+        if done % 10 == 9:
+            time.sleep(0.3)
+            if slot_text(surface.screen, strip).startswith("--"):
+                return
     time.sleep(0.3)
 
 
@@ -627,6 +634,7 @@ def serve(sock_path, log_path) -> None:
                         answer = best(surface, names, _ledger.read_ledger(book), book, " ".join(words[4:]),
                                       words[1], int(words[2]), words[3])
                     elif words and words[0] == "select":  # a track's Select button: the track and its regions
+                        mixer_view(surface)  # the top line shows track names here; after a remove it may not
                         strip = strip_of(surface, words[1].replace("+", " "))
                         surface.press("select", strip)
                         answer = f"selected strip {strip}"
@@ -651,7 +659,7 @@ def serve(sock_path, log_path) -> None:
                     # RuntimeError and OSError: Console unreachable for the UAD check; the surface stays up
                     answer = f"bad command: {bad}"
                 top, bottom = surface.screen.lines
-                conn.sendall(f"{answer}\n{top}\n{bottom}\n".encode())
+                conn.sendall(f"{answer}\n{top}\n{bottom}\nmode {''.join(surface.mode) or '--'}\n".encode())
     finally:
         surface.close()
         sock_path.unlink(missing_ok=True)

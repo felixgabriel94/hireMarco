@@ -263,3 +263,17 @@ def test_meters_are_not_logged():
     surface = Surface(send=lambda m: None, log=lines.append)
     surface.receive(mido.Message("aftertouch", channel=0, value=35))
     assert lines == []
+
+
+def test_to_empty_keeps_turning_until_the_empty_choice_shows(monkeypatch):
+    surface = Surface(send=lambda m: None)
+    turns = {"n": 0}
+    monkeypatch.setattr(mcu.time, "sleep", lambda s: None)
+
+    def turn(strip, clicks):
+        turns["n"] += 1
+        surface.screen.write(56 + 7 * strip, "--     " if turns["n"] >= 35 else "UADOcW ")
+
+    surface.turn = turn
+    mcu.to_empty(surface, 2)
+    assert turns["n"] == 40 and mcu.slot_text(surface.screen, 2).startswith("--")  # twenty turns stopped short
