@@ -55,3 +55,17 @@ def test_the_booth_is_busy_only_while_a_command_runs():
               feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None)
     b.hear("Marco, record.")
     assert seen == [True] and b.busy is False
+
+
+def test_a_rolling_take_sends_the_halo_away_and_the_conversation_brings_it_back():
+    from types import SimpleNamespace
+
+    audio = SimpleNamespace(speaking=True, out_level=0.05, in_level=0.02)
+    booth = SimpleNamespace(rolling=True, busy=False)
+    assert halo.booth_state(booth, audio) == ("recording", 0.0)
+    booth.rolling = False
+    assert halo.booth_state(booth, audio) == ("speaking", 0.5)
+    audio.speaking, booth.busy = False, True
+    assert halo.booth_state(booth, audio) == ("thinking", 0.0)
+    booth.busy = False
+    assert halo.booth_state(booth, audio) == ("listening", 0.16)

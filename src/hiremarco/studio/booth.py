@@ -470,16 +470,9 @@ def run_booth(*, dry_run: bool = False) -> int:
             talkback.play = audio.play
         halo = None
         if (config.get("HIREMARCO_HALO") or "on") != "off":
-            from hiremarco.studio.halo import Halo, level_of
+            from hiremarco.studio.halo import Halo, booth_state
 
-            def halo_state() -> tuple[str, float]:
-                if audio.speaking:
-                    return "speaking", level_of(audio.out_level, 10)
-                if booth.busy:
-                    return "thinking", 0.0
-                return "listening", level_of(audio.in_level, 8)
-
-            halo = Halo(halo_state)
+            halo = Halo(lambda: booth_state(booth, audio))
             try:
                 halo.start()
             except Exception as exc:  # the halo is the look, not the work: the booth runs without it

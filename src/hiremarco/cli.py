@@ -37,7 +37,7 @@
     uv run marco hearing answer --song S --folder STEMS "the lead is right, 808 harder"   the artist's guardrails
     uv run marco hearing reference --song S [--file ref.wav] "Travis Scott"               the reference sound
     uv run marco show ["caption"]        a picture of Logic's window to the Owner's WhatsApp, for the ISO box
-    uv run marco halo                    Marco's halo over Logic, cycling listening, thinking, speaking (--preview DIR: pictures)
+    uv run marco halo                    Marco's halo over Logic: a short exchange, then a take (--preview DIR: pictures)
     uv run marco live                    Logic's window live on the phone, video with pictures as fallback; prints the link
     uv run marco tracks list             every track with its region count, and whether this is recording or mixing
     uv run marco tracks rename "Lead Vox"  rename the selected track, read back
@@ -616,16 +616,20 @@ def cmd_halo(args) -> int:
 
     def demo() -> tuple[str, float]:
         t = time.monotonic() - started
-        phase = t % 12
-        if phase < 4:
-            return "listening", 0.15 + 0.15 * math.sin(t * 3)
-        if phase < 6:
+        phase = t % 20  # he answers, you talk back, he answers again, then a take records and he steps away
+        if phase < 2:
             return "thinking", 0.0
-        return "speaking", abs(math.sin(t * 7)) * 0.6 + abs(math.sin(t * 2.3)) * 0.3
+        if phase < 6:
+            return "speaking", abs(math.sin(t * 7)) * 0.6 + abs(math.sin(t * 2.3)) * 0.3
+        if phase < 9:
+            return "listening", 0.2 + 0.15 * math.sin(t * 5)
+        if phase < 12:
+            return "speaking", abs(math.sin(t * 6)) * 0.5 + 0.1
+        return "recording", 0.0
 
     link = halo.Halo(demo)
     link.start()
-    print("halo over Logic: listening, thinking, speaking, every 12 seconds. Ctrl+C stops it.")
+    print("halo over Logic: a 12-second exchange, then 8 seconds of recording with it away. Ctrl+C stops it.")
     try:
         while True:
             time.sleep(0.5)

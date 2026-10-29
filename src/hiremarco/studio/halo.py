@@ -43,6 +43,17 @@ def level_of(rms: float, gain: float) -> float:
     return max(0.0, min(1.0, rms * gain))
 
 
+def booth_state(booth, audio) -> tuple[str, float]:
+    """What the halo shows for the booth right now: away for a take, and his voice, his thinking or yours otherwise."""
+    if booth.rolling:  # the take belongs to the artist: the halo steps out of the way
+        return "recording", 0.0
+    if audio.speaking:
+        return "speaking", level_of(audio.out_level, 10)
+    if booth.busy:
+        return "thinking", 0.0
+    return "listening", level_of(audio.in_level, 8)
+
+
 class Halo:
     """The link to the running halo. ``state`` reads the booth's audio and mode; a thread sends it 30 times a second."""
 

@@ -2,7 +2,8 @@
 //
 // A borderless, transparent window above other apps; clicks pass through to Logic. It centers itself on Logic's
 // main window (the largest normal window Logic has on screen) and follows it. The booth sends its state over UDP
-// on 127.0.0.1:8789, one line per message: "listening 0.12", "thinking 0", "speaking 0.6", "idle 0", "quit".
+// on 127.0.0.1:8789, one line per message: "listening 0.12", "thinking 0", "speaking 0.6", "recording 0",
+// "idle 0", "quit".
 // Four seconds without a message and it closes itself, so a booth that dies never leaves it on screen.
 // The number is a level from 0 to 1 (the artist's voice while listening, Marco's while speaking).
 //
@@ -21,9 +22,10 @@ final class HaloState: ObservableObject {
     var lastFrame: Double = 0
 }
 
-// He appears when he has something to say: fading in as he thinks or speaks, staying through the reply, and
-// fading out a moment after his last word. While he only listens, the halo stays out of the way.
-let fadeIn = 0.5, fadeOut = 0.9, hold = 1.2
+// He is there for the conversation and gone for the take. He fades in when he answers, stays while the two of
+// you keep talking (your voice counts while he is showing), fades out as a take starts recording, and fades out
+// on his own after a quiet stretch with no exchange.
+let fadeIn = 0.5, fadeOut = 0.9, hold = 20.0, voiced = 0.08
 
 let state = HaloState()
 
@@ -49,6 +51,8 @@ struct Orb: View {
             let dt = halo.lastFrame == 0 ? 0 : min(t - halo.lastFrame, 0.1)
             halo.lastFrame = t
             if halo.mode == "speaking" || halo.mode == "thinking" { halo.lastActive = t }
+            if halo.mode == "listening" && halo.shown > 0.5 && halo.target > voiced { halo.lastActive = t }
+            if halo.mode == "recording" { halo.lastActive = -100 }
             let wanted = t - halo.lastActive < hold ? 1.0 : 0.0
             let step = dt / (wanted > halo.shown ? fadeIn : fadeOut)
             halo.shown = wanted > halo.shown ? min(wanted, halo.shown + step) : max(wanted, halo.shown - step)
