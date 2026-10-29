@@ -156,7 +156,11 @@ class Surface:
 
 def slot_text(screen: Screen, strip: int) -> str:
     """What the bottom line shows from strip n on: a preselected plug-in's full name runs past its 7 cells."""
-    return screen.lines[1][7 * strip:].strip()
+    # the other strips keep their own text after a long name: "Silver Gate (s/s)                  --" on strip 0
+    # (live 2026-10-29), so the name ends at the first run of two spaces
+    import re
+
+    return re.split(r"\s{2,}", screen.lines[1][7 * strip:].strip())[0]
 
 
 def step(surface: Surface, strip: int, clicks: int = 1, timeout: float = 0.5, tries: int = 3) -> str | None:

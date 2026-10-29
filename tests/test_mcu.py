@@ -306,3 +306,9 @@ def test_send_level_reads_back_the_db():
     tracks = Tracks(run=lambda args: "send\tBus 1\t-15.0", conn=__import__("sqlite3").connect(":memory:"))
     tracks._gated = lambda run, capability, message: run()
     assert tracks.send_level("Lead", "Bus 1", -15) == "Lead send to Bus 1 -15 dB"
+
+
+def test_a_long_preselected_name_ends_before_the_next_strips_text():
+    screen = Screen()
+    screen.write(56, "Silver Gate (s/s)                  --     ")
+    assert mcu.slot_text(screen, 0) == "Silver Gate (s/s)"
