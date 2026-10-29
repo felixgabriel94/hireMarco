@@ -498,6 +498,45 @@ class Learner:
             NSRunLoop.currentRunLoop().runUntilDate_(NSDate.distantFuture())
 
 
+def trial(surface: Surface, names: list[str], track: str, slot: int, logic_name: str,
+          windows: Callable[[], set] | None = None, settle: float = 1.5) -> str | None:
+    """Try a plug-in on a scratch track's empty slot and take it out again. Returns None when it opened
+    cleanly, or what the wall was: the slot stayed empty, or a license window appeared."""
+    from hiremarco.studio import ledger
+
+    look = windows or ledger.windows
+    before = look()
+    try:
+        insert(surface, names, track, slot, logic_name)
+    except LookupError as refused:
+        if "reads empty" in str(refused):
+            return "it did not load"
+        raise
+    time.sleep(settle)
+    found = ledger.wall(before, look())
+    remove(surface, track, slot)
+    return found
+
+
+def best(surface: Surface, names: list[str], rows: dict, ledger_path, job: str, track: str, slot: int,
+         scratch: str, scratch_slot: int = 15, replace: bool = False) -> str:
+    """Insert the best plug-in for a job: an owned one at once; an unknown one only after a clean try on the
+    scratch track, recorded in the ledger either way; one known not to be owned is never tried."""
+    from hiremarco.studio import ledger
+
+    tried = []
+    for name, status in ledger.candidates(job, rows, names):
+        if status == "unknown":
+            hit = trial(surface, names, scratch, scratch_slot, name)
+            ledger.mark(ledger_path, name, "not_owned" if hit else "owned", f"tried: {hit or 'opened cleanly'}")
+            if hit:
+                tried.append(f"{ledger.base_name(name)} ({hit})")
+                continue
+        done = insert(surface, names, track, slot, name, replace=replace)
+        return done + (f"; skipped {', '.join(tried)}" if tried else "")
+    raise LookupError(f"no plug-in for {job} could be used" + (f": {', '.join(tried)}" if tried else ""))
+
+
 def serve(sock_path, log_path) -> None:
     """Hold the ports open and take one command per connection on a Unix socket:
     ``press NAME [INDEX]``, ``turn STRIP CLICKS``, ``screen``. Every reply ends with the screen as it stands."""
@@ -560,6 +599,17 @@ def serve(sock_path, log_path) -> None:
                     elif words and words[0] == "learned":
                         learned = index_path.with_name("learned_plugins.json")
                         answer = learned.read_text() if learned.exists() else "nothing new learned yet"
+                    elif words and words[0] == "best":
+                        import json as _json
+
+                        from hiremarco.studio import ledger as _ledger
+
+                        index = Path(log_path).with_name("maps") / "logic_plugins.json"
+                        book = index.with_name("license_ledger.json")
+                        names = _json.loads(index.read_text())
+                        # best TRACK SLOT SCRATCH JOB...
+                        answer = best(surface, names, _ledger.read_ledger(book), book, " ".join(words[4:]),
+                                      words[1], int(words[2]), words[3])
                     elif words and words[0] == "remove":
                         answer = remove(surface, words[1], int(words[2]))
                     elif words and words[0] == "scan":

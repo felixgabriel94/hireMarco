@@ -205,3 +205,29 @@ def test_insert_refuses_an_unauthorized_uad_plugin_before_touching_logic():
     else:
         raise AssertionError("inserted an unauthorized plug-in")
     assert sent == []
+
+
+def test_best_tries_an_unknown_on_scratch_and_falls_back_when_it_hits_a_wall(tmp_path, monkeypatch):
+    import json
+
+    from hiremarco.studio import ledger
+
+    names = ["Pro-DS (s/s)", "UAD Precision De-Esser (s/s)", "DeEsser 2 (s/s)"]
+    book = tmp_path / "license_ledger.json"
+    rows = {"UAD Precision De-Esser (s/s)": {"status": "owned", "evidence": ["console"]}}
+    book.write_text(json.dumps(rows))
+    inserted, trials = [], []
+
+    def fake_trial(surface, names, track, slot, name, windows=None, settle=0):
+        trials.append((track, slot, name))
+        return "Logic Pro: Pro-DS license"
+
+    monkeypatch.setattr(mcu, "trial", fake_trial)
+    monkeypatch.setattr(mcu, "insert", lambda s, n, track, slot, name, replace=False, may_run=None:
+                        inserted.append((track, slot, name)) or f"{name} in insert {slot}")
+    done = mcu.best(Surface(send=lambda m: None), names, rows, book, "de-esser", "vocal", 9, "scratch")
+    assert trials == [("scratch", 15, "Pro-DS (s/s)")]
+    assert inserted == [("vocal", 9, "UAD Precision De-Esser (s/s)")]
+    assert "skipped Pro-DS" in done
+    assert json.loads(book.read_text())["Pro-DS (s/s)"]["status"] == "not_owned"
+    assert ledger.read_ledger(book)["Pro-DS (s/s)"]["evidence"] == ["tried: Logic Pro: Pro-DS license"]

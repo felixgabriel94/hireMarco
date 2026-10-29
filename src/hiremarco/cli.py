@@ -970,7 +970,7 @@ def main(argv: list[str] | None = None) -> int:
     le.set_defaults(func=cmd_ledger)
 
     mc = sub.add_parser("mcu", help="Marco as a Mackie Control surface: serve | press NAME [I] | turn STRIP CLICKS | screen")
-    mc.add_argument("action", choices=["serve", "press", "turn", "screen", "seek", "confirm", "scan", "jump", "insert", "replace", "remove", "learned"])
+    mc.add_argument("action", choices=["serve", "press", "turn", "screen", "seek", "confirm", "scan", "jump", "insert", "replace", "remove", "learned", "best"])
     mc.add_argument("words", nargs="*")
     mc.set_defaults(func=cmd_mcu)
 

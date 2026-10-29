@@ -135,3 +135,56 @@ def mark(path: Path, logic_name: str, status: str, why: str) -> None:
     row["status"] = status
     row["evidence"] = sorted(set(row["evidence"]) | {why})
     path.write_text(json.dumps(rows, indent=1))
+
+
+# Layer 3: the runner-ups. Best first for each job, drafted 2026-10-29 from the artist's own vocal chain and
+# the UAD titles Console authorizes; the artist approves or reorders them.
+ROLES: dict[str, list[str]] = {
+    "eq": ["Pro-Q 3", "UAD Pultec EQP-1A", "Channel EQ"],
+    "air": ["UAD Pultec EQP-1A", "Pro-Q 3", "Channel EQ"],
+    "de-esser": ["Pro-DS", "UAD Precision De-Esser", "DeEsser 2"],
+    "fet compressor": ["CLA-76 (s)", "UAD UA 1176LN Rev E", "Compressor"],
+    "opto compressor": ["UAD Teletronix LA-2A Silver", "UAD Teletronix LA-2A Gray", "Compressor"],
+    "vocal compressor": ["Pro-C 2", "RVox (s)", "Compressor"],
+    "resonance": ["soothe2", "F6-RTA (s)", "Channel EQ"],
+    "gate": ["Pro-G", "Noise Gate"],
+    "tuning": ["UAD Auto-Tune Realtime Advanced", "Melodyne", "Pitch Correction"],
+    "reverb": ["ValhallaVintageVerb", "UAD Lexicon 480L", "ChromaVerb"],
+    "delay": ["UAD EP-34 Tape Echo", "Tape Delay"],
+}
+
+LICENSE_WORDS = re.compile(r"licen[cs]e|trial|activat|authori[sz]|demo|regist|expired|unlock|purchase", re.IGNORECASE)
+LICENSE_APPS = {"iLok License Manager", "Waves Central", "Native Access", "Slate Digital Connect", "UA Connect",
+                "Plugin Alliance Installation Manager", "Melodyne", "Celemony"}
+
+
+def candidates(job: str, rows: dict[str, dict], logic_names: list[str]) -> list[tuple[str, str]]:
+    """The job's plug-ins as Logic names, owned first then unknown, never one known not to be owned."""
+    if job not in ROLES:
+        raise LookupError(f"no runner-up list for {job!r}; jobs: {', '.join(ROLES)}")
+    picked = []
+    for wanted in ROLES[job]:
+        name = next((n for n in logic_names if base_name(n) == wanted or base_name(n) == base_name(wanted)
+                     and n.startswith(wanted)), None)
+        if name is None:
+            continue
+        status = rows.get(name, {}).get("status", "unknown")
+        if status != "not_owned":
+            picked.append((name, status))
+    return picked
+
+
+def wall(before: set[tuple[str, str]], after: set[tuple[str, str]]) -> str | None:
+    """A license wall, read from the windows that appeared: a title with license words, or a license app."""
+    for owner, title in sorted(after - before):
+        if owner in LICENSE_APPS or LICENSE_WORDS.search(title or ""):
+            return f"{owner}: {title}".strip(": ")
+    return None
+
+
+def windows() -> set[tuple[str, str]]:
+    """Every on-screen window as (app, title); titles are readable without clicking anything."""
+    import Quartz
+
+    listed = Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID)
+    return {(str(w.get("kCGWindowOwnerName") or ""), str(w.get("kCGWindowName") or "")) for w in listed}

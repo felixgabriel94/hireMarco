@@ -48,3 +48,22 @@ def test_logic_own_plugins_lead_the_list_and_count_as_owned():
     rows = ledger.build(names, set(), {"UAD Neve 1073"}, set(), set(), set(), set(), set())
     assert rows["Channel EQ (s/s)"] == {"status": "owned", "evidence": ["logic"]}
     assert rows["Mystery Verb (s/s)"]["status"] == "unknown"
+
+
+NAMES = ["Pro-DS (s/s)", "UAD Precision De-Esser (s/s)", "DeEsser 2 (s/s)", "Melodyne (s/s)",
+         "UAD Auto-Tune Realtime Advanced (s/s)", "Pitch Correction (s/s)", "CLA-76 (m) (s/s)", "CLA-76 (s) (s/s)"]
+
+
+def test_candidates_put_owned_first_skip_refused_and_match_channel_variants():
+    rows = {"Melodyne (s/s)": {"status": "not_owned", "evidence": []},
+            "UAD Auto-Tune Realtime Advanced (s/s)": {"status": "owned", "evidence": ["console"]}}
+    assert [n for n, _ in ledger.candidates("tuning", rows, NAMES)] == [
+        "UAD Auto-Tune Realtime Advanced (s/s)", "Pitch Correction (s/s)"]
+    assert ledger.candidates("fet compressor", {}, NAMES)[0] == ("CLA-76 (s) (s/s)", "unknown")
+
+
+def test_wall_reads_license_windows_and_apps_but_not_plugin_windows():
+    before = {("Logic Pro", "Untitled 3 - Tracks")}
+    assert ledger.wall(before, before | {("Logic Pro", "Inst 1")}) is None
+    assert ledger.wall(before, before | {("Logic Pro", "Melodyne trial expired")}) == "Logic Pro: Melodyne trial expired"
+    assert ledger.wall(before, before | {("iLok License Manager", "")}) == "iLok License Manager"
