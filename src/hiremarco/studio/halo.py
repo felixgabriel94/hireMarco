@@ -49,6 +49,8 @@ def booth_state(booth, audio) -> tuple[str, float]:
         return "recording", 0.0
     if audio.speaking:
         return "speaking", level_of(audio.out_level, 10)
+    if getattr(booth, "asleep", False):  # dismissed: gone as soon as his last line ends
+        return "asleep", 0.0
     if booth.busy or time.monotonic() - getattr(booth, "called_at", 0.0) < 3.0:
         return "thinking", 0.0  # his name was just heard: he rises before the sentence is even finished
     return "listening", level_of(audio.in_level, 8)

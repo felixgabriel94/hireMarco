@@ -21,7 +21,7 @@ ACTIONS = (
     "play", "stop", "record", "go_to_start", "go_to_section", "go_to_bar", "new_track", "arm_track",
     "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
     "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "live_view", "hearing", "reference",
-    "kill", "summon", "unknown",
+    "kill", "summon", "dismiss", "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
 
@@ -177,6 +177,8 @@ MIX_SAID = re.compile(r"^(?:give me |do |run |let'?s do )?(?:a |the )?(?:quick )
                       r"^(?:clean up|balance) (?:the mix|what we have(?: so far)?|the session)$")
 WATCH_SAID = re.compile(r"^keep (?:it|things|the mix|the frequencies) balanced(?: as we (?:go|work|record))?$|"
                         r"^(?:stop|no more) (?:watching|balancing)(?: the mix)?$")
+DISMISS_SAID = re.compile(r"^(?:that'?s (?:all|it)(?: for now)?|thanks?(?: you)?(?:,? marco)?|thank you(?:,? marco)?|"
+                          r"go to sleep|you can go|i'?m good|we'?re good|bye(?:,? marco)?|later|dismissed|step out)$")
 KILL_SAID = re.compile(r"^(?:stop everything|stop it all|kill (?:it|switch|everything)|hands off|freeze|abort)$")
 HEARING_SAID = re.compile(r"^(?:how does it sound|how'?s it sounding|give me (?:a |the )?(?:hearing|read)(?: of the mix| on the mix)?|"
                           r"read the (?:mix|session)|what do you hear|how'?s the mix)$")
@@ -256,6 +258,8 @@ def understand(line: str, client: MuseSpark | None = None) -> Command | None:
         return None
     if not said:
         return Command("summon")  # "Marco." or "Hey Marco" alone: he answers and waits, like a name called in a room
+    if DISMISS_SAID.match(said):
+        return Command("dismiss")  # the conversation is over: he goes quiet until his name is said again
     if KILL_SAID.match(said):
         return Command("kill")  # checked before anything else: the one line that must never be misheard as a command
     quick = fast_match(said)

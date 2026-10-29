@@ -4,7 +4,7 @@
 // app in front. It sits on Logic's main window (the largest normal window Logic has on screen) and follows it;
 // hold Option to drag it somewhere else on Logic, Option and double-click to put it back in the center. The booth sends its state over UDP
 // on 127.0.0.1:8789, one line per message: "listening 0.12", "thinking 0", "speaking 0.6", "recording 0",
-// "idle 0", "quit".
+// "asleep 0" (dismissed), "idle 0", "quit".
 // Four seconds without a message and it closes itself, so a booth that dies never leaves it on screen.
 // The number is a level from 0 to 1 (the artist's voice while listening, Marco's while speaking).
 //
@@ -54,7 +54,7 @@ struct Orb: View {
             halo.lastFrame = t
             if halo.mode == "speaking" || halo.mode == "thinking" { halo.lastActive = t }
             if halo.mode == "listening" && halo.shown > 0.5 && halo.target > voiced { halo.lastActive = t }
-            if halo.mode == "recording" { halo.lastActive = -100 }
+            if halo.mode == "recording" || halo.mode == "asleep" { halo.lastActive = -100 }
             let wanted = t - halo.lastActive < hold && halo.inLogic ? 1.0 : 0.0
             let step = dt / (wanted > halo.shown ? fadeIn : fadeOut)
             halo.shown = wanted > halo.shown ? min(wanted, halo.shown + step) : max(wanted, halo.shown - step)

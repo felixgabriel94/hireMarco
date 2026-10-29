@@ -33,12 +33,13 @@ DIALING = "Let me dial that in."
 MISSED = "I missed that. Say it again?"
 FAILED = "That one didn't take. I'll note it."
 HERE = "Yeah?"
+DISMISSED = "Anytime."
 AWAKE = 20.0  # seconds after the last exchange in which a sentence needs no "Marco"; the same quiet ends the halo
 LIVE_ON = "Live view's on. The link's on the Mac."
 LIVE_TEXTED = "Live view's on. I texted you the link."
 STOPPED = "Stopped. Everything's held until you clear it from the desk."
 # Lines Marco says often, made once at the start so they play the moment they are needed.
-STOCK = ["Rolling", HERE, LIVE_ON, LIVE_TEXTED, NOTED, LISTENING, DIALING, MISSED, FAILED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
+STOCK = ["Rolling", HERE, DISMISSED, LIVE_ON, LIVE_TEXTED, NOTED, LISTENING, DIALING, MISSED, FAILED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
          "Morning. Your session's up. Where do you want to start?"]
 
 
@@ -116,6 +117,7 @@ class Booth:
     called_at: float = 0.0                            # when his name was last heard, before the sentence ended
     settle: float = 0.8                               # seconds between making a track and naming it
     awake_at: float = -100.0                          # the last exchange: he listens without his name for AWAKE s
+    asleep: bool = False                              # dismissed: the halo goes as soon as he finishes his line
     send_link: Callable[[str], str] | None = None     # a link to the artist's phone by text; None or a refusal: the Mac
 
     def _deliver(self, text: str) -> str:
@@ -152,6 +154,7 @@ class Booth:
         if implied and command.action == "unknown":
             return None  # maybe said to someone else in the room: he lets it pass instead of asking again
         self.awake_at = time.monotonic()
+        self.asleep = False
         self.busy = True
         try:
             result = self.handle(command)
@@ -272,6 +275,10 @@ class Booth:
         a = command.action
         if a == "kill":
             return self._kill()
+        if a == "dismiss":
+            self._speak(DISMISSED)
+            self.awake_at, self.asleep = -100.0, True
+            return "dismissed; listening for his name only"
         if a == "summon":
             self._speak(HERE)
             return "called by name; answered and listening"

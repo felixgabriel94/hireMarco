@@ -156,3 +156,22 @@ def test_once_awake_he_needs_no_name_until_a_take_or_a_quiet_stretch():
     assert "stop" in b.hear("Marco, stop.")
     b.awake_at -= AWAKE + 1
     assert b.hear("Give me the live view.") is None and len(links) == 1
+
+
+def test_thats_all_puts_him_to_sleep_and_his_name_wakes_him():
+    from types import SimpleNamespace
+
+    from hiremarco.studio.booth import DISMISSED
+    from hiremarco.studio.commands import Command
+
+    for line in ("Marco, that's all.", "Marco, thanks", "Marco, go to sleep", "Marco, we're good"):
+        assert understand(line, client=None) == Command("dismiss"), line
+    said = []
+    b = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: c.describe(), say=said.append,
+              feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None)
+    b.hear("Hey Marco.")
+    assert "dismissed" in b.hear("Thanks, Marco.") and said[-1] == DISMISSED and b.asleep
+    assert b.hear("Play it back.") is None  # asleep: no name, no command
+    audio = SimpleNamespace(speaking=False, out_level=0.0, in_level=0.1)
+    assert halo.booth_state(b, audio) == ("asleep", 0.0)
+    assert "play" in b.hear("Marco, play it back.") and not b.asleep
