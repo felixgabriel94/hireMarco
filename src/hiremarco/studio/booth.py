@@ -14,6 +14,7 @@ one spot would fix it. "Marco, punch it" then punches that spot.
 
 from __future__ import annotations
 
+import re
 import subprocess
 import threading
 import time
@@ -34,6 +35,8 @@ LISTENING = "Let me listen."
 DIALING = "Let me dial that in."
 MISSED = "I missed that. Say it again?"
 FAILED = "That one didn't take. I'll note it."
+MIC_TAIL = 0.4  # seconds his hearing stays muted after he stops talking
+ECHO_SECONDS = 15.0  # how long a line of his can come back through the mic as an echo
 HERE = "Yeah?"
 # The instant answer to his name: pre-made so it plays at once, picked so it never sounds like a loop. The Owner's
 # own picks first (2026-10-29: keep him cool like that).
@@ -129,6 +132,7 @@ class Booth:
     writer: object | None = None                      # studio.words.Writer: his content lines, written live
     last_said: str = ""
     heard_line: str = ""
+    spoken: list = field(default_factory=list)        # (when, line) of his last lines, to know his own echo
     _asked_after_take: bool = False                   # the after-take answer is used once per take
     send_link: Callable[[str, str], str] | None = None  # (body, url) to the artist's phone; None or a refusal: the Mac
 
@@ -171,8 +175,24 @@ class Booth:
         """A line with content: written for this moment when a writer is wired, the plain line otherwise."""
         self._speak(self.writer.line(moment, facts, plain) if self.writer is not None else plain)
 
+    def _echo(self, line: str) -> bool:
+        """His own voice coming back through the mic. Live 2026-10-29: once awake, he heard his own line as the
+        artist's next sentence and kept answering himself. The mic is muted while he talks (see on_input); this
+        catches what slips past: a line that is one of his own from the last ECHO_SECONDS, word for word."""
+        heard = _words(strip_wake(line) if strip_wake(line) is not None else line)
+        if not heard:
+            return False
+        now = time.monotonic()
+        for at, said in self.spoken:
+            if now - at <= ECHO_SECONDS:
+                if heard == _words(said):  # the whole line, word for word: the artist's "punch it" stays his
+                    return True
+        return False
+
     def _speak(self, text: str) -> None:
         self.last_said = text
+        self.spoken.append((time.monotonic(), text))
+        del self.spoken[:-6]
         try:
             self.say(text)
         except gate.Refused as held:
@@ -180,6 +200,9 @@ class Booth:
 
     def hear(self, line: str) -> str | None:
         started = time.monotonic()
+        if self._echo(line):
+            self.log(f"   (his own voice, not answered: {line})")
+            return None
         # Once you have his attention, he stays with you: no "Marco" needed until a take starts or the two of you
         # go quiet for AWAKE seconds (Owner 2026-10-29: having to say the name every time is what he dislikes in
         # Siri). The take ends it, so nothing sung is taken for a command.
@@ -452,6 +475,10 @@ def _song() -> str:
     return config.get("HIREMARCO_SONG") or "untitled"
 
 
+def _words(text: str) -> list[str]:
+    return re.findall(r"[a-z0-9']+", text.lower())
+
+
 _LIVE: list = []
 _HALO: list = []
 
@@ -590,11 +617,19 @@ def run_booth(*, dry_run: bool = False) -> int:
         loop = asyncio.get_running_loop()
         chunks: asyncio.Queue[bytes] = asyncio.Queue()
 
+        quiet_until = [0.0]
+
         def on_input(mono: np.ndarray) -> None:
             if mono.size == 0:
                 return  # a glitch delivered nothing; sending an empty frame would break the hearing session
             booth.tape.write(mono)
-            loop.call_soon_threadsafe(chunks.put_nowait, to_pcm24k(mono, audio.rate).tobytes())
+            # While Marco talks, and a breath after, his hearing gets silence: the mic picks up his voice from the
+            # headphones, and he answered himself (live 2026-10-29). The stream keeps its pace with zeros.
+            now = time.monotonic()
+            if audio.speaking:
+                quiet_until[0] = now + MIC_TAIL
+            heard = np.zeros_like(mono) if now < quiet_until[0] else mono
+            loop.call_soon_threadsafe(chunks.put_nowait, to_pcm24k(heard, audio.rate).tobytes())
 
         async def mic():
             while True:

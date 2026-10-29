@@ -221,3 +221,19 @@ def test_the_shortcut_wakes_him_sends_him_away_and_waits_out_a_take():
     b.hear("Marco, stop.")
     b.awake_at -= AWAKE + 1
     assert "woken" in b.toggle()
+
+
+def test_his_own_voice_through_the_mic_is_not_answered():
+    from hiremarco.studio.booth import ECHO_SECONDS
+    from hiremarco.studio.commands import Command
+
+    said, logged = [], []
+    b = Booth(understand=lambda line: Command("unknown") if "keys" in line else understand(line, client=None),
+              logic=lambda c: c.describe(), say=said.append, feedback=lambda a, r: None, tape=Tape(1000, seconds=2),
+              log=logged.append)
+    b.hear("Hey Marco.")
+    answer = said[-1]
+    assert b.hear(answer) is None and len(said) == 1 and "his own voice" in logged[-1]   # he does not answer himself
+    assert "mode" in b.hear("What mode are you in?")  # the artist still gets through
+    b.spoken = [(t - ECHO_SECONDS - 1, line) for t, line in b.spoken]
+    assert b.hear(said[-1]) is not None  # long after, the same words are the artist's
