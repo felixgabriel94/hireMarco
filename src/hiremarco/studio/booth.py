@@ -478,15 +478,27 @@ def _text_owner(body: str, url: str) -> str:
                                 idempotency_key=f"link:{time.time_ns()}")
 
 
+_LIVE_LOCK = threading.Lock()
+
+
 def _booth_live() -> str:
-    """The live view beside the booth: started on the first ask, the same link after that."""
+    """The live view beside the booth: started with the session (or on the first ask), the same link after that."""
     from hiremarco.studio.live import LiveView
 
-    if not _LIVE:
-        view = LiveView.prepare()
-        view.start_in_background()
-        _LIVE.append(view)
+    with _LIVE_LOCK:
+        if not _LIVE:
+            view = LiveView.prepare()
+            view.start_in_background()
+            _LIVE.append(view)
     return _LIVE[0].link
+
+
+def _open_live_view() -> None:
+    """At the start of a session, so a link he sends always opens; capture runs only while a phone watches."""
+    try:
+        print(f"live view ready: {_booth_live()}")
+    except Exception as exc:  # the session runs without it; asking for it later says why
+        print(f"   (live view not started: {type(exc).__name__}: {str(exc)[-160:]})")
 
 
 def _booth_hearing() -> str:
@@ -607,6 +619,8 @@ def run_booth(*, dry_run: bool = False) -> int:
         if halo is not None:
             _HALO.append(halo)
         threading.Thread(target=_shortcut_listener, args=(booth, lock), daemon=True).start()
+        if not dry_run:
+            threading.Thread(target=_open_live_view, daemon=True).start()
         with audio:
             print(f"booth live on {audio.device or 'the default interface'}, mic channel {audio.mic_channel}, "
                   f"Marco on outputs {audio.out_pair[0]}-{audio.out_pair[1]}, one stream"
