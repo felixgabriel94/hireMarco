@@ -145,7 +145,15 @@ on run argv
 					set value of attribute "AXFocused" of notesArea to true
 				end try
 				delay 0.2
-				click menu item "Select All" of menu 1 of menu bar item "Edit" of menu bar 1
+				-- Logic files Select All under Edit > Select > All (Edit has no "Select All", live 2026-10-29); Cmd+A is
+				-- the same command if the menu path moves
+				set selectedBy to "Edit > Select > All"
+				try
+					click menu item "All" of menu 1 of menu item "Select" of menu 1 of menu bar item "Edit" of menu bar 1
+				on error
+					set selectedBy to "Cmd+A"
+					keystroke "a" using command down
+				end try
 				delay 0.3
 				click rootPop
 				delay 0.4
@@ -185,7 +193,7 @@ on run argv
 				delay 0.3
 				set value of amount to wantAmount
 				delay 0.3
-				return "root=" & (value of rootPop) & tab & "scale=" & (value of scalePop) & tab & "correction=" & ((value of amount) as text)
+				return "selected by " & selectedBy & tab & "root=" & (value of rootPop) & tab & "scale=" & (value of scalePop) & tab & "correction=" & ((value of amount) as text)
 			end tell
 		end tell
 	end if
