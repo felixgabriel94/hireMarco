@@ -27,7 +27,7 @@ class FakeLogic:
             pairs = args[2:]
             for name, value in zip(pairs[::2], pairs[1::2]):
                 self.params[name] = float(value)
-        return "plugin\tValhallaVintageVerb\n" + "\n".join(f"{k}\t{v}" for k, v in self.params.items())
+        return "plugin\tValhallaVintageVerb\n" + "\n".join(f"{k}\t{v}\t0\t100" for k, v in self.params.items())
 
 
 def rules(tmp_path):
@@ -54,7 +54,7 @@ def test_set_applies_clamps_and_verifies(tmp_path):
     after = plugin.set({"Mix": 40, "Decay": 140})
     assert after.params["Mix"] == 40 and after.params["Decay"] == 100
     assert plugin.before.params["Mix"] == 93.0
-    with pytest.raises(gate.Refused, match="no parameter Shimmer"):
+    with pytest.raises(gate.Refused, match="Shimmer is not a control Marco moves"):
         plugin.set({"Shimmer": 50})
 
 
@@ -124,3 +124,23 @@ def test_a_cut_off_answer_says_so(tmp_path):
 def test_menus_and_switches_are_read_only_text():
     state = parse("plugin\tUAD Auto-Tune\nRetune Speed\t20\nKey\t~F\nScale\t~Minor")
     assert state.params == {"Retune Speed": 20.0} and state.fixed == {"Key": "F", "Scale": "Minor"}
+
+
+def test_each_plugin_keeps_its_own_scale(tmp_path):
+    from hiremarco.studio.plugins import PluginState
+
+    state = parse("plugin\tPro-Q 3\nBand 1 Gain\t30000\t0\t60000\nBand 1 Used\t1\t0\t1\n"
+                  "Bypass\t0\t0\t1\nOdd Knob\t7")
+    assert state.percent("Band 1 Gain") == 50.0 and state.raw("Band 1 Gain", 75) == 45000
+    assert state.raw("Band 1 Used", 40) == 0.0 and state.raw("Band 1 Used", 60) == 1.0   # a switch steps
+    assert state.changeable() == ["Band 1 Gain", "Band 1 Used"]   # Bypass protected; no range, never moved
+    seen = state.for_model()
+    assert seen["parameters"] == {"Band 1 Gain": 50.0, "Band 1 Used": 100.0}
+    assert seen["fixed"] == {"Bypass": "0", "Odd Knob": "7"}
+
+
+def test_set_refuses_a_protected_control(tmp_path):
+    plugin = Plugin(run=lambda args: "plugin\tPro-DS\nBypass\t0\t0\t1\nThreshold\t50\t0\t100",
+                    conn=gate.connect(":memory:"), rules_path=rules(tmp_path))
+    with pytest.raises(gate.Refused, match="not a control Marco moves"):
+        plugin.set({"Bypass": 100})

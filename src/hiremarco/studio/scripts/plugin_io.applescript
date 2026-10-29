@@ -49,6 +49,13 @@ on run argv
 			end repeat
 			-- "every slider" gives an empty list for a row with none, so one request covers mixed rows too.
 			set sliderVals to value of every slider of UI element 1 of every row of t
+			-- Each plugin has its own scale (Valhalla 0-100, UAD 0-10000, FabFilter up to 60000+), so the range comes too.
+			set sliderMins to {}
+			set sliderMaxs to {}
+			try
+				set sliderMins to value of attribute "AXMinValue" of every slider of UI element 1 of every row of t
+				set sliderMaxs to value of attribute "AXMaxValue" of every slider of UI element 1 of every row of t
+			end try
 			set vals to {}
 			set needText to false
 			repeat with i from 1 to n
@@ -78,7 +85,13 @@ on run argv
 			repeat with i from 1 to n
 				set label to item i of labels
 				if label ends with ":" then set label to text 1 thru -2 of label
-				set end of out to label & tab & ((item i of vals) as text)
+				set range to ""
+				try
+					set lo to item i of sliderMins
+					set hi to item i of sliderMaxs
+					if (count of lo) > 0 then set range to tab & ((item 1 of lo) as text) & tab & ((item 1 of hi) as text)
+				end try
+				set end of out to label & tab & ((item i of vals) as text) & range
 			end repeat
 		end tell
 	end tell

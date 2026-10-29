@@ -15,10 +15,11 @@ class FakeChain:
 
     def __init__(self):
         self.plugins = {
-            1: ("Pro-Q 3", {"Band 1 Gain": 50.0, "Band 1 Frequency": 30.0, "Output Gain": 50.0}, False),
-            2: ("CLA-76", {"Input": 40.0, "Output": 60.0, "Attack": 20.0}, False),
+            1: ("Pro-Q 3", {"Band 1 Gain": 30000.0, "Band 1 Frequency": 18000.0, "Output Gain": 30000.0}, False),
+            2: ("CLA-76", {"Input": 4000.0, "Output": 6000.0, "Attack": 2000.0}, False),
             3: ("ValhallaVintageVerb", {"Mix": 20.0, "Decay": 42.0, "Size": 50.0}, True),
         }
+        self.scales = {1: 60000, 2: 10000, 3: 100}  # each plugin's own scale, as Logic reports it
         self.calls = []
 
     def __call__(self, args):
@@ -31,7 +32,8 @@ class FakeChain:
             pairs = args[2:]
             for k, v in zip(pairs[::2], pairs[1::2]):
                 params[k] = float(v)
-        return f"plugin\t{name}\n" + "\n".join(f"{k}\t{v}" for k, v in params.items())
+        top = self.scales[number]
+        return f"plugin\t{name}\n" + "\n".join(f"{k}\t{v}\t0\t{top}" for k, v in params.items())
 
 
 @pytest.fixture
@@ -59,7 +61,7 @@ def test_read_opens_only_the_active_plugins(rules):
     fake = FakeChain()
     chain = Channel(run=fake, conn=gate.connect(":memory:"), rules_path=rules).read()
     assert [c[:2] for c in fake.calls] == [["list"], ["read", "1"], ["read", "2"]]
-    assert chain.slots[2].state is None and chain.slots[0].state.params["Band 1 Gain"] == 50.0
+    assert chain.slots[2].state is None and chain.slots[0].state.percent("Band 1 Gain") == 50.0
 
 
 def test_level_controls_move_at_most_one_step():
@@ -79,16 +81,18 @@ def test_design_across_the_chain_then_put_back(tmp_path, rules):
     channel = Channel(run=fake, conn=gate.connect(":memory:"), rules_path=rules, client=wonder(tmp_path, reply, seen))
     results, said = channel.design("brighter and smoother")
     assert said.startswith("A little more air")
-    assert fake.plugins[1][1]["Band 1 Gain"] == 62 and fake.plugins[1][1]["Output Gain"] == 65
-    assert fake.plugins[2][1]["Attack"] == 45 and fake.plugins[3][1]["Mix"] == 20
+    # percents land on each plugin's own scale: 62% of 60000, Output held to 50% + 15
+    assert fake.plugins[1][1]["Band 1 Gain"] == 37200 and fake.plugins[1][1]["Output Gain"] == 39000
+    assert fake.plugins[2][1]["Attack"] == 4500 and fake.plugins[3][1]["Mix"] == 20
     body = seen[0]
     assert body["model"] == "muse-wonder-1.0" and body["reasoning_effort"] == "medium"
     sent = json.loads(body["messages"][1]["content"])
     assert [s["plugin"] for s in sent["chain"]] == ["Pro-Q 3", "CLA-76", "ValhallaVintageVerb"]
     assert sent["chain"][2]["bypassed"] is True and sent["chain"][2]["parameters"] == {}
+    assert sent["chain"][0]["parameters"]["Band 1 Gain"] == 50.0  # the model sees percents, not 30000
     channel.put_back()
-    assert fake.plugins[1][1]["Band 1 Gain"] == 50 and fake.plugins[1][1]["Output Gain"] == 50
-    assert fake.plugins[2][1]["Attack"] == 20
+    assert fake.plugins[1][1]["Band 1 Gain"] == 30000 and fake.plugins[1][1]["Output Gain"] == 30000
+    assert fake.plugins[2][1]["Attack"] == 2000
     with pytest.raises(gate.Refused, match="nothing to put back"):
         channel.put_back()
 
