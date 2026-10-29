@@ -37,10 +37,10 @@ only once the code that calls it is committed.
 | `muse-wonder-1.0` | The critic: approves or holds anything that cannot be taken back, so only high-stakes calls use the top-tier model | live |
 | `muse-wonder-1.0` | The mix engineer's judgment: the whole channel from one description, the mix pass across the session with the rulebook and the measurements, the hearing's spoken read, a named reference turned into a signature | live |
 | `muse-wonder-1.0` | Computer use: clicks through Logic's export dialog for the ready-to-mix folder, on a short leash | live, not yet run against Logic |
-| `muse-spark-1.3` | Turning a spoken studio command into one Logic action (structured output, minimal reasoning); reading the 6176 from a photo; the brain on the restaurant call; checking the restaurant's hours with search grounding before it dials | this week |
+| `muse-spark-1.3` | Turning a spoken studio command into one Logic action (structured output, minimal reasoning); reading the hardware preamp from a photo; the brain on the restaurant call; checking the restaurant's hours with search grounding before it dials | this week |
 | `muse-spark-1.2` | "Marco, how was that take?": listens to the take and gives a producer's note (Meta's recommended version for audio input) | live |
 | `muse-voice-transcribe-1.0` | Hearing studio commands and take notes live from the mic (keyword biasing, endpointing); the call transcript with speaker labels behind the proof card | live |
-| `sam-3.1` | Isolating the 6176's knobs in the glasses photo before Muse Spark reads them | live |
+| `sam-3.1` | Isolating the hardware preamp's knobs in the glasses photo before Muse Spark reads them | live |
 | `sam-3.1`, `muse-image-1.0` | Dress me: the clothes on the bed, and the look board | planned, last in the queue |
 
 ## Built here
@@ -68,7 +68,7 @@ below grows as the build does; `git log` carries the dates.
 | Oct 28 | `hiremarco.film` | The film's sound on one clock: the mic and the interface's virtual channels (Logic's output, Marco's voice) recorded the whole session long in 15-minute 24-bit segments, each one's first sample logged so the edit lines them up; overflows counted, not hidden |
 | Oct 28 | `hiremarco.studio.feedback` | "Marco, how was that take?": Muse Spark 1.2 listens to the take and gives one producer's note in structured output; when one spot would fix it, the note ends "Want to punch it?" and Marco waits for the answer |
 | Oct 28 | `hiremarco.hours` | Before the call, Muse Spark with search grounding checks the restaurant is open at that hour; read-only by construction: the answer is reduced to OPEN, CLOSED or UNSURE plus a cleaned hours line and the cited sources, so a web page can make Marco hold but never add an action, a number or a message |
-| Oct 28 | `hiremarco.sam`, `studio.six176` | The 6176 read: SAM 3.1 finds every knob in the photo, then Muse Spark reads each numbered knob's label and setting in structured output; a knob it cannot read is left out, not guessed, and the line goes into the mix notes |
+| Oct 28 | `hiremarco.sam`, `studio.six176` | The hardware preamp read: SAM 3.1 finds every knob in the photo, then Muse Spark reads each numbered knob's label and setting in structured output; a knob it cannot read is left out, not guessed, and the line goes into the mix notes |
 | Oct 28 | `hiremarco.studio.export_cu` | Logic's export dialog filled by Muse Wonder computer use on a short leash: dialog keys, clicks inside Logic's window and the one folder name only; a safety check, a stray action or twenty steps hands it back to Felix; every action through the gate |
 | Oct 28 | `hiremarco.studio.booth` | The session by voice, end to end: the mic feeds Voice Transcribe and a tape of the take at once; each sentence for Marco becomes one command; the loop keeps the transport state so talkback holds during a take; "how was that take?" hears the tape, and "punch it" punches the spot the note named |
 | Oct 28 | `hiremarco.studio.presets` | "Marco, my adlib preset": the saved Performances are read from Logic's own files, the spoken name matches one or none, and it loads through Logic's Setting menu by keyboard, the same keys every time, with the open menus counted before each typed step so a stray key never reaches Logic |
@@ -79,7 +79,7 @@ below grows as the build does; `git log` carries the dates.
 | Oct 28 | `hiremarco.mix.rules` | The craft written down: where each instrument lives in the spectrum, how two parts that fight are separated, inserts for character and buses for space, small moves, and the lines a mix keeps for mastering; every plugin in the session is named by kind so Marco knows a reverb belongs on a bus |
 | Oct 28 | `hiremarco.mix.loop` | The mix loop: Marco measures the exported tracks, Muse Wonder plans one pass across the session with the rulebook, the measurements and the artist's direction, Marco applies it inside the same limits, exports and measures again, and keeps the pass only if the collisions it targeted moved apart and the mix kept its headroom, otherwise he puts it all back |
 | Oct 28 | `hiremarco.mix.handoff` | The two handoffs: the session folder a mix engineer expects, now with Marco's measurements of every track; and a bounced mix checked against what mastering needs (headroom, no clipping, mono low end, 24-bit or float, the whole song) and filed with its mastering notes only when it passes |
-| Oct 28 | `hiremarco.mix.profiles`, `mix.inventory` | Expert profiles: Pro-Q 3 read in real units (Hz, dB, Q, worked out from its defaults) with its dynamic bands, external side chain and recipes such as ducking the bass under the kick, checked against the controls Logic exposes before use; a reason on every move; recommendations limited to the plugins installed on the Mac |
+| Oct 28 | `hiremarco.mix.profiles`, `mix.inventory` | Expert profiles: the EQ read in real units (Hz, dB, Q, worked out from its defaults) with its dynamic bands, external side chain and recipes such as ducking the bass under the kick, checked against the controls Logic exposes before use; a reason on every move; recommendations limited to the plugins installed on the Mac |
 | Oct 28 | `hiremarco.mix.session` | The session view, a Controls view for the whole song: each track's role (from its name, confirmed by its reading), its own measurement, the collision grid over every pair and band ranked by energy, what the rest of the mix masks on each track, each track against its role's target for a clean balanced mix, and the hardware in front of Logic with the rule for where a fix lives |
 | Oct 28 | `hiremarco.studio.tracks` | Recording and mixing are different jobs: Marco scans the session and knows which he is in, gives no mix opinion while recording unless asked, and keeps the session tidy as it grows: "we're on a harmony" names the track (color and summing stacks planned, mapped next), takes land on the same track, a mix pass runs on request, "keep it balanced as we go" turns on the light watch |
 | Oct 28 | `hiremarco.mix.hearing` | The mix hearing: on a developed session Marco reads everything first, says what he hears in plain words, and asks how the artist feels; the answer becomes the song's guardrails (tracks to keep, wishes per track, a reference sound as Muse Wonder's understanding of it, measured numbers when a reference file is given), saved with the song and honored by every later pass. The artist is the CEO |
@@ -87,7 +87,7 @@ below grows as the build does; `git log` carries the dates.
 
 Planned, in order: the studio (voice
 commands in Logic, three plugin knobs, take notes, the ready-to-mix export,
-the 6176 read), the call and its proof, then Dress me.
+the hardware preamp read), the call and its proof, then Dress me.
 
 ## Setup used, not built here
 
