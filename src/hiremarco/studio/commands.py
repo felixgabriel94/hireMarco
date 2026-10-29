@@ -90,6 +90,21 @@ class Command:
         return self.action.replace("_", " ")
 
 
+KNOB_STEP_SAID = re.compile(r"^(?P<amount>a (?:lot|touch|little|bit|hair) )?(?P<dir>more|less|bring up the|bring down the|"
+                            r"turn up the|turn down the|raise the|lower the|up the|down the) (?P<knob>verb|reverb|delay|"
+                            r"tune|tuning|auto-?tune)(?: a (?:lot|touch|little|bit|hair))?$")
+
+
+def knob_step(said: str) -> Command | None:
+    """'more verb', 'a lot less delay', 'turn up the tune' -> one bounded knob step, no model call."""
+    m = KNOB_STEP_SAID.match(said)
+    if not m:
+        return None
+    direction = "up" if m.group("dir") in ("more", "bring up the", "turn up the", "raise the", "up the") else "down"
+    steps = 3 if " lot" in said else 1  # "a lot more verb" is three steps; anything else is one
+    return Command("knob", knob=KNOB_WORDS[m.group("knob")], direction=direction, steps=steps)
+
+
 FAST = [
     (re.compile(r"^(record|roll it|rolling|let'?s go)$"), Command("record")),
     (re.compile(r"^(play|play it( back)?|playback)$"), Command("play")),
@@ -206,11 +221,15 @@ def tidy_command(said: str) -> Command | None:
 
 
 def strip_wake(line: str) -> str | None:
-    """'Marco, record.' -> 'record'. None when the line is not addressed to Marco."""
-    m = re.match(r"^\s*(hey\s+)?marco[\s,.:!-]+(.*)$", line.strip(), flags=re.IGNORECASE)
+    """'Marco, record.' -> 'record'. None when the line is not addressed to Marco.
+
+    The mic often hears the wake word twice ("Marco, Marco, we're on a harmony", live 2026-10-28), so every
+    leading repeat is stripped.
+    """
+    m = re.match(r"^\s*(?:(?:hey\s+)?marco[\s,.:!-]+)+(.*)$", line.strip(), flags=re.IGNORECASE)
     if not m:
         return None
-    return re.sub(r"[.!?]+$", "", m.group(2)).strip().lower()
+    return re.sub(r"[.!?]+$", "", m.group(1)).strip().lower()
 
 
 def fast_match(said: str) -> Command | None:
@@ -238,6 +257,9 @@ def understand(line: str, client: MuseSpark | None = None) -> Command | None:
     exact = knob_percent(said)
     if exact:
         return exact
+    step = knob_step(said)
+    if step:
+        return step
     if PUT_BACK_SAID.match(said):
         return Command("put_back")
     tidy = tidy_command(said)

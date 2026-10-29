@@ -131,3 +131,20 @@ def test_exact_setting_maps_percent_to_the_full_cc_range(tmp_path):
     assert knobs.move("reverb", "up", 1) == 84       # steps continue from the exact setting
     assert sent == [(21, 127), (21, 76), (21, 84)]
     assert Command("knob", knob="reverb", direction="set", percent=60).describe() == "reverb to 60%"
+
+
+def test_a_doubled_wake_word_is_stripped():
+    assert understand("Marco, Marco, we're on a harmony.", client=None) == Command("label_track", text="harmony")
+    assert understand("Marco,Marco, record.", client=None) == Command("record")
+    assert understand("hey Marco, Marco, stop", client=None) == Command("stop")
+
+
+@pytest.mark.parametrize("line, knob, direction, steps", [
+    ("Marco, more verb", "reverb", "up", 1),
+    ("Marco, less delay", "delay", "down", 1),
+    ("Marco, a lot more reverb", "reverb", "up", 3),
+    ("Marco, turn up the tune", "tuning", "up", 1),
+    ("Marco, bring down the verb a bit", "reverb", "down", 1),
+])
+def test_knob_steps_skip_the_model(line, knob, direction, steps):
+    assert understand(line, client=None) == Command("knob", knob=knob, direction=direction, steps=steps)
