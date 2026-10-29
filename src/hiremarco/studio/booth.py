@@ -564,6 +564,11 @@ def _shortcut_listener(booth: "Booth", sock) -> None:
         data, _ = sock.recvfrom(64)
         if data.strip() == b"toggle":
             booth.toggle()
+        elif data.strip() == b"stop":  # the menu-bar app: Logic quit, Pause, or Quit; the same as Ctrl+C
+            import os
+            import signal
+
+            os.kill(os.getpid(), signal.SIGINT)
         elif data.strip() == b"live":  # the menu bar's "Text me the live view"
             booth.hear("Marco, give me the live view")
         elif data.strip() in (b"place booth", b"place desk") and booth.on_place is not None:
