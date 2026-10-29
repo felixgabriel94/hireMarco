@@ -120,14 +120,13 @@ def test_the_desk_listens_on_the_macbook_mic_and_plays_on_the_speakers(monkeypat
     assert desk.out_pair == (1, 2) and desk.in_channels == 1 and desk.mic_channel == 1
 
 
-def test_switching_to_mixing_tells_the_rig():
+def test_mixing_mode_does_not_move_him_the_menu_does():
     from hiremarco.studio.booth import Booth, Tape
     from hiremarco.studio.commands import understand
 
     moved = []
     b = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: c.describe(),
               say=lambda text: None, feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None,
-              on_mode=moved.append)
+              on_place=moved.append)
     b.hear("Marco, let's do mixing now")
-    b.hear("Marco, we're recording now")
-    assert moved == ["mixing", "recording"]
+    assert moved == [] and b.session.mode == "mixing"  # mixing can happen at the mic

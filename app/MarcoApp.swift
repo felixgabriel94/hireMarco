@@ -24,6 +24,8 @@ final class Marco: NSObject, NSApplicationDelegate {
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     let status = NSMenuItem(title: "Waiting for Logic", action: nil, keyEquivalent: "")
     let pauseItem = NSMenuItem(title: "Pause Marco", action: #selector(togglePause), keyEquivalent: "")
+    let boothItem = NSMenuItem(title: "Listen in the booth (vocal mic)", action: #selector(atBooth), keyEquivalent: "")
+    let deskItem = NSMenuItem(title: "Listen at the desk (MacBook mic)", action: #selector(atDesk), keyEquivalent: "")
     let booth = NWConnection(host: "127.0.0.1", port: 8790, using: .udp)
     var process: Process?
     var paused = false
@@ -35,11 +37,15 @@ final class Marco: NSObject, NSApplicationDelegate {
         status.isEnabled = false
         menu.addItem(status)
         menu.addItem(.separator())
+        menu.addItem(boothItem)
+        menu.addItem(deskItem)
+        menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Text me the live view", action: #selector(liveView), keyEquivalent: ""))
         menu.addItem(pauseItem)
         menu.addItem(.separator())
         menu.addItem(NSMenuItem(title: "Quit Marco", action: #selector(quit), keyEquivalent: ""))
         for entry in menu.items { entry.target = self }
+        boothItem.state = .on
         item.menu = menu
         booth.start(queue: .main)
 
@@ -90,6 +96,8 @@ final class Marco: NSObject, NSApplicationDelegate {
         do {
             try run.run()
             process = run
+            boothItem.state = .on
+            deskItem.state = .off
             show("Listening in Logic")
         } catch {
             show("Could not start: \(error.localizedDescription)")
@@ -102,6 +110,17 @@ final class Marco: NSObject, NSApplicationDelegate {
         run.interrupt()  // the booth's own Ctrl+C: it closes the mic, the halo and the live view cleanly
         DispatchQueue.main.asyncAfter(deadline: .now() + 4) { if run.isRunning { run.terminate() } }
         process = nil
+    }
+
+    // Where you are, picked by you: mixing can happen at the mic, so the mode does not decide it. Each booth start
+    // begins in the booth.
+    @objc func atBooth() { place("booth") }
+    @objc func atDesk() { place("desk") }
+
+    func place(_ spot: String) {
+        booth.send(content: "place \(spot)".data(using: .utf8), completion: .contentProcessed { _ in })
+        boothItem.state = spot == "booth" ? .on : .off
+        deskItem.state = spot == "desk" ? .on : .off
     }
 
     @objc func liveView() {

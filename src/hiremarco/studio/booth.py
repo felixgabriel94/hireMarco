@@ -136,7 +136,7 @@ class Booth:
     last_said: str = ""
     heard_line: str = ""
     spoken: list = field(default_factory=list)        # (when, line) of his last lines, to know his own echo
-    on_mode: Callable[[str], None] | None = None      # the rig follows the mode: booth mic or the desk
+    on_place: Callable[[str], None] | None = None     # "booth" or "desk": chosen by the artist, not by the mode
     fillers: bool = True                              # "Hmm." while he thinks; off in tests that count lines
     _filled: bool = False
     _asked_after_take: bool = False                   # the after-take answer is used once per take
@@ -307,8 +307,6 @@ class Booth:
         if a == "mode":
             if command.text:
                 self.session.mode = command.text
-                if self.on_mode is not None:
-                    self.on_mode(command.text)  # mixing moves him to the desk, recording back to the booth
                 self._say("switched mode", {"mode_now": command.text}, f"{command.text.capitalize()} mode.")
                 return f"mode set: {command.text}"
             self._say("asked which mode", {"mode": self.session.mode}, f"We're {self.session.mode}.")
@@ -568,6 +566,8 @@ def _shortcut_listener(booth: "Booth", sock) -> None:
             booth.toggle()
         elif data.strip() == b"live":  # the menu bar's "Text me the live view"
             booth.hear("Marco, give me the live view")
+        elif data.strip() in (b"place booth", b"place desk") and booth.on_place is not None:
+            booth.on_place(data.strip().split()[1].decode())  # the menu bar's "Listen at"
 
 
 def _text_owner(body: str, url: str) -> str:
@@ -732,10 +732,10 @@ def run_booth(*, dry_run: bool = False) -> int:
         if talkback is not None:
             talkback.play = audio.play
 
-        def move(mode: str) -> None:
-            """Recording: the vocal mic and the headphones. Mixing: the MacBook mic and the speakers."""
-            place = "desk" if mode == "mixing" else "booth"
-            if place == rig["place"]:
+        def move(place: str) -> None:
+            """The booth: the vocal mic and the headphones. The desk: the MacBook mic and the speakers. The artist
+            picks it from the menu bar (Owner 2026-10-29: mixing can happen at the mic, so the mode does not)."""
+            if place not in ("booth", "desk") or place == rig["place"]:
                 return
             try:
                 fresh = (DuplexAudio.desk_from_config if place == "desk" else DuplexAudio.from_config)(on_input)
@@ -751,7 +751,7 @@ def run_booth(*, dry_run: bool = False) -> int:
             print(f"   (now at the {place}: listening on {fresh.device}, Marco on {fresh.out_device} "
                   f"{fresh.out_pair[0]}-{fresh.out_pair[1]})")
 
-        booth.on_mode = move
+        booth.on_place = move
         halo = None
         if (config.get("HIREMARCO_HALO") or "on") != "off":
             from hiremarco.studio.halo import Halo, booth_state
