@@ -20,7 +20,7 @@ TENANT = "owner"
 ACTIONS = (
     "play", "stop", "record", "go_to_start", "go_to_section", "go_to_bar", "new_track", "arm_track",
     "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
-    "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "unknown",
+    "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
 
@@ -159,6 +159,8 @@ MIX_SAID = re.compile(r"^(?:give me |do |run |let'?s do )?(?:a |the )?(?:quick )
                       r"^(?:clean up|balance) (?:the mix|what we have(?: so far)?|the session)$")
 WATCH_SAID = re.compile(r"^keep (?:it|things|the mix|the frequencies) balanced(?: as we (?:go|work|record))?$|"
                         r"^(?:stop|no more) (?:watching|balancing)(?: the mix)?$")
+SHOW_SAID = re.compile(r"^(?:show me|show me the (?:session|screen|logic)|send me (?:a |the )?(?:screenshot|picture|screen)|"
+                       r"what does it look like)$")
 MODE_SAID = re.compile(r"^(?:what mode(?: are you in)?|are we recording or mixing|"
                        r"(?:we'?re |let'?s |let'?s do |switch to |go to |back to )?(?:recording|mixing)(?: now| mode)?)$")
 
@@ -170,6 +172,8 @@ def tidy_command(said: str) -> Command | None:
             KIND_WORDS.get(m.group("kind"), None)
         if kind:
             return Command("label_track", text=kind)
+    if SHOW_SAID.match(said):
+        return Command("show")
     m = NAME_SAID.match(said)
     if m:
         # the line arrives lowercased; a track name reads better in title case ("hook vox" -> "Hook Vox")

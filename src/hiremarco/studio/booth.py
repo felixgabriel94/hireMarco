@@ -99,6 +99,7 @@ class Booth:
     tracks: object | None = None          # studio.tracks.Tracks
     session: object | None = None         # studio.tracks.SessionState, from the scan at start
     mix_pass: Callable[[str], str] | None = None
+    show: Callable[[str], str] | None = None
 
     def _speak(self, text: str) -> None:
         try:
@@ -219,6 +220,14 @@ class Booth:
             self.pending_punch = note.punch_where if note.punch else ""
             self._speak(note.spoken)
             return f"take note: {note.spoken}"
+        if a == "show":
+            if self.show is None:
+                return "no phone to show it on in this booth"
+            try:
+                message_id = self.show("Here's the session.")
+            except gate.Refused as held:
+                return f"held: {held.reason}"
+            return f"shown on the phone ({message_id[-6:]})"
         if a in ("label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode"):
             return self._tidy(command)
         if a == "set_key":
@@ -312,6 +321,7 @@ def run_booth(*, dry_run: bool = False) -> int:
     session = tracks.scan() if not dry_run else None
     booth = Booth(understand=understand, logic=logic.do, say=say, feedback=how_was_that_take, tape=Tape(rate),
                   tracks=tracks, session=session,
+                  show=None if dry_run else __import__("hiremarco.studio.show", fromlist=["show"]).show,
                   key=config.get("HIREMARCO_SONG_KEY") or "",
                   plugin=None if dry_run else Channel(),
                   transcribe=lambda audio, r: transcribe(audio, r, diarize=False),

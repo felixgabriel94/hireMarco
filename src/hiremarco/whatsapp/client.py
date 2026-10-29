@@ -149,6 +149,24 @@ class WhatsApp:
         )
         return (data.get("messages") or [{}])[0].get("id", "")
 
+    def send_image(self, to: str, png: bytes, caption: str, *, idempotency_key: str, critic=None,
+                   now: datetime | None = None) -> str:
+        """A picture with a short caption: uploaded and sent inside one gated action."""
+        if not self._inside_window(to, now):
+            raise gate.Refused("outside the 24-hour window; a template would cost money, so asking the Owner first")
+
+        def run() -> dict[str, Any]:
+            media_id = self.upload_media(png, "image/png", "marco.png")
+            return self._post_message({"to": to.lstrip("+"), "type": "image",
+                                       "image": {"id": media_id, "caption": caption[:1024]}})
+
+        data = gate.execute_effect(
+            self.conn, run, tenant_id=TENANT, idempotency_key=idempotency_key, capability="send_image",
+            channel="whatsapp", target=to, message=f"image: {caption}", department="assistant",
+            critic=critic, rules_path=self.rules_path,
+        )
+        return (data.get("messages") or [{}])[0].get("id", "")
+
     def react(self, to: str, message_id: str, emoji: str, *, now: datetime | None = None) -> str:
         return self._send(to, {"type": "reaction", "reaction": {"message_id": message_id, "emoji": emoji}},
                           text_for_gate=f"reaction {emoji} on {message_id}",

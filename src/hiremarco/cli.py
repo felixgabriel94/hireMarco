@@ -33,6 +33,7 @@
     uv run marco chain sound warmer      Muse Wonder sets the whole chain from a description
     uv run marco chain back              put every control the last change moved back where it was
     uv run marco ears FOLDER [--mix F]   each exported track's loudness, bands and collisions; the mix's headroom
+    uv run marco show ["caption"]        a picture of Logic's window to the Owner's WhatsApp, for the ISO box
     uv run marco tracks list             every track with its region count, and whether this is recording or mixing
     uv run marco tracks rename "Lead Vox"  rename the selected track, read back
     uv run marco session FOLDER          the session view: each track's role and reading, the ranked fights,
@@ -577,6 +578,20 @@ def cmd_tracks(args) -> int:
     return 0
 
 
+def cmd_show(args) -> int:
+    """Send a picture of Logic's main window to the Owner's WhatsApp."""
+    from hiremarco.studio.show import show
+
+    trace = Trace("show")
+    try:
+        message_id = show(" ".join(args.caption) or "Here's the session.")
+    except gate.Refused as refused:
+        trace.done(f"held: {refused.reason}")
+        return 1
+    trace.done(f"sent {message_id[-6:]}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="marco")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -704,6 +719,10 @@ def main(argv: list[str] | None = None) -> int:
     tr.add_argument("name", nargs="*")
     tr.add_argument("--dry-run", action="store_true")
     tr.set_defaults(func=cmd_tracks)
+
+    sh = sub.add_parser("show")
+    sh.add_argument("caption", nargs="*")
+    sh.set_defaults(func=cmd_show)
 
     args = parser.parse_args(argv)
     if args.command == "tracks" and args.action == "rename" and not args.name:
