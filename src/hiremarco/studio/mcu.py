@@ -626,6 +626,10 @@ def serve(sock_path, log_path) -> None:
                         # best TRACK SLOT SCRATCH JOB...
                         answer = best(surface, names, _ledger.read_ledger(book), book, " ".join(words[4:]),
                                       words[1], int(words[2]), words[3])
+                    elif words and words[0] == "select":  # a track's Select button: the track and its regions
+                        strip = strip_of(surface, words[1].replace("+", " "))
+                        surface.press("select", strip)
+                        answer = f"selected strip {strip}"
                     elif words and words[0] == "remove":
                         answer = remove(surface, words[1], int(words[2]))
                     elif words and words[0] == "scan":

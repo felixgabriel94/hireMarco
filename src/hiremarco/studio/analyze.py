@@ -187,6 +187,22 @@ def loop_tempo(bpm: float, seconds: float) -> float:
     return float(round(best)) if best is not None and abs(best - round(best)) < 0.3 else bpm
 
 
+def settle_tempo(ear: float, labelled: float | None = None, logic: list[float] | None = None) -> tuple[float, str]:
+    """The session tempo from up to three readers: the producer's label, Logic's Smart Tempo map, Marco's ear.
+    A beat is programmed at one whole tempo; Logic's map wobbles around it (115.2 to 118.5, mean 117.03, on the
+    Owner's 117 beat, 2026-10-29), so its mean is a vote, never the tempo itself."""
+    whole = float(labelled) if labelled else float(round(ear))
+    source = "your file name" if labelled else "my ear"
+    if not logic:
+        return whole, f"{source}; Logic's reading not taken"
+    mean = sum(logic) / len(logic)
+    if abs(mean - whole) <= 1.0:
+        return whole, f"{source} and Logic's Smart Tempo agree (Logic averages {mean:.2f})"
+    if not labelled and abs(mean - round(mean)) <= 0.35 and abs(round(mean) - ear) <= 1.0:
+        return float(round(mean)), f"Logic's Smart Tempo ({mean:.2f}) and my ear agree"
+    return whole, f"{source} says {whole:g}, Logic's Smart Tempo averages {mean:.2f}: check it"
+
+
 def read(path: Path) -> Reading:
     audio = load(path, seconds=240.0)  # a whole beat: more beats, a finer tempo
     ranked = key_of(chroma(audio))

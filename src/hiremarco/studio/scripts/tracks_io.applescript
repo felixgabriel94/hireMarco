@@ -107,6 +107,40 @@ on headerNames(main)
 	end tell
 end headerNames
 
+on findRole(el, wanted, depth)
+	if depth > 7 then return missing value
+	tell application "System Events"
+		repeat with k in (every UI element of el)
+			try
+				if (role of k) is wanted then return contents of k
+			end try
+			set f to my findRole(contents of k, wanted, depth + 1)
+			if f is not missing value then return f
+		end repeat
+	end tell
+	return missing value
+end findRole
+
+on editButtons(el, depth, found)
+	-- every menu button described "Edit" in the window: the Tracks area's own, and an open editor's
+	if depth > 9 then return found
+	tell application "System Events"
+		try
+			repeat with b in (every menu button of el)
+				if (description of b) is "Edit" then set end of found to contents of b
+			end repeat
+		end try
+		set kids to {}
+		try
+			set kids to every group of el
+		end try
+	end tell
+	repeat with k in kids
+		set found to my editButtons(contents of k, depth + 1, found)
+	end repeat
+	return found
+end editButtons
+
 on run argv
 	set mode to item 1 of argv
 	set main to mainWindow()
@@ -227,21 +261,172 @@ on run argv
 		set AppleScript's text item delimiters to linefeed
 		return names as text
 	end if
-	if mode is "tempo" then
-		-- set the project tempo on the Control Bar's Tempo control, then read it back
-		set want to (item 2 of argv) as real
+	if mode is "region_tempo" then
+		-- what an engineer does first with a beat (Owner 2026-10-29): select its region, then the Tracks area's
+		-- Edit > Tempo > Apply Region Tempo to Project Tempo..., with "Align downbeat to nearest project downbeat"
+		-- on, and Apply. Logic's own Smart Tempo reading becomes the project tempo; the Control Bar is read back.
+		-- Mapped live 2026-10-29: the dialog is a floating window of that name with two checkboxes and Cancel / Apply.
+		set wanted to item 2 of argv
+		set lanes to part(main, "Tracks contents")
+		tell application "System Events"
+			set picked to {}
+			repeat with lane in (every UI element of lanes whose role is "AXLayoutArea")
+				repeat with rg in (every UI element of lane whose role is "AXLayoutItem")
+					if (value of attribute "AXSelected" of rg) is true then set end of picked to (description of rg)
+				end repeat
+			end repeat
+			-- the region is selected beforehand from the control surface: its track's Select button selects the
+			-- track and its regions (live 2026-10-29). Writing AXSelected toggles, and AXPress selected nothing.
+			if picked is not {wanted} then
+				set AppleScript's text item delimiters to ", "
+				set shown to picked as text
+				set AppleScript's text item delimiters to ""
+				error "selected regions are [" & shown & "], not only " & wanted
+			end if
+		end tell
+		tell application "Logic Pro" to activate
+		delay 0.3
+		set dialogName to "Apply Region Tempo to Project Tempo"
+		set opened to false
+		repeat with b in my editButtons(main, 0, {})
+			if not opened then
+				tell application "System Events"
+					tell process "Logic Pro"
+						click b
+						delay 0.4
+						try
+							click menu item (dialogName & "…") of menu 1 of menu item "Tempo" of menu 1 of b
+							set opened to true
+						on error
+							key code 53
+							delay 0.2
+						end try
+					end tell
+				end tell
+			end if
+		end repeat
+		if not opened then error "the Tracks area's Edit > Tempo menu was not found"
+		tell application "System Events"
+			tell process "Logic Pro"
+				repeat 20 times
+					if exists window dialogName then exit repeat
+					delay 0.1
+				end repeat
+				if not (exists window dialogName) then error "the Apply Region Tempo dialog did not open"
+				set align to checkbox "Align downbeat to nearest project downbeat" of window dialogName
+				if (value of align) is 0 then click align
+				click button "Apply" of window dialogName
+				repeat 30 times
+					if not (exists window dialogName) then exit repeat
+					delay 0.1
+				end repeat
+			end tell
+		end tell
+		delay 0.5
 		set bar to part(main, "Control Bar")
 		tell application "System Events"
 			repeat with g in (every group of bar)
 				try
-					set t to (first slider of g whose description is "Tempo")
-					set value of t to want
-					delay 0.3
-					return (value of t) as text
+					return "applied" & tab & ((value of (first slider of g whose description is "Tempo")) as text)
 				end try
 			end repeat
 		end tell
 		error "the Control Bar's Tempo is not showing"
+	end if
+	if mode is "tempo_map" then
+		-- the Tempo List's events as "bar<TAB>bpm" lines, read from its window and closed again; rows scrolled
+		-- out of view are not rendered and are skipped
+		set eb to my editButtons(main, 0, {})
+		tell application "Logic Pro" to activate
+		delay 0.3
+		set opened to false
+		repeat with b in eb
+			if not opened then
+				tell application "System Events"
+					tell process "Logic Pro"
+						click b
+						delay 0.4
+						try
+							click menu item "Show Tempo List" of menu 1 of menu item "Tempo" of menu 1 of b
+							set opened to true
+						on error
+							key code 53
+							delay 0.2
+						end try
+					end tell
+				end tell
+			end if
+		end repeat
+		if not opened then error "the Tracks area's Edit > Tempo menu was not found"
+		delay 1
+		tell application "System Events"
+			tell process "Logic Pro"
+				set w to first window whose name contains " - Tempo"
+			end tell
+		end tell
+		set tbl to my findRole(w, "AXTable", 0)
+		set out to {}
+		tell application "System Events"
+			repeat with oneRow in (every UI element of tbl whose role is "AXRow")
+				try
+					set cellList to every UI element of oneRow
+					set end of out to (description of UI element 1 of item 1 of cellList) & tab & (description of UI element 1 of item 2 of cellList)
+				end try
+			end repeat
+			click (first button of w whose subrole is "AXCloseButton")
+		end tell
+		set AppleScript's text item delimiters to linefeed
+		return out as text
+	end if
+	if mode is "undo" then
+		-- Logic's Undo, only when its menu item names the step expected: "Undo " & the step
+		set wanted to "Undo " & (item 2 of argv)
+		tell application "Logic Pro" to activate
+		delay 0.3
+		tell application "System Events"
+			tell process "Logic Pro"
+				set first_ to name of menu item 1 of menu 1 of menu bar item "Edit" of menu bar 1
+				if first_ is not wanted then error "the last step is " & first_ & ", not " & wanted
+				click menu item wanted of menu 1 of menu bar item "Edit" of menu bar 1
+			end tell
+		end tell
+		delay 0.6
+		return "undone" & tab & (item 2 of argv)
+	end if
+	if mode is "tempo" then
+		-- set the project tempo on the Control Bar's Tempo control, then read it back
+		-- a write moves the slider one BPM toward the value and AXIncrement / AXDecrement move it ten (live
+		-- 2026-10-29: 120 -> write 117 -> 119; two decrements 119 -> 99), so it is stepped there and read back
+		set want to (item 2 of argv) as real
+		set bar to part(main, "Control Bar")
+		tell application "System Events"
+			set t to missing value
+			repeat with g in (every group of bar)
+				try
+					set t to (first slider of g whose description is "Tempo")
+				end try
+			end repeat
+			if t is missing value then error "the Control Bar's Tempo is not showing"
+			repeat 60 times
+				set now to (value of t) as real
+				if now - want >= 10 then
+					perform action "AXDecrement" of t
+				else if want - now >= 10 then
+					perform action "AXIncrement" of t
+				else
+					exit repeat
+				end if
+				delay 0.1
+			end repeat
+			repeat 30 times
+				set now to (value of t) as real
+				if (now - want) < 0.05 and (want - now) < 0.05 then exit repeat
+				set value of t to want
+				delay 0.1
+			end repeat
+			delay 0.2
+			return (value of t) as text
+		end tell
 	end if
 	if mode is "solo" then
 		-- the selected track's own Solo button: "solo on" or "solo off"; read back

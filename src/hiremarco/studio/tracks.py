@@ -168,6 +168,28 @@ class Tracks:
 
         return self._gated(run, "set_tempo", f"set the project tempo to {bpm:g}")
 
+    def region_tempo(self, region: str) -> str:
+        """Logic's own Smart Tempo reading of a selected region, applied to the project (Edit > Tempo > Apply Region
+        Tempo to Project Tempo, downbeat aligned); the Control Bar's tempo after it."""
+        def run() -> str:
+            return self.run(["region_tempo", region]).strip().split("\t")[-1]
+
+        return self._gated(run, "region_tempo", f"apply {region}'s tempo to the project")
+
+    def tempo_map(self) -> list[float]:
+        """The tempo events Logic's Tempo List shows, in BPM."""
+        found = []
+        for line in self.run(["tempo_map"]).splitlines():
+            try:
+                found.append(float(line.split("\t")[-1]))
+            except ValueError:
+                continue
+        return found
+
+    def undo(self, step: str) -> str:
+        """Logic's Undo, only when the last step is the one named."""
+        return self._gated(lambda: self.run(["undo", step]).strip(), "undo", f"undo {step}")
+
     def solo(self, on: bool) -> str:
         message = f"solo {'on' if on else 'off'} on the selected track"
 

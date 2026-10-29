@@ -98,7 +98,7 @@ def test_reading_the_beat_offers_the_key_and_tempo_and_a_yes_sets_them(monkeypat
     monkeypatch.setattr(analyze, "read", lambda path: analyze.Reading("F minor", 0.8, "G# major", 140.0, 70.0))
     assert understand("Marco, what key is the beat in?", client=None) == Command("read_beat")
     result = b.hear("Marco, what key is the beat in?")
-    assert "F minor, 140 BPM" in result and "Want me to set the session" in said[-1]
+    assert "F minor (" in result and "140 BPM (your file name" in result and "Want me to set the session" in said[-1]
     assert "tempo set to 140" in b.hear("Marco, yes") and b.key == "F minor"
     assert b.offer is None
 

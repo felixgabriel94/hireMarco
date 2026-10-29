@@ -179,3 +179,54 @@ def test_a_producer_label_outranks_the_ear(tmp_path):
     bare, _ = booth()
     key, why = bare._beat_key(Heard(), tmp_path / "instrumental 117.wav")
     assert key == "G major" and "E minor" in why
+
+
+def test_settle_tempo_takes_the_whole_number_the_readers_agree_on():
+    from hiremarco.studio.analyze import settle_tempo
+
+    wobble = [117.88, 116.77, 117.22, 115.2, 118.47]   # Logic's Smart Tempo on a 117 beat
+    assert settle_tempo(117.0, None, wobble)[0] == 117.0 and "agree" in settle_tempo(117.0, None, wobble)[1]
+    assert settle_tempo(118.0, 117.0, wobble)[0] == 117.0      # the producer's label wins
+    assert settle_tempo(117.6, None, [])[0] == 118.0           # no Logic reading: the ear, rounded
+    assert "check it" in settle_tempo(117.0, None, [150.0, 150.2])[1]
+
+
+class LogicTracks:
+    def __init__(self):
+        self.calls = []
+
+    def regions(self):
+        return ["instrumental 117"]
+
+    def region_tempo(self, region):
+        self.calls.append(("apply", region))
+        return "117.2167"
+
+    def tempo_map(self):
+        return [117.88, 116.77, 117.22]
+
+    def undo(self, step):
+        self.calls.append(("undo", step))
+        return "undone"
+
+    def set_tempo(self, bpm):
+        self.calls.append(("tempo", bpm))
+        return f"tempo set to {bpm:g}"
+
+
+def test_logic_reads_the_beat_then_its_map_is_undone_for_the_whole_tempo():
+    tracks, sent = LogicTracks(), []
+    b, _ = booth(tracks=tracks, surface=lambda line: sent.append(line) or "selected strip 0\n")
+    events, note = b._logic_tempo("instrumental 117")
+    assert sent == ["select instrumental+117"] and events == [117.88, 116.77, 117.22]
+    assert tracks.calls == [("apply", "instrumental 117"), ("undo", "Apply Region Tempo to Project Tempo")]
+
+
+def test_a_failed_logic_reading_leaves_his_own():
+    class Broken(LogicTracks):
+        def region_tempo(self, region):
+            raise RuntimeError("the Apply Region Tempo dialog did not open")
+
+    b, _ = booth(tracks=Broken(), surface=lambda line: "ok\n")
+    events, note = b._logic_tempo("instrumental 117")
+    assert events == [] and "not taken" in note

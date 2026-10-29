@@ -152,6 +152,7 @@ class Booth:
     auto_note: bool = False                           # a note after every take of AUTO_NOTE_SECONDS or more
     fillers: bool = True                              # "Hmm." while he thinks; off in tests that count lines
     _filled: bool = False
+    _beat_region: str = ""                            # the beat region last read, for Logic's own tempo reading
     _asked_after_take: bool = False                   # the after-take answer is used once per take
     send_link: Callable[[str, str], str] | None = None  # (body, url) to the artist's phone; None or a refusal: the Mac
     console: object | None = None                     # studio.console.Console: the UAD inputs, Auto-Tune on the vocal
@@ -419,7 +420,23 @@ class Booth:
         if path is None:
             self._say("could not find the beat's file", {"region": regions[0]}, "I can't find that file on the Mac.")
             return f"no file found for {regions[0]!r}"
+        self._beat_region = regions[0]
         return self._in_time(lambda: analyze.read(path)), path
+
+    def _logic_tempo(self, region: str) -> tuple[list[float], str]:
+        """Logic's Smart Tempo on the beat, as an engineer starts a session (Owner 2026-10-29): the region selected
+        from the surface, Apply Region Tempo to Project Tempo, the map read, then undone, so only the settled
+        whole tempo is written."""
+        if self.surface is None or self.tracks is None or not hasattr(self.tracks, "region_tempo"):
+            return [], "no Logic tempo control in this booth"
+        try:
+            self.surface(f"select {region.replace(' ', '+')}")
+            self.tracks.region_tempo(region)
+            events = self.tracks.tempo_map()
+            self.tracks.undo("Apply Region Tempo to Project Tempo")
+        except Exception as exc:  # his own reading still stands
+            return [], f"Logic's reading not taken: {type(exc).__name__}: {str(exc)[-120:]}"
+        return events, f"Logic's map: {len(events)} event(s)"
 
     def _beat_key(self, reading, path) -> tuple[str, str]:
         """The key to use and why. A producer's own label (the beat's file name, else a track named like
@@ -442,12 +459,16 @@ class Booth:
             return found
         reading, path = found
         key, why = self._beat_key(reading, path)
+        from hiremarco.studio.analyze import label, settle_tempo
+
+        events, logic_note = self._in_time(lambda: self._logic_tempo(self._beat_region))
+        bpm, tempo_why = settle_tempo(reading.bpm, label(path.stem)[1], events)
 
         def apply() -> str:
             self.key = key
             done = [f"key {key} for pitch checks"]
             try:
-                done.append(self.tracks.set_tempo(reading.bpm))
+                done.append(self.tracks.set_tempo(bpm))
             except Exception as exc:  # the key still stands; the log says why the tempo did not
                 done.append(f"tempo not set: {type(exc).__name__}: {str(exc)[-80:]}")
             if self.console is not None:  # the Console's Auto-Tune follows the session key
@@ -458,16 +479,16 @@ class Booth:
                     done.append(f"Auto-Tune on {key}")
                 except Exception as exc:
                     done.append(f"Auto-Tune not set: {type(exc).__name__}: {str(exc)[-80:]}")
-            self._say("set the session from the beat", {"key": key, "tempo": reading.bpm, "done": done},
-                      f"Done. {key}, {reading.bpm:g}.")
+            self._say("set the session from the beat", {"key": key, "tempo": bpm, "done": done},
+                      f"Done. {key}, {bpm:g}.")
             return "; ".join(done)
 
         self.offer = apply
         self._say("read the beat's key and tempo; offer to set the session to it", {
-            "key": key, "how_the_key_was_found": why, "bpm": reading.bpm,
-            "or_half_double": reading.bpm_other or None, "note": "the tempo is an estimate from the audio"},
-            f"Sounds like {key}, {reading.bpm:g} BPM. Want me to set the session to that?")
-        return f"beat read from {path.name}: {key}, {reading.bpm:g} BPM ({why})"
+            "key": key, "how_the_key_was_found": why, "bpm": bpm, "how_the_tempo_was_found": tempo_why,
+            "or_half_double": reading.bpm_other or None},
+            f"Sounds like {key}, {bpm:g} BPM. Want me to set the session to that?")
+        return f"beat read from {path.name}: {key} ({why}), {bpm:g} BPM ({tempo_why}; {logic_note})"
 
     def _tune_console(self, said_key: str) -> str:
         """The Console's Auto-Tune on the vocal input, pointed at a key: the one said, else the session's, else the
