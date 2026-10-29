@@ -21,6 +21,7 @@ from hiremarco import config
 
 REPO = Path(__file__).resolve().parents[3]
 SOURCE = REPO / "app" / "MarcoApp.swift"
+ICON = REPO / "app" / "icon.jpg"  # the tie, the Owner's avatar for Marco
 APP = Path.home() / "Applications" / "Marco.app"
 AGENT = Path.home() / "Library" / "LaunchAgents" / "com.hiremarco.marco.plist"
 LABEL = "com.hiremarco.marco"
@@ -30,6 +31,7 @@ INFO = {
     "CFBundleName": "Marco",
     "CFBundleDisplayName": "Marco",
     "CFBundleExecutable": "Marco",
+    "CFBundleIconFile": "Marco",
     "CFBundlePackageType": "APPL",
     "CFBundleShortVersionString": "0.1",
     "CFBundleVersion": "1",
@@ -51,12 +53,31 @@ def build(app: Path = APP, source: Path = SOURCE) -> Path:
                           capture_output=True, text=True, timeout=300)
     if done.returncode != 0:
         raise RuntimeError(f"the app did not build: {done.stderr.strip()[-300:]}")
+    make_icon(ICON, app / "Contents" / "Resources" / "Marco.icns")
     signed = subprocess.run(["codesign", "--force", "--sign", "-", str(app)], capture_output=True, text=True)
     if signed.returncode != 0:
         raise RuntimeError(f"the app did not sign: {signed.stderr.strip()[-200:]}")
     config.STATE_DIR.mkdir(parents=True, exist_ok=True)
     (config.STATE_DIR / "app.json").write_text(json.dumps({"repo": str(REPO), "uv": uv}))
     return app
+
+
+def make_icon(source: Path, target: Path) -> Path:
+    """The app icon from one square picture: every size macOS asks for, packed into an .icns."""
+    import tempfile
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        iconset = Path(tmp) / "Marco.iconset"
+        iconset.mkdir()
+        for size in (16, 32, 128, 256, 512):
+            for scale in (1, 2):
+                px = size * scale
+                name = f"icon_{size}x{size}{'@2x' if scale == 2 else ''}.png"
+                subprocess.run(["sips", "-s", "format", "png", "-z", str(px), str(px), str(source),
+                                "--out", str(iconset / name)], check=True, capture_output=True)
+        subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(target)], check=True, capture_output=True)
+    return target
 
 
 def agent_plist(app: Path = APP) -> bytes:
