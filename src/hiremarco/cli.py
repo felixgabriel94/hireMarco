@@ -39,6 +39,7 @@
     uv run marco hearing reference --song S [--file ref.wav] "Travis Scott"               the reference sound
     uv run marco show ["caption"]        a picture of Logic's window to the Owner's WhatsApp, for the ISO box
     uv run marco app build|install|uninstall   Marco as a menu-bar app that starts with Logic (install: at login)
+    uv run marco place booth|desk        where the running booth listens: the vocal mic, or the MacBook mic and speakers
     uv run marco halo                    Marco's halo over Logic: a short exchange, then a take (--preview DIR: pictures)
     uv run marco live                    Logic's window live on the phone, video with pictures as fallback; prints the link
     uv run marco tracks list             every track with its region count, and whether this is recording or mixing
@@ -630,6 +631,15 @@ def cmd_app(args) -> int:
     return 0
 
 
+def cmd_place(args) -> int:
+    """Tell the running booth where you are, the same as the menu bar's Listen in the booth / at the desk."""
+    import socket
+
+    socket.socket(socket.AF_INET, socket.SOCK_DGRAM).sendto(f"place {args.where}".encode(), ("127.0.0.1", 8790))
+    print(f"asked the booth to listen at the {args.where}; its own window says when it has moved")
+    return 0
+
+
 def cmd_halo(args) -> int:
     """Show the halo over Logic on its own, cycling through its three states, so the look can be judged."""
     import math
@@ -867,6 +877,10 @@ def main(argv: list[str] | None = None) -> int:
     ap = sub.add_parser("app")
     ap.add_argument("action", choices=["build", "install", "uninstall"])
     ap.set_defaults(func=cmd_app)
+
+    pl = sub.add_parser("place")
+    pl.add_argument("where", choices=["booth", "desk"])
+    pl.set_defaults(func=cmd_place)
 
     ha = sub.add_parser("halo")
     ha.add_argument("--preview", metavar="DIR")
