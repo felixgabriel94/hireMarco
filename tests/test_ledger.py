@@ -67,3 +67,25 @@ def test_wall_reads_license_windows_and_apps_but_not_plugin_windows():
     assert ledger.wall(before, before | {("Logic Pro", "Inst 1")}) is None
     assert ledger.wall(before, before | {("Logic Pro", "Melodyne trial expired")}) == "Logic Pro: Melodyne trial expired"
     assert ledger.wall(before, before | {("iLok License Manager", "")}) == "iLok License Manager"
+
+
+def test_an_active_plan_covers_the_vendor_titles_installed():
+    rows = {"API-2500 (s) (s/s)": {"status": "unknown", "evidence": []},
+            "Mystery Verb (s/s)": {"status": "unknown", "evidence": []},
+            "Pro-Q 3 (s/s)": {"status": "owned", "evidence": ["used"]}}
+    plans = [{"vendor": "Waves", "plan": "Ultimate", "status": "active"},
+             {"vendor": "Splice", "plan": "Sounds", "status": "cancelled"}]
+    covered = ledger.apply_plans(rows, plans, titles=lambda vendor: {"API-2500"} if vendor == "Waves" else {"Mystery"})
+    assert covered == 1
+    assert rows["API-2500 (s) (s/s)"] == {"status": "owned", "evidence": ["plan: Waves Ultimate"]}
+    assert rows["Mystery Verb (s/s)"]["status"] == "unknown"
+
+
+def test_renewals_lists_active_plans_due_soon():
+    from datetime import date
+
+    plans = [{"vendor": "Slate Digital", "plan": "Complete Access", "status": "active", "renews": "2026-11-01"},
+             {"vendor": "Waves", "plan": "Ultimate", "status": "active", "renews": "2027-10-09"},
+             {"vendor": "Splice", "plan": "Sounds", "status": "cancelled", "renews": None}]
+    due = ledger.renewals(plans, date(2026, 10, 29), days=30)
+    assert [(p["vendor"], p["days_left"]) for p in due] == [("Slate Digital", 3)]

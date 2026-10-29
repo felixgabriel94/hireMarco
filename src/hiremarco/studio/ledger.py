@@ -188,3 +188,48 @@ def windows() -> set[tuple[str, str]]:
 
     listed = Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly, Quartz.kCGNullWindowID)
     return {(str(w.get("kCGWindowOwnerName") or ""), str(w.get("kCGWindowName") or "")) for w in listed}
+
+
+# Subscriptions: an all-access plan makes every installed title of that vendor owned while it runs. Each plan
+# names the folder whose entries are its installed titles.
+PLAN_FOLDERS = {"Waves": Path("/Applications/Waves"), "Slate Digital": Path("/Library/Application Support/Slate Digital")}
+
+
+def plan_titles(vendor: str, folders: dict[str, Path] = PLAN_FOLDERS) -> set[str]:
+    """The titles a vendor's installer put on this Mac (Waves: one bundle per plug-in under Plug-Ins V*)."""
+    root = folders.get(vendor)
+    if root is None or not root.is_dir():
+        return set()
+    if vendor == "Waves":
+        return {p.stem for sub in root.glob("Plug-Ins V*") for p in sub.glob("*.bundle")}
+    return {p.name for p in root.iterdir() if p.is_dir()}
+
+
+def apply_plans(rows: dict[str, dict], plans: list[dict], titles=plan_titles) -> int:
+    """Mark unknown rows owned when an active plan covers the vendor title they match; returns how many."""
+    changed = 0
+    for plan in plans:
+        if plan.get("status") != "active":
+            continue
+        covered = titles(plan["vendor"])
+        for logic_name, row in rows.items():
+            name = base_name(logic_name)
+            if row["status"] == "unknown" and any(name == t or name.startswith(t) or t.startswith(name + " ")
+                                                  for t in covered if len(t) > 2):
+                row["status"] = "owned"
+                row["evidence"] = sorted(set(row["evidence"]) | {f"plan: {plan['vendor']} {plan['plan']}"})
+                changed += 1
+    return changed
+
+
+def renewals(plans: list[dict], today, days: int = 30) -> list[dict]:
+    """Active plans that renew within ``days``, soonest first."""
+    from datetime import date
+
+    soon = []
+    for plan in plans:
+        if plan.get("status") == "active" and plan.get("renews"):
+            left = (date.fromisoformat(plan["renews"]) - today).days
+            if 0 <= left <= days:
+                soon.append({**plan, "days_left": left})
+    return sorted(soon, key=lambda p: p["days_left"])

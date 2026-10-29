@@ -587,13 +587,26 @@ def cmd_ledger(args) -> int:
         rows = ledger.build(names, uad_ok, uad_all, set(json.loads(refused.read_text())),
                             ledger.strings_in(ledger.used_files(), wanted), ledger.preset_folders(),
                             ledger.registered_ni(), ledger.installed())
+        plans_path = maps / "plans.json"
+        plans = json.loads(plans_path.read_text()) if plans_path.exists() else []
+        covered = ledger.apply_plans(rows, plans)
         old = ledger.read_ledger(path)
         for name, row in old.items():  # what a scratch test settled stays settled
             if name in rows and any(e.startswith("tried") for e in row["evidence"]):
                 rows[name] = row
         path.write_text(json.dumps(rows, indent=1))
         counts = Counter(row["status"] for row in rows.values())
-        print(f"{len(rows)} plug-ins: " + ", ".join(f"{counts[s]} {s}" for s in ("owned", "unknown", "not_owned")))
+        print(f"{len(rows)} plug-ins: " + ", ".join(f"{counts[s]} {s}" for s in ("owned", "unknown", "not_owned"))
+              + f" ({covered} covered by subscriptions)")
+        return 0
+    if args.action == "renewals":
+        from datetime import date
+
+        plans_path = maps / "plans.json"
+        plans = json.loads(plans_path.read_text()) if plans_path.exists() else []
+        days = int(args.words[0]) if args.words else 30
+        for plan in ledger.renewals(plans, date.today(), days):
+            print(f"  {plan['vendor']} {plan['plan']}: renews {plan['renews']} (in {plan['days_left']} days), {plan['price']}")
         return 0
     rows = ledger.read_ledger(path)
     for name, row in sorted(rows.items()):
@@ -965,7 +978,7 @@ def main(argv: list[str] | None = None) -> int:
     co.set_defaults(func=cmd_console)
 
     le = sub.add_parser("ledger", help="license ledger: build | show [owned|unknown|not_owned]")
-    le.add_argument("action", choices=["build", "show"])
+    le.add_argument("action", choices=["build", "show", "renewals"])
     le.add_argument("words", nargs="*")
     le.set_defaults(func=cmd_ledger)
 
