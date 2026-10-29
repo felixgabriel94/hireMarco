@@ -37,6 +37,7 @@
     uv run marco hearing answer --song S --folder STEMS "the lead is right, 808 harder"   the artist's guardrails
     uv run marco hearing reference --song S [--file ref.wav] "Travis Scott"               the reference sound
     uv run marco show ["caption"]        a picture of Logic's window to the Owner's WhatsApp, for the ISO box
+    uv run marco live                    Logic's window live on the phone: prints the link (--new-link replaces it)
     uv run marco tracks list             every track with its region count, and whether this is recording or mixing
     uv run marco tracks rename "Lead Vox"  rename the selected track, read back
     uv run marco session FOLDER          the session view: each track's role and reading, the ranked fights,
@@ -595,6 +596,32 @@ def cmd_show(args) -> int:
     return 0
 
 
+def cmd_live(args) -> int:
+    """Serve Logic's window as a live view on this Mac's network, and print the link for the phone."""
+    from functools import partial
+
+    import uvicorn
+
+    from hiremarco.studio import live
+
+    token = live.link_token(new=args.new_link)
+    width = int(config.get("HIREMARCO_LIVE_WIDTH") or 1600)
+    frames = live.Frames(partial(live.grab_logic, width), fps=float(config.get("HIREMARCO_LIVE_FPS") or 4))
+    frames.capture_once()
+    if frames.error:
+        print(f"first frame failed: {frames.error}")
+        print("allow the terminal in System Settings > Privacy & Security > Screen Recording, then run this again")
+        return 1
+    address = live.lan_address() or "127.0.0.1"
+    link = f"http://{address}:{args.port}/?t={token}"
+    subprocess.run(["pbcopy"], input=link.encode(), check=True)
+    print(f"live view: {link}")
+    print("copied to the clipboard; open it on the phone on the same Wi-Fi. Ctrl+C stops it.")
+    Trace("live").done(f"serving on port {args.port}, frame {len(frames.latest) // 1024} KB")
+    uvicorn.run(live.make_app(frames, token), host="0.0.0.0", port=args.port, log_level="warning")
+    return 0
+
+
 def cmd_hearing(args) -> int:
     """The mix hearing: read the exported tracks, say what Marco hears, keep the artist's answer or a reference."""
     from pathlib import Path
@@ -763,6 +790,11 @@ def main(argv: list[str] | None = None) -> int:
     sh = sub.add_parser("show")
     sh.add_argument("caption", nargs="*")
     sh.set_defaults(func=cmd_show)
+
+    lv = sub.add_parser("live")
+    lv.add_argument("--port", type=int, default=8788)
+    lv.add_argument("--new-link", action="store_true")
+    lv.set_defaults(func=cmd_live)
 
     args = parser.parse_args(argv)
     if args.command == "tracks" and args.action == "rename" and not args.name:
