@@ -22,6 +22,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
+from pathlib import Path
 
 import numpy as np
 
@@ -153,6 +154,10 @@ class Booth:
     _filled: bool = False
     _asked_after_take: bool = False                   # the after-take answer is used once per take
     send_link: Callable[[str, str], str] | None = None  # (body, url) to the artist's phone; None or a refusal: the Mac
+    console: object | None = None                     # studio.console.Console: the UAD inputs, Auto-Tune on the vocal
+    surface: Callable[[str], str] | None = None       # one command to his Mackie surface, its reply
+    flex: Callable[[str], str] | None = None          # Flex Pitch's first pass in the given key, its read-back
+    vocal_input: int = 0                              # the Console channel the vocal mic comes in on (ANALOG 1)
 
     def toggle(self) -> str:
         """Command+Option+M: wake him if he is away, send him away if he is with you. Held while a take rolls."""
@@ -400,8 +405,8 @@ class Booth:
         return (f"first pass on {path.name}: median {before['median_cents_off']} to {after['median_cents_off']} cents off, "
                 f"{before['notes']} notes, vibrato kept on {before['vibrato_notes']}; wrote {target.name}")
 
-    def _read_beat(self) -> str:
-        """The selected track's audio: its key and tempo, said, and offered for the session."""
+    def _beat(self):
+        """The selected track's audio, read for key and tempo: (reading, file), or why not, already said."""
         from hiremarco.studio import analyze
 
         if self.tracks is None:
@@ -414,7 +419,14 @@ class Booth:
         if path is None:
             self._say("could not find the beat's file", {"region": regions[0]}, "I can't find that file on the Mac.")
             return f"no file found for {regions[0]!r}"
-        reading = self._in_time(lambda: analyze.read(path))
+        return self._in_time(lambda: analyze.read(path)), path
+
+    def _read_beat(self) -> str:
+        """The selected track's audio: its key and tempo, said, and offered for the session."""
+        found = self._beat()
+        if isinstance(found, str):
+            return found
+        reading, path = found
         key = reading.key
 
         def apply() -> str:
@@ -424,6 +436,14 @@ class Booth:
                 done.append(self.tracks.set_tempo(reading.bpm))
             except Exception as exc:  # the key still stands; the log says why the tempo did not
                 done.append(f"tempo not set: {type(exc).__name__}: {str(exc)[-80:]}")
+            if self.console is not None:  # the Console's Auto-Tune follows the session key
+                from hiremarco.studio.analyze import split_key
+
+                try:
+                    self.console.tune(self.vocal_input, *split_key(key))
+                    done.append(f"Auto-Tune on {key}")
+                except Exception as exc:
+                    done.append(f"Auto-Tune not set: {type(exc).__name__}: {str(exc)[-80:]}")
             self._say("set the session from the beat", {"key": key, "tempo": reading.bpm, "done": done},
                       f"Done. {key}, {reading.bpm:g}.")
             return "; ".join(done)
@@ -434,6 +454,81 @@ class Booth:
             "or_half_double": reading.bpm_other or None, "note": "an estimate from the audio"},
             f"Sounds like {reading.spoken()}. Want me to set the session to that?")
         return f"beat read from {path.name}: {reading.spoken()} (estimate; runner-up {reading.runner_up})"
+
+    def _tune_console(self, said_key: str) -> str:
+        """The Console's Auto-Tune on the vocal input, pointed at a key: the one said, else the session's, else the
+        beat's (read now from the selected track). The gentle base comes with it; Flex does the tight work later."""
+        from hiremarco.studio.analyze import split_key
+
+        if self.console is None:
+            return "no Console in this booth"
+        key, read = said_key or self.key, ""
+        if not key:
+            found = self._beat()
+            if isinstance(found, str):
+                return found
+            key, read = found[0].key, f"read the beat as {found[0].key} (estimate); "
+        try:
+            root, scale = split_key(key)
+            shown = self._in_time(lambda: self.console.tune(self.vocal_input, root, scale))
+        except Exception as exc:  # Console closed, no Auto-Tune on the input, or a key it does not list
+            self._say("could not set the Console's Auto-Tune", {"key": key, "why": str(exc)[-160:]},
+                      "I couldn't set the Auto-Tune. Is Console open with it on your input?")
+            return f"{read}Auto-Tune not set: {type(exc).__name__}: {str(exc)[-120:]}"
+        self.key = key  # the tune and the pitch checks agree on one key
+        self._say("set the Console's Auto-Tune on the vocal to the key, with a gentle base", {
+            "key": key, "settings": shown}, f"Auto-Tune's on {root} {scale}.")
+        return f"{read}Auto-Tune on input {self.vocal_input + 1}: " + ", ".join(f"{k} {v}" for k, v in shown.items())
+
+    def _flex_pass(self) -> str:
+        """Flex Pitch's first pass on the take in the editor: the session key and Pitch Correction 80."""
+        if self.flex is None:
+            return "no Flex control in this booth"
+        if self.rolling:
+            return "holding the Flex pass until the take stops"
+        if not self.key:
+            self._speak("What key are we in?")
+            return "asked for the key before Flex"
+        try:
+            shown = self._in_time(lambda: self.flex(self.key))
+        except Exception as exc:  # the editor not open on the take, or Logic not showing Flex
+            self._say("could not run the Flex Pitch pass", {"why": str(exc)[-200:]},
+                      "Flex didn't take. Open the take in the editor with Flex Pitch on and ask me again.")
+            return f"Flex not applied: {type(exc).__name__}: {str(exc)[-160:]}"
+        self._say("ran a first Flex Pitch pass on the take; it is in Logic to listen to", {"read_back": shown},
+                  "First pass is in Flex. Have a listen.")
+        return f"Flex first pass: {shown}"
+
+    def _surface_track(self, words: str) -> str:
+        """The track a plug-in goes on, as the surface takes it: "selected", or a name with "+" for its spaces."""
+        if not words:
+            return "selected"
+        names = [t.name for t in self.session.tracks] if self.session is not None else []
+        hits = [n for n in names if words.lower() in n.lower()]
+        return (hits[0] if len(hits) == 1 else words).replace(" ", "+")
+
+    def _insert_plugin(self, command: Command) -> str:
+        """A plug-in into a Logic insert slot through his Mackie surface: the first empty slot unless one was said."""
+        if self.surface is None:
+            return "no control surface in this booth"
+        if self.rolling:
+            return "holding the plug-in until the take stops"
+        if not command.text:
+            self._speak("Which plug-in?")
+            return "asked which plug-in"
+        track = self._surface_track(command.track)
+        try:
+            reply = self._in_time(lambda: self.surface(f"insert {track} {command.slot} {command.text}"))
+        except OSError:
+            self._say("the control surface is not running", {}, "My control surface isn't up. Give me a second.")
+            return "surface not running"
+        answer = reply.splitlines()[0] if reply else "no answer"
+        if answer.startswith(("bad command", "unknown")):
+            self._say("could not insert the plug-in", {"asked": command.text, "why": answer},
+                      f"Couldn't get {command.text} in. {answer.split(': ', 1)[-1]}")
+            return f"insert refused: {answer}"
+        self._say("put the plug-in on the track", {"asked": command.text, "result": answer}, f"{command.text}'s in.")
+        return answer
 
     def _unsolo_for_the_take(self) -> None:
         if self.soloed and self.tracks is not None:
@@ -650,6 +745,12 @@ class Booth:
             return self._tune_take()
         if a == "read_beat":
             return self._read_beat()
+        if a == "tune_console":
+            return self._tune_console(command.text)
+        if a == "flex_pass":
+            return self._flex_pass()
+        if a == "insert_plugin":
+            return self._insert_plugin(command)
         if a == "accept":
             if self.offer is None:
                 return self.handle(Command("chat", text=self.writer.line("the artist said yes but nothing was offered; "
@@ -835,6 +936,34 @@ def _booth_reference(who: str) -> str:
     return f"{who}. Got it: {first}."
 
 
+def start_surface(state=None, ask=None, spawn=None) -> str:
+    """His Mackie surface, started with the booth when it is not already up, and left running after: Logic keeps
+    the surface it found, and a booth restart should not make Logic lose it."""
+    import sys
+
+    from hiremarco import config
+    from hiremarco.studio import mcu
+
+    state = Path(state or config.STATE_DIR)
+    ask = ask or (lambda: mcu.ask(state / "mcu.sock", "screen"))
+    try:
+        ask()
+        return "surface already up"
+    except OSError:
+        pass
+    spawn = spawn or (lambda argv: subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                                    stderr=subprocess.DEVNULL, start_new_session=True))
+    spawn([sys.executable, "-c", "import sys; from hiremarco.cli import main; sys.exit(main(['mcu', 'serve']))"])
+    for _ in range(30):
+        time.sleep(0.2)
+        try:
+            ask()
+            return "surface started"
+        except OSError:
+            continue
+    return "surface did not answer; plug-in inserts will say so"
+
+
 def run_booth(*, dry_run: bool = False) -> int:
     """The live loop on the booth mic, until Ctrl+C.
 
@@ -884,6 +1013,10 @@ def run_booth(*, dry_run: bool = False) -> int:
 
     tracks = Tracks(dry_run=dry_run)
     session = tracks.scan() if not dry_run else None
+    if not dry_run:
+        print(start_surface())
+    from hiremarco.studio import flex, mcu
+    from hiremarco.studio.console import Console
     booth = Booth(understand=lambda line: understand(line, context=[booth.session_facts(), *booth.history]),
                   logic=logic.do, auto_note=not dry_run, say=say, feedback=how_was_that_take, tape=Tape(48000),
                   tracks=tracks, session=session,
@@ -895,6 +1028,9 @@ def run_booth(*, dry_run: bool = False) -> int:
                   hearing=None if dry_run else _booth_hearing, reference=None if dry_run else _booth_reference,
                   key=config.get("HIREMARCO_SONG_KEY") or "",
                   plugin=None if dry_run else Channel(),
+                  console=None if dry_run else Console(),
+                  surface=None if dry_run else (lambda line: mcu.ask(config.STATE_DIR / "mcu.sock", line)),
+                  flex=None if dry_run else flex.first_pass,
                   transcribe=lambda audio, r: transcribe(audio, r, diarize=False),
                   play_clip=(lambda pcm, label: print(f"   (guide, dry run: {label})")) if dry_run
                   else (lambda pcm, label: talkback.play_clip(pcm, label)))

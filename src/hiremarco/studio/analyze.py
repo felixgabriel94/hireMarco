@@ -90,6 +90,22 @@ def chroma(audio: np.ndarray, lo: float = 55, hi: float = 2000) -> np.ndarray:
     return out / (np.linalg.norm(out) or 1.0)
 
 
+FLAT_TO_SHARP = {"db": "C#", "eb": "D#", "gb": "F#", "ab": "G#", "bb": "A#", "cb": "B", "fb": "E"}
+SHARP_TO_FLAT = {"C#": "Db", "D#": "Eb", "F#": "Gb", "G#": "Ab", "A#": "Bb"}
+
+
+def split_key(key: str) -> tuple[str, str]:
+    """'E minor', 'e flat minor', 'F#m', 'Bb' -> ('E', 'minor'), ('D#', 'minor'), ('F#', 'minor'), ('A#', 'major'):
+    the root in the sharp spelling every control here lists first, and the mode."""
+    said = key.strip().lower().replace(" sharp", "#").replace(" flat", "b").replace("-", " ")
+    m = re.match(r"^([a-g])([#b]?)\s*(major|minor|maj|min|m)?$", said)
+    if not m:
+        raise ValueError(f"not a key: {key!r}")
+    letter, accidental, mode = m.groups()
+    root = FLAT_TO_SHARP.get(letter + accidental) if accidental == "b" else (letter.upper() + accidental)
+    return root, "minor" if mode in ("minor", "min", "m") else "major"
+
+
 def key_of(profile: np.ndarray) -> list[tuple[float, str]]:
     scores = []
     for tonic in range(12):

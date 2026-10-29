@@ -22,7 +22,8 @@ ACTIONS = (
     "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
     "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "live_view", "hearing", "reference",
     "kill", "summon", "dismiss", "chat", "play_take", "play_from_lyric", "solo", "unsolo", "play_from",
-    "go_again", "next_part", "a_cappella", "read_beat", "accept", "tune_take", "unknown",
+    "go_again", "next_part", "a_cappella", "read_beat", "accept", "tune_take", "tune_console", "flex_pass",
+    "insert_plugin", "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
 
@@ -33,6 +34,7 @@ SCHEMA = {
         "section": {"type": "string", "description": "marker name like chorus, verse 2, intro; else empty"},
         "bar": {"type": "integer", "description": "bar number if said, else 0"},
         "track": {"type": "string", "description": "track name or number if said, else empty"},
+        "slot": {"type": "integer", "description": "insert slot 1 to 15 if said, else 0"},
         "knob": {"type": "string", "enum": [*KNOBS, ""]},
         "direction": {"type": "string", "enum": ["up", "down", ""]},
         "steps": {"type": "integer", "description": "1 for a little, 2 for more, 3 for a lot; 0 if no knob"},
@@ -40,7 +42,7 @@ SCHEMA = {
         "text": {"type": "string", "description": "for a note, the note itself; for a preset, the preset's name as said; "
                  "for chat, Marco's short spoken reply; else empty"},
     },
-    "required": ["action", "section", "bar", "track", "knob", "direction", "steps", "percent", "text"],
+    "required": ["action", "section", "bar", "track", "slot", "knob", "direction", "steps", "percent", "text"],
     "additionalProperties": False,
 }
 
@@ -58,7 +60,11 @@ INSTRUCTIONS = (
     "'unsolo' means unsolo. 'Let's go again' or 'one more' means go_again; 'let's record a different part' means "
     "next_part; 'I'd like to record this a cappella' means a_cappella. 'New track for harmonies' means new_track with text "
     "'harmony' (or 'lead', 'ad-lib', 'double'). 'Rename this to harmony one' or 'call it lead vox' means "
-    "name_track with the name in text, written as a track name ('Harmony 1', 'Lead Vox'). "
+    "name_track with the name in text, written as a track name ('Harmony 1', 'Lead Vox'). 'Put an LA-2A on "
+    "the vocal' or 'throw a Pro-Q on the harmony in slot 4' means insert_plugin with the plug-in in text ('LA-2A', "
+    "'Pro-Q'), the track in track (empty for the vocal or the selected track) and the slot (0 if not said). "
+    "'Set the tune to the beat' or 'put the auto-tune in F minor' means tune_console with the key in text (empty "
+    "for the beat or the session key). 'First pass in Flex' or 'flex the vocal' means flex_pass. "
     "When the line is conversation rather than a command (a question about what Marco just did, a yes or no, "
     "'never mind', thanks, small talk), answer chat and put Marco's reply in text. Marco is the engineer the artist "
     "loves working with: easygoing, warm, in it together, and sharp; one short sentence, two at most; he answers what was asked, true to the "
@@ -75,6 +81,7 @@ class Command:
     section: str = ""
     bar: int = 0
     track: str = ""
+    slot: int = 0  # an insert slot the Owner named, 1 to 15; 0 lets Marco take the first empty one
     knob: str = ""
     direction: str = ""
     steps: int = 0
@@ -99,6 +106,8 @@ class Command:
             return f"arm {self.track}"
         if self.action == "note":
             return "note saved"
+        if self.action == "insert_plugin":
+            return f"insert {self.text}" + (f" on {self.track}" if self.track else "") + (f" slot {self.slot}" if self.slot else "")
         return self.action.replace("_", " ")
 
 
@@ -207,6 +216,45 @@ READ_BEAT_SAID = re.compile(r"^(?:what(?:'s| is) the (?:key|tempo|bpm)(?: and (?
                             r"(?:beat|track|song|instrumental)(?: in)?|(?:find|detect|get|check) the (?:key|tempo|bpm)"
                             r"(?: and (?:the )?(?:key|tempo|bpm))?(?: of| for)?(?: (?:the|this|that) (?:beat|track|song|"
                             r"instrumental))?)$")
+# "set the tune to the beat", "put the auto-tune in F minor": the Console's Auto-Tune on the vocal input.
+TUNE_TO_SAID = re.compile(r"^(?:set|put|point|lock|tune|key) (?:the |my )?(?:auto-?tune|tune|tuning)(?: up)?(?: to| in| on)? "
+                          r"(?:the )?(?P<to>beat|key|song|session|[a-g](?:#| sharp| flat|b)?(?: major| minor|m)?)(?:'?s key)?$|"
+                          r"^tune (?:it |the vocal |my vocal )?to the (?P<beat>beat|song|key)$")
+# "first pass in flex", "flex the vocal": Flex Pitch in Logic, as opposed to his own file-based pass.
+FLEX_SAID = re.compile(r"^(?:(?:give me|do|run|let'?s do) )?(?:a |the )?first pass (?:in|with|on|using) flex(?: pitch)?$|"
+                       r"^flex(?: pitch)? (?:it|that|the (?:take|vocals?|lead)|my (?:take|vocals?|lead))$|"
+                       r"^(?:tune|pitch) (?:it|that|the take|my take|the vocals?|my vocals?) (?:in|with|using) flex(?: pitch)?$")
+# "put an la-2a on the vocal", "throw a pro-q on the harmony in slot 4": a plug-in through his control surface.
+INSERT_SAID = re.compile(r"^(?:put|add|insert|throw|load|drop|stick) (?:an? |the |my )?(?P<what>.+?) (?:on|onto|to|in|into) "
+                         r"(?P<track>.+?)(?:,? (?:in |on |at |into )?(?:slot|insert) (?P<slot>\w+))?$")
+NOT_PLUGINS = {"it", "that", "this", "everything", "the session", "them", "a note", "note", "my phone"}
+SLOT_WORDS = {w: n for n, w in enumerate("one two three four five six seven eight nine ten eleven twelve thirteen "
+                                         "fourteen fifteen".split(), start=1)}
+
+
+def insert_said(said: str) -> Command | None:
+    m = INSERT_SAID.match(said)
+    if not m or m.group("what") in NOT_PLUGINS or m.group("track").startswith(("my phone", "the phone")):
+        return None
+    slot_word = m.group("slot") or ""
+    slot = int(slot_word) if slot_word.isdigit() else SLOT_WORDS.get(slot_word, 0)
+    if slot_word and not 1 <= slot <= 15:
+        return None
+    track = re.sub(r"^(?:the|my|this) ", "", m.group("track")).strip()
+    return Command("insert_plugin", text=m.group("what").strip(), track="" if track in VOCAL_WORDS else track, slot=slot)
+
+
+VOCAL_WORDS = {"vocal", "vocals", "lead", "lead vocal", "voice", "track", "this track", "selected track", "it", "me"}
+
+
+def tune_to_said(said: str) -> Command | None:
+    m = TUNE_TO_SAID.match(said)
+    if not m:
+        return None
+    to = m.group("to") or m.group("beat") or ""
+    return Command("tune_console", text="" if to in ("beat", "key", "song", "session") else to)
+
+
 ACCEPT_SAID = re.compile(r"^(?:yes|yeah|yep|yup|sure|do it|set it|go for it|please|yes please|let'?s do it|"
                          r"set (?:it|that|the session)(?: up)?|sounds good|perfect|bet)$")
 GO_AGAIN_SAID = re.compile(r"^(?:(?:all right|alright|okay|ok|cool|bet),? )?(?:let'?s )?(?:go|run it|do it|try it|take it)"
@@ -298,6 +346,11 @@ def understand(line: str, client: MuseSpark | None = None, context: list[str] | 
         return None
     if not said:
         return Command("summon")  # "Marco." or "Hey Marco" alone: he answers and waits, like a name called in a room
+    if FLEX_SAID.match(said):
+        return Command("flex_pass")
+    tune_to = tune_to_said(said)  # before the knob steps: "set the tune to ..." is the Console, not a step
+    if tune_to:
+        return tune_to
     if TUNE_SAID.match(said):
         return Command("tune_take")
     if READ_BEAT_SAID.match(said):
@@ -347,6 +400,9 @@ def understand(line: str, client: MuseSpark | None = None, context: list[str] | 
     tidy = tidy_command(said)
     if tidy:
         return tidy
+    plugin = insert_said(said)  # after the housekeeping lines: "put it on my phone" is the live view
+    if plugin:
+        return plugin
     sound = SOUND_SAID.match(said)
     if sound:
         return Command("sound", text=sound.group("want").strip())

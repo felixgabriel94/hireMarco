@@ -231,3 +231,35 @@ def test_best_tries_an_unknown_on_scratch_and_falls_back_when_it_hits_a_wall(tmp
     assert "skipped Pro-DS" in done
     assert json.loads(book.read_text())["Pro-DS (s/s)"]["status"] == "not_owned"
     assert ledger.read_ledger(book)["Pro-DS (s/s)"]["evidence"] == ["tried: Logic Pro: Pro-DS license"]
+
+
+def test_the_selected_strip_is_the_lit_select_button():
+    surface = Surface(send=lambda m: None)
+    try:
+        mcu.strip_of(surface, "selected")
+    except LookupError as none:
+        assert "no single track" in str(none)
+    else:
+        raise AssertionError("named a strip with nothing selected")
+    surface.receive(mido.Message("note_on", note=mcu.NOTE["select"] + 2, velocity=0x7F))
+    assert mcu.strip_of(surface, "selected") == 2
+
+
+def test_first_empty_reads_slot_by_slot(monkeypatch):
+    surface = Surface(send=lambda m: None)
+    filled = {1: "ProQ3", 2: "CLA76", 3: "--"}
+    at = {"slot": 0}
+
+    def go(s, slot):
+        at["slot"] = slot
+        s.screen.write(56, f"{filled.get(slot, '--'):<7}")
+
+    monkeypatch.setattr(mcu, "go_slot", go)
+    assert mcu.first_empty(surface, 0) == 3
+
+
+def test_meters_are_not_logged():
+    lines = []
+    surface = Surface(send=lambda m: None, log=lines.append)
+    surface.receive(mido.Message("aftertouch", channel=0, value=35))
+    assert lines == []

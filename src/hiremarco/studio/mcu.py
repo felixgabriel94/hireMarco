@@ -134,7 +134,7 @@ class Surface:
         elif message.type == "control_change" and message.control in (0x4A, 0x4B):
             value = message.value & 0x3F
             self.mode[0x4B - message.control] = chr(value + 0x40) if value < 0x20 else chr(value)
-        elif message.type not in ("clock",):
+        elif message.type not in ("clock", "aftertouch"):  # aftertouch is the meters: megabytes an hour
             self.log(str(message))
 
     # what Marco does
@@ -323,6 +323,11 @@ def strip_of(surface: Surface, track: str) -> int:
     subsequence of the full one."""
     if track.isdigit():
         return int(track)
+    if track == "selected":
+        lit = [n for n in range(8) if surface.lit.get(NOTE["select"] + n)]
+        if len(lit) != 1:
+            raise LookupError("no single track is selected on the surface; name the track")
+        return lit[0]
     def inside(short: str, full: str) -> bool:
         letters = iter(full.lower())
         return bool(short) and all(ch in letters for ch in short.lower())
@@ -348,6 +353,7 @@ def insert(surface: Surface, names: list[str], track: str, slot: int, words: str
         raise LookupError(f"{wanted} is not authorized on this Mac (UAD Console says so), so it would not open")
     mixer_view(surface)
     strip = strip_of(surface, track)
+    slot = slot or first_empty(surface, strip)
     go_slot(surface, slot)
     there = surface.screen.strip(strip)[1]
     if there not in ("--", "") and not replace:
@@ -361,6 +367,15 @@ def insert(surface: Surface, names: list[str], track: str, slot: int, words: str
     if landed in ("--", ""):
         raise LookupError(f"pressed {shown}, but insert {slot} reads empty")
     return f"{shown} in insert {slot} (the strip reads {landed})"
+
+
+def first_empty(surface: Surface, strip: int) -> int:
+    """The track's first empty insert slot, read slot by slot: where a plug-in goes when no slot was named."""
+    for slot in range(1, 16):
+        go_slot(surface, slot)
+        if surface.screen.strip(strip)[1] in ("--", ""):
+            return slot
+    raise LookupError("all 15 insert slots on that track are full")
 
 
 def remove(surface: Surface, track: str, slot: int) -> str:
@@ -592,7 +607,8 @@ def serve(sock_path, log_path) -> None:
                         started = time.monotonic()
                         from hiremarco.studio.console import Console
 
-                        done = insert(surface, names, words[1], int(words[2]), " ".join(words[3:]),
+                        # a track name travels with "+" for its spaces; "selected" is the lit select button
+                        done = insert(surface, names, words[1].replace("+", " "), int(words[2]), " ".join(words[3:]),
                                       replace=words[0] == "replace", may_run=Console().may_run)
                         index.write_text(_json.dumps(names, indent=0))
                         answer = f"{done} in {time.monotonic() - started:.1f} s"
@@ -627,7 +643,8 @@ def serve(sock_path, log_path) -> None:
                     if words and words[0] != "screen":
                         surface.log(f"did {' '.join(words)}")
                         time.sleep(0.25)  # Logic redraws the display a moment after a move
-                except (KeyError, IndexError, ValueError, LookupError) as bad:
+                except (KeyError, IndexError, ValueError, LookupError, RuntimeError, OSError) as bad:
+                    # RuntimeError and OSError: Console unreachable for the UAD check; the surface stays up
                     answer = f"bad command: {bad}"
                 top, bottom = surface.screen.lines
                 conn.sendall(f"{answer}\n{top}\n{bottom}\n".encode())
