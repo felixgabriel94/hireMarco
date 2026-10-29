@@ -22,7 +22,7 @@ on run argv
 		set out to {}
 		tell application "System Events"
 			tell process "Logic Pro"
-				set items to every UI element of main whose description starts with "Track "
+				set foundItems to every UI element of main whose description starts with "Track "
 				set deep to {}
 				repeat with g in (every group of main)
 					try
@@ -34,9 +34,9 @@ on run argv
 						end repeat
 					end try
 				end repeat
-				set items to items & deep
+				set foundItems to foundItems & deep
 				set n to 0
-				repeat with trk in items
+				repeat with trk in foundItems
 					try
 						set d to description of trk
 						if (role of trk) is "AXLayoutItem" then

@@ -56,6 +56,7 @@ class SessionState:
     tracks: list[TrackInfo]
     balanced_watch: bool = False
     counts: dict[str, int] = field(default_factory=dict)   # how many of each kind named so far
+    scan_error: str = ""
 
     @property
     def developed(self) -> bool:
@@ -103,7 +104,13 @@ class Tracks:
         self.planned: list[str] = []
 
     def scan(self) -> SessionState:
-        tracks = parse_list(self.run(["list"]))
+        """The session's tracks and mode. A scan that fails leaves Marco in recording mode with the reason kept."""
+        try:
+            tracks = parse_list(self.run(["list"]))
+        except Exception as exc:  # the booth must still start; the scan is a convenience, not a gate
+            state = SessionState("recording", [])
+            state.scan_error = f"{type(exc).__name__}: {str(exc)[-160:]}"
+            return state
         state = SessionState("recording", tracks)
         state.mode = "mixing" if state.developed else "recording"
         return state

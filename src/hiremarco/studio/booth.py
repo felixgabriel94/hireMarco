@@ -423,7 +423,8 @@ def run_booth(*, dry_run: bool = False) -> int:
             print(f"booth live on {device or 'the default input'} channel {channel}"
                   + (" (dry run)" if dry_run else "") + "; Ctrl+C stops")
             if session is not None:
-                print(f"session: {len(session.tracks)} track(s), {session.mode} mode")
+                print(f"session: {len(session.tracks)} track(s), {session.mode} mode"
+                      + (f" (track scan failed: {session.scan_error})" if session.scan_error else ""))
             async for line in Listener().sentences(mic()):
                 await asyncio.to_thread(booth.hear, line)
 

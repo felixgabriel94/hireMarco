@@ -73,3 +73,11 @@ def test_unmapped_actions_say_so_live(tmp_path):
     tracks = Tracks(run=lambda a: "", conn=gate.connect(":memory:"), rules_path=rules(tmp_path))
     with pytest.raises(NotMapped):
         tracks.stack(["a", "b"])
+
+
+def test_a_failed_scan_leaves_recording_mode_and_keeps_the_reason():
+    def broken(args):
+        raise RuntimeError("System Events got an error: whatever")
+
+    state = Tracks(run=broken).scan()
+    assert state.mode == "recording" and state.tracks == [] and "System Events" in state.scan_error
