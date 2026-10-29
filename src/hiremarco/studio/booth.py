@@ -461,20 +461,14 @@ _HALO: list = []
 SHORTCUT_PORT = 8790
 
 
-def _shortcut_listener(booth: "Booth") -> None:
-    """The halo app sends "toggle" here when Command+Option+M is pressed."""
-    import socket
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        sock.bind(("127.0.0.1", SHORTCUT_PORT))
-    except OSError:
-        print(f"   (shortcut off: port {SHORTCUT_PORT} is taken)")
-        return
+def _shortcut_listener(booth: "Booth", sock) -> None:
+    """The halo sends "toggle" here for Command+Option+M; the menu-bar app sends "live" for the live view link."""
     while True:
         data, _ = sock.recvfrom(64)
         if data.strip() == b"toggle":
             booth.toggle()
+        elif data.strip() == b"live":  # the menu bar's "Text me the live view"
+            booth.hear("Marco, give me the live view")
 
 
 def _text_owner(text: str) -> str:
@@ -527,10 +521,19 @@ def run_booth(*, dry_run: bool = False) -> int:
     lines instead of speaking them; the mic and the model are live.
     """
     import asyncio
+    import socket
 
     from hiremarco import config
     from hiremarco.hearing import Listener, to_pcm24k
     from hiremarco.studio.commands import understand
+
+    # One Marco at a time: two booths would open the mic twice and answer twice. The shortcut port is the lock.
+    lock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        lock.bind(("127.0.0.1", SHORTCUT_PORT))
+    except OSError:
+        print("Marco is already listening (the menu-bar app, or another booth); this one is not started")
+        return 1
     from hiremarco.studio.feedback import how_was_that_take
     from hiremarco.studio.logic import Logic
     from hiremarco.studio.chain import Channel
@@ -604,7 +607,7 @@ def run_booth(*, dry_run: bool = False) -> int:
                 halo = None
         if halo is not None:
             _HALO.append(halo)
-            threading.Thread(target=_shortcut_listener, args=(booth,), daemon=True).start()
+        threading.Thread(target=_shortcut_listener, args=(booth, lock), daemon=True).start()
         with audio:
             print(f"booth live on {audio.device or 'the default interface'}, mic channel {audio.mic_channel}, "
                   f"Marco on outputs {audio.out_pair[0]}-{audio.out_pair[1]}, one stream"

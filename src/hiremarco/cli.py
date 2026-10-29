@@ -38,6 +38,7 @@
     uv run marco hearing answer --song S --folder STEMS "the lead is right, 808 harder"   the artist's guardrails
     uv run marco hearing reference --song S [--file ref.wav] "Travis Scott"               the reference sound
     uv run marco show ["caption"]        a picture of Logic's window to the Owner's WhatsApp, for the ISO box
+    uv run marco app build|install|uninstall   Marco as a menu-bar app that starts with Logic (install: at login)
     uv run marco halo                    Marco's halo over Logic: a short exchange, then a take (--preview DIR: pictures)
     uv run marco live                    Logic's window live on the phone, video with pictures as fallback; prints the link
     uv run marco tracks list             every track with its region count, and whether this is recording or mixing
@@ -613,6 +614,22 @@ def cmd_show(args) -> int:
     return 0
 
 
+def cmd_app(args) -> int:
+    from hiremarco.studio import app
+
+    try:
+        if args.action == "build":
+            print(f"built {app.build()}")
+        elif args.action == "install":
+            print(app.install())
+        else:
+            print(app.uninstall())
+    except RuntimeError as why:
+        print(why)
+        return 1
+    return 0
+
+
 def cmd_halo(args) -> int:
     """Show the halo over Logic on its own, cycling through its three states, so the look can be judged."""
     import math
@@ -846,6 +863,10 @@ def main(argv: list[str] | None = None) -> int:
     sh = sub.add_parser("show")
     sh.add_argument("caption", nargs="*")
     sh.set_defaults(func=cmd_show)
+
+    ap = sub.add_parser("app")
+    ap.add_argument("action", choices=["build", "install", "uninstall"])
+    ap.set_defaults(func=cmd_app)
 
     ha = sub.add_parser("halo")
     ha.add_argument("--preview", metavar="DIR")
