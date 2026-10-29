@@ -129,3 +129,42 @@ def test_show_me_still_sends_the_picture():
     from hiremarco.studio.commands import Command, understand
 
     assert understand("Marco, show me the session", client=None) == Command("show")
+
+
+def test_a_live_view_already_running_with_this_link_is_reused_not_started_again(monkeypatch):
+    monkeypatch.setattr(live, "running", lambda port, token: True)
+    monkeypatch.setattr(live, "lan_address", lambda: "192.168.0.2")
+    monkeypatch.setattr(live.subprocess, "run", lambda *a, **k: None)
+    view = live.LiveView.prepare(port=8788)
+    assert view.server is None and view.link.startswith("http://192.168.0.2:8788/?t=")
+    view.start_in_background()
+    view.stop()  # nothing to stop: the other window keeps serving
+
+
+def test_a_port_held_by_something_else_says_so(monkeypatch):
+    monkeypatch.setattr(live, "running", lambda port, token: False)
+    monkeypatch.setattr(live, "port_taken", lambda port: True)
+    with pytest.raises(live.NotReady, match="port 8788 is taken"):
+        live.LiveView.prepare(port=8788)
+
+
+def test_the_link_is_texted_when_marco_can_and_kept_on_the_mac_when_he_cannot():
+    from hiremarco import gate
+    from hiremarco.studio.booth import LIVE_ON, LIVE_TEXTED, Booth, Tape
+    from hiremarco.studio.commands import understand
+
+    texts, said, logged = [], [], []
+
+    def booth(send):
+        return Booth(understand=lambda text: understand(text, client=None), logic=lambda c: c.describe(),
+                     say=said.append, feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=logged.append,
+                     live=lambda: "http://192.168.0.2:8788/?t=x", send_link=send)
+
+    assert "link texted" in booth(texts.append).hear("Marco, give me the live view")
+    assert texts == ["Live view: http://192.168.0.2:8788/?t=x"] and said[-1] == LIVE_TEXTED
+
+    def outside(text):
+        raise gate.Refused("outside the 24-hour window")
+
+    assert "printed and copied" in booth(outside).hear("Marco, live view")
+    assert said[-1] == LIVE_ON and any("outside the 24-hour window" in line for line in logged)

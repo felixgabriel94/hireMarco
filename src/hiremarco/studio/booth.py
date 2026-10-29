@@ -14,6 +14,7 @@ one spot would fix it. "Marco, punch it" then punches that spot.
 
 from __future__ import annotations
 
+import subprocess
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field, replace
@@ -33,9 +34,10 @@ MISSED = "I missed that. Say it again?"
 FAILED = "That one didn't take. I'll note it."
 HERE = "Yeah?"
 LIVE_ON = "Live view's on. The link's on the Mac."
+LIVE_TEXTED = "Live view's on. I texted you the link."
 STOPPED = "Stopped. Everything's held until you clear it from the desk."
 # Lines Marco says often, made once at the start so they play the moment they are needed.
-STOCK = ["Rolling", HERE, LIVE_ON, NOTED, LISTENING, DIALING, MISSED, FAILED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
+STOCK = ["Rolling", HERE, LIVE_ON, LIVE_TEXTED, NOTED, LISTENING, DIALING, MISSED, FAILED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
          "Morning. Your session's up. Where do you want to start?"]
 
 
@@ -111,6 +113,19 @@ class Booth:
     reference: Callable[[str], str] | None = None     # "sound like X" -> the signature, spoken short
     busy: bool = False                                # a command is running: the halo shows him thinking
     called_at: float = 0.0                            # when his name was last heard, before the sentence ended
+    settle: float = 0.8                               # seconds between making a track and naming it
+    send_link: Callable[[str], str] | None = None     # a link to the artist's phone by text; None or a refusal: the Mac
+
+    def _deliver(self, text: str) -> str:
+        """Links go to the artist's phone by text when Marco can send one; otherwise they stay on the Mac."""
+        if self.send_link is None:
+            return "printed and copied"
+        try:
+            self.send_link(text)
+            return "texted"
+        except Exception as exc:  # not set up yet, outside the 24-hour window, or held by the gate
+            self.log(f"   (not texted: {getattr(exc, 'reason', None) or type(exc).__name__}; printed and copied)")
+            return "printed and copied"
 
     def _speak(self, text: str) -> None:
         try:
@@ -297,8 +312,9 @@ class Booth:
                 return "no live view in this booth"
             link = self.live()
             self.log(f"   live view: {link}")
-            self._speak(LIVE_ON)
-            return "live view on, link printed and copied"
+            where = self._deliver(f"Live view: {link}")
+            self._speak(LIVE_TEXTED if where == "texted" else LIVE_ON)
+            return f"live view on, link {where}"
         if a in ("label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode"):
             return self._tidy(command)
         if a == "set_key":
@@ -337,6 +353,7 @@ class Booth:
         if a == "new_track" and command.text and self.tracks is not None:
             # one move: make the track (Logic selects it), then name it for its kind
             made = self.logic(Command("new_track"))
+            time.sleep(self.settle)  # Logic draws the new track and selects it before it can be named
             if self.session is None:
                 from hiremarco.studio.tracks import SessionState
 
@@ -345,7 +362,7 @@ class Booth:
                 name, what = self.tracks.label(command.text, self.session)
             except Exception as exc:
                 self._speak(FAILED)
-                return f"{made}; naming failed: {type(exc).__name__}"
+                return f"{made}; naming failed: {type(exc).__name__}: {str(exc)[-160:]}"
             self._speak(f"{name}. Rolling when you are.")
             return f"{made}; {what}"
         if a in ROLLING and not self.rolling:
@@ -368,6 +385,14 @@ def _song() -> str:
 
 _LIVE: list = []
 _HALO: list = []
+
+
+def _text_owner(text: str) -> str:
+    """One text to the Owner's WhatsApp, through the gate. Turned on by HIREMARCO_TEXT_LINKS=on, after the
+    first WhatsApp message (filmed Thursday) has gone out, so nothing else is his first message from Marco."""
+    from hiremarco.whatsapp import WhatsApp
+
+    return WhatsApp().send_text(config.require("OWNER_WHATSAPP"), text, idempotency_key=f"link:{time.time_ns()}")
 
 
 def _booth_live() -> str:
@@ -447,6 +472,7 @@ def run_booth(*, dry_run: bool = False) -> int:
                   tracks=tracks, session=session,
                   show=None if dry_run else __import__("hiremarco.studio.show", fromlist=["show"]).show,
                   live=None if dry_run else _booth_live,
+                  send_link=None if dry_run or (config.get("HIREMARCO_TEXT_LINKS") or "off") != "on" else _text_owner,
                   say_stopped=None if talkback is None else (lambda: talkback.say_stock(STOPPED)),
                   hearing=None if dry_run else _booth_hearing, reference=None if dry_run else _booth_reference,
                   key=config.get("HIREMARCO_SONG_KEY") or "",
@@ -480,6 +506,8 @@ def run_booth(*, dry_run: bool = False) -> int:
             halo = Halo(lambda: booth_state(booth, audio))
             try:
                 halo.start()
+                subprocess.run(["osascript", "-e", 'tell application "Logic Pro" to activate'], timeout=10)
+                print("halo: up; it shows over Logic while Logic is in front")
             except Exception as exc:  # the halo is the look, not the work: the booth runs without it
                 print(f"   (halo off: {type(exc).__name__}: {str(exc)[-160:]})")
                 halo = None

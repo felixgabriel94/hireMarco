@@ -221,6 +221,27 @@ def make_app(frames: Frames, token: str, *, max_frames: int | None = None, peers
                              Route("/offer", offer, methods=["POST"])], lifespan=lifespan)
 
 
+def running(port: int, token: str) -> bool:
+    """A live view of ours already answers on this port with this link."""
+    import httpx
+
+    try:
+        return httpx.get(f"http://127.0.0.1:{port}/?t={token}", timeout=1.0).status_code == 200
+    except httpx.HTTPError:
+        return False
+
+
+def port_taken(port: int) -> bool:
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        try:
+            probe.bind(("0.0.0.0", port))
+        except OSError:
+            return True
+    return False
+
+
 class NotReady(RuntimeError):
     """The live view cannot start on this Mac yet; the message says what to do."""
 
@@ -241,6 +262,12 @@ class LiveView:
         import uvicorn
 
         token = link_token(new=new_link)
+        link = f"http://{lan_address() or '127.0.0.1'}:{port}/?t={token}"
+        if running(port, token):  # a live view from another tab already serves this link: use it, start nothing
+            subprocess.run(["pbcopy"], input=link.encode(), check=True)
+            return cls(None, link, "already running in another window")
+        if port_taken(port):
+            raise NotReady(f"port {port} is taken by something else; stop it or pass another port")
         width = int(config.get("HIREMARCO_LIVE_WIDTH") or 1600)
         frames = Frames(partial(grab_logic, width), fps=float(config.get("HIREMARCO_LIVE_FPS") or 4))
         frames.capture_once()
@@ -256,7 +283,6 @@ class LiveView:
             if video_line.startswith("video on"):
                 webrtc.tune_h264()
                 peers = webrtc.Peers(video.latest, on_first=video.start, on_last=video.stop)
-        link = f"http://{lan_address() or '127.0.0.1'}:{port}/?t={token}"
         subprocess.run(["pbcopy"], input=link.encode(), check=True)
         # an open phone page keeps its stream open: on Ctrl+C the stream ends itself, and two seconds is the limit
         holder: dict = {}
@@ -267,10 +293,14 @@ class LiveView:
 
     def start_in_background(self) -> None:
         """Beside the booth: uvicorn skips its signal handlers off the main thread, so the booth keeps Ctrl+C."""
+        if self.server is None:
+            return  # already served from another window
         self.thread = threading.Thread(target=self.server.run, daemon=True)
         self.thread.start()
 
     def stop(self) -> None:
+        if self.server is None:
+            return
         self.server.should_exit = True
         if self.thread is not None:
             self.thread.join(timeout=3)

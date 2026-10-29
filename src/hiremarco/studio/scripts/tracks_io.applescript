@@ -103,6 +103,12 @@ on run argv
 		set namesBefore to headerNames(main)
 		tell application "Logic Pro" to activate
 		delay 0.3
+		-- right after a new track or a dialog, focus reads as none for a moment (live 2026-10-29): wait it out
+		set waited to 0
+		repeat while focusedLine() is "none" and waited < 20
+			delay 0.1
+			set waited to waited + 1
+		end repeat
 		if focusedLine() is "none" then error "Logic already has a field open; press Escape and try again"
 		tell application "System Events" to tell process "Logic Pro" to keystroke return using shift down
 		delay 0.5

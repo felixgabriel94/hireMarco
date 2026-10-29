@@ -189,7 +189,10 @@ func listen() {
                 if let data, let line = String(data: data, encoding: .utf8) {
                     let parts = line.trimmingCharacters(in: .whitespacesAndNewlines).split(separator: " ")
                     if parts.first == "quit" { NSApp.terminate(nil) }
-                    if let mode = parts.first { state.mode = String(mode) }
+                    if let mode = parts.first, String(mode) != state.mode {
+                        note("heard: \(mode)")
+                        state.mode = String(mode)
+                    }
                     state.target = parts.count > 1 ? (Double(parts[1]) ?? 0) : 0
                 }
                 next()
@@ -202,6 +205,12 @@ func listen() {
 }
 
 var keep: [AnyObject] = []
+
+// One line per change to stderr, which the booth keeps in the state folder's halo.log.
+func note(_ line: String) {
+    let stamp = ISO8601DateFormatter().string(from: Date())
+    FileHandle.standardError.write("\(stamp) \(line)\n".data(using: .utf8)!)
+}
 var lastHeard = Date()
 
 @MainActor
@@ -292,7 +301,9 @@ NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .
 func watch() {
     let option = NSEvent.modifierFlags.contains(.option)
     panel.ignoresMouseEvents = !(option || dragging)
-    state.inLogic = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.logic10"
+    let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier == "com.apple.logic10"
+    if front != state.inLogic { note(front ? "Logic in front: showing when he talks" : "Logic not in front: hidden") }
+    state.inLogic = front
 }
 place()
 // The booth sends 30 times a second; four seconds of silence means it has gone, so the halo goes too.

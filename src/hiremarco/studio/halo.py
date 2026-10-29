@@ -88,7 +88,8 @@ class Halo:
 
     def start(self, *, launch: bool = True) -> None:
         if launch:
-            self._process = subprocess.Popen([str(build())], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            log = (config.STATE_DIR / "halo.log").open("a")  # what it heard and when it hid, for a run that looks wrong
+            self._process = subprocess.Popen([str(build())], stdout=subprocess.DEVNULL, stderr=log)
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 

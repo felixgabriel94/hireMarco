@@ -652,6 +652,9 @@ def cmd_live(args) -> int:
         return 1
     print(view.video_line)
     print(f"live view: {view.link}")
+    if view.server is None:
+        print("copied to the clipboard; that window keeps serving it")
+        return 0
     print("copied to the clipboard; open it on the phone on the same Wi-Fi. Ctrl+C stops it.")
     Trace("live").done(f"serving on port {args.port}")
     try:
