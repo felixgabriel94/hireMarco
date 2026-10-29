@@ -294,8 +294,9 @@ def understand(line: str, client: MuseSpark | None = None) -> Command | None:
         return Command("set_key", text=key.group("key").strip())
     client = client or MuseSpark()
     gate.check_model_call(TENANT, model=client.model, system=INSTRUCTIONS, prompt=said, joblog=client.joblog)
-    # 120 tokens was hit exactly on 2026-10-28 and the command came back unknown; the room is cheap.
-    reply = client.ask(said, developer=INSTRUCTIONS, job="studio-command", max_completion_tokens=600,
+    # 120 tokens was hit exactly on 2026-10-28 and 600 on 2026-10-29 ("note: ..." came back unknown, 600 of 600
+    # used even at minimal reasoning); the room is cheap.
+    reply = client.ask(said, developer=INSTRUCTIONS, job="studio-command", max_completion_tokens=1500,
                        reasoning_effort="minimal",
                        response_format={"type": "json_schema", "json_schema": {"name": "command", "schema": SCHEMA, "strict": True}})
     try:
