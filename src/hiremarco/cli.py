@@ -446,7 +446,10 @@ def cmd_chain(args) -> int:
             for slot in chain.slots:
                 print(f"{slot.number:>2}  {slot.name}  ({'bypassed' if slot.bypassed else 'on'})")
                 for name, value in (slot.state.params.items() if slot.state else []):
-                    print(f"      {name:<24} {value:g}")
+                    lo, hi = slot.state.ranges.get(name, (None, None))
+                    span = f"  ({lo:g} to {hi:g}, {slot.state.percent(name):g}%)" if lo is not None and hi > lo else \
+                        "  (no range: read only)"
+                    print(f"      {name:<26} {value:g}{span}")
             return 0
         trace = Trace(f"chain sound: {' '.join(args.words)}")
         channel.read()
