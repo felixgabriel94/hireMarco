@@ -5,7 +5,7 @@
 -- Grounded in the live map of 2026-10-29: the editor's header has a checkbox "Show/Hide Flex" and a pop-up whose
 -- value is the flex mode ("Flex Pitch"); its left inspector holds the static texts "Scale Quantize" (with a root
 -- pop-up, "Off" or a note, and a scale pop-up, "Major (Ionian)") and "Pitch Correction" (with a 0 to 100 slider).
--- Pitch Correction and Scale Quantize act on the selected notes, so apply selects every note in the editor first.
+-- Pitch Correction and Scale Quantize act on the selected notes, or on every note when none is selected.
 on mainWindow()
 	tell application "System Events"
 		tell process "Logic Pro"
@@ -134,34 +134,11 @@ on run argv
 		set wantRoot to item 2 of argv
 		set wantScale to item 3 of argv
 		set wantAmount to (item 4 of argv) as real
-		set contentsArea to findDesc(main, "Track contents", 0)
-		if contentsArea is missing value then error "the editor's notes are not showing"
+		-- no click and no Select All: with no notes selected, Scale Quantize and Pitch Correction act on every
+		-- note of the region in the editor (Logic's Flex Pitch inspector); a click placed by coordinates landed on
+		-- the Show/Hide Flex button and turned Flex off (live 2026-10-29), so nothing here clicks by position
 		tell application "System Events"
 			tell process "Logic Pro"
-				set regionItem to first UI element of contentsArea whose role is "AXLayoutItem"
-				set regionPos to position of regionItem
-			end tell
-		end tell
-		-- the editor's own panel ("Track") is on screen even when its notes are scrolled: click a third of
-		-- the way down it, just inside the region (the notes area starts after its left inspector)
-		set editorPanel to findDesc(main, "Track", 0)
-		if editorPanel is missing value then error "the editor is not open"
-		tell application "System Events"
-			set editorPos to position of editorPanel
-			set editorSize to size of editorPanel
-		end tell
-		set px to item 1 of regionPos
-		set vx to (item 1 of editorPos) + 260
-		set vy to (item 2 of editorPos) + ((item 2 of editorSize) div 3) - 40
-		tell application "System Events"
-			tell process "Logic Pro"
-				set clickX to px + 12
-				if clickX < vx + 12 then set clickX to vx + 12
-				-- every note: one click inside the editor's visible note area gives it focus, then Select All
-				click at {clickX, vy + 40}
-				delay 0.2
-				keystroke "a" using command down
-				delay 0.2
 				click rootPop
 				delay 0.4
 				click menu item wantRoot of menu 1 of rootPop
