@@ -136,6 +136,7 @@ class Booth:
     last_said: str = ""
     heard_line: str = ""
     spoken: list = field(default_factory=list)        # (when, line) of his last lines, to know his own echo
+    on_mode: Callable[[str], None] | None = None      # the rig follows the mode: booth mic or the desk
     fillers: bool = True                              # "Hmm." while he thinks; off in tests that count lines
     _filled: bool = False
     _asked_after_take: bool = False                   # the after-take answer is used once per take
@@ -306,6 +307,8 @@ class Booth:
         if a == "mode":
             if command.text:
                 self.session.mode = command.text
+                if self.on_mode is not None:
+                    self.on_mode(command.text)  # mixing moves him to the desk, recording back to the booth
                 self._say("switched mode", {"mode_now": command.text}, f"{command.text.capitalize()} mode.")
                 return f"mode set: {command.text}"
             self._say("asked which mode", {"mode": self.session.mode}, f"We're {self.session.mode}.")
@@ -691,12 +694,15 @@ def run_booth(*, dry_run: bool = False) -> int:
         quiet_until = [0.0]
         barge = Barge()
 
+        rig: dict = {}
+
         def send(block: np.ndarray) -> None:
-            loop.call_soon_threadsafe(chunks.put_nowait, to_pcm24k(block, audio.rate).tobytes())
+            loop.call_soon_threadsafe(chunks.put_nowait, to_pcm24k(block, rig["audio"].rate).tobytes())
 
         def on_input(mono: np.ndarray) -> None:
             if mono.size == 0:
                 return  # a glitch delivered nothing; sending an empty frame would break the hearing session
+            audio = rig["audio"]
             booth.tape.write(mono)
             # While Marco talks, and a breath after, his hearing gets silence: the mic picks up his voice from the
             # headphones, and he answered himself (live 2026-10-29). The stream keeps its pace with zeros. If the
@@ -705,7 +711,7 @@ def run_booth(*, dry_run: bool = False) -> int:
             now = time.monotonic()
             if audio.speaking:
                 quiet_until[0] = now + MIC_TAIL
-                if barge.hear(audio.in_level, audio.out_level, mono):
+                if rig.get("place") == "booth" and barge.hear(audio.in_level, audio.out_level, mono):
                     audio.interrupt()
                     quiet_until[0] = now
                     for held in barge.release():
@@ -721,14 +727,36 @@ def run_booth(*, dry_run: bool = False) -> int:
                 yield await chunks.get()
 
         audio = DuplexAudio.from_config(on_input)
+        rig.update(audio=audio, place="booth")
         booth.tape = Tape(audio.rate)
         if talkback is not None:
             talkback.play = audio.play
+
+        def move(mode: str) -> None:
+            """Recording: the vocal mic and the headphones. Mixing: the MacBook mic and the speakers."""
+            place = "desk" if mode == "mixing" else "booth"
+            if place == rig["place"]:
+                return
+            try:
+                fresh = (DuplexAudio.desk_from_config if place == "desk" else DuplexAudio.from_config)(on_input)
+                fresh.start()
+            except Exception as exc:  # he stays where he was and says why in the log
+                print(f"   (could not move to the {place}: {type(exc).__name__}: {str(exc)[-120:]})")
+                return
+            old = rig["audio"]
+            rig.update(audio=fresh, place=place)
+            if talkback is not None:
+                talkback.play = fresh.play
+            old.stop()
+            print(f"   (now at the {place}: listening on {fresh.device}, Marco on {fresh.out_device} "
+                  f"{fresh.out_pair[0]}-{fresh.out_pair[1]})")
+
+        booth.on_mode = move
         halo = None
         if (config.get("HIREMARCO_HALO") or "on") != "off":
             from hiremarco.studio.halo import Halo, booth_state
 
-            halo = Halo(lambda: booth_state(booth, audio))
+            halo = Halo(lambda: booth_state(booth, rig["audio"]))
             try:
                 halo.start()
                 subprocess.run(["osascript", "-e", 'tell application "Logic Pro" to activate'], timeout=10)
@@ -741,7 +769,8 @@ def run_booth(*, dry_run: bool = False) -> int:
         threading.Thread(target=_shortcut_listener, args=(booth, lock), daemon=True).start()
         if not dry_run:
             threading.Thread(target=_open_live_view, daemon=True).start()
-        with audio:
+        audio.start()
+        try:
             print(f"booth live on {audio.device or 'the default interface'}, mic channel {audio.mic_channel}, "
                   f"Marco on outputs {audio.out_pair[0]}-{audio.out_pair[1]}, one stream"
                   + (" (dry run)" if dry_run else "") + "; Ctrl+C stops")
@@ -763,6 +792,8 @@ def run_booth(*, dry_run: bool = False) -> int:
                     while not chunks.empty():  # audio from the dead session would arrive out of context
                         chunks.get_nowait()
                     await asyncio.sleep(0.5)
+        finally:
+            rig["audio"].stop()
 
     try:
         asyncio.run(main())

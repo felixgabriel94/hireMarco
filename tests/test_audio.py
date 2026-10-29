@@ -104,3 +104,30 @@ def test_the_artist_talking_over_marco_is_told_from_his_own_bleed():
     assert not b.hear(0.05, 0.06, block)  # one loud block is a cough, not the artist
     assert b.hear(0.06, 0.06, block)  # two running: the artist is talking
     assert len(b.release()) == 5 and b.blocks == 0
+
+
+def test_the_desk_listens_on_the_macbook_mic_and_plays_on_the_speakers(monkeypatch):
+    import sys
+    import types
+
+    devices = {"MacBook Pro Microphone": {"default_samplerate": 48000, "max_input_channels": 1},
+               "Universal Audio Thunderbolt": {"max_output_channels": 10}}
+    fake = types.SimpleNamespace(query_devices=lambda name=None, kind=None: devices[name])
+    monkeypatch.setitem(sys.modules, "sounddevice", fake)
+    monkeypatch.setenv("HIREMARCO_TALKBACK_DEVICE", "Universal Audio Thunderbolt")
+    desk = DuplexAudio.desk_from_config(lambda block: None)
+    assert desk.device == "MacBook Pro Microphone" and desk.out_device == "Universal Audio Thunderbolt"
+    assert desk.out_pair == (1, 2) and desk.in_channels == 1 and desk.mic_channel == 1
+
+
+def test_switching_to_mixing_tells_the_rig():
+    from hiremarco.studio.booth import Booth, Tape
+    from hiremarco.studio.commands import understand
+
+    moved = []
+    b = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: c.describe(),
+              say=lambda text: None, feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None,
+              on_mode=moved.append)
+    b.hear("Marco, let's do mixing now")
+    b.hear("Marco, we're recording now")
+    assert moved == ["mixing", "recording"]

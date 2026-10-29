@@ -33,8 +33,9 @@ def resample(pcm: np.ndarray, rate_in: int, rate_out: int) -> np.ndarray:
 class DuplexAudio:
     def __init__(self, *, device: str | None, rate: int, mic_channel: int, out_pair: tuple[int, int],
                  in_channels: int, out_channels: int, on_input: Callable[[np.ndarray], None],
-                 blocksize: int | None = None):
+                 blocksize: int | None = None, out_device: str | None = None):
         self.device = device
+        self.out_device = out_device or device  # the desk: the MacBook's mic in, the interface's speakers out
         self.rate = rate
         self.mic_channel = mic_channel
         self.out_pair = out_pair
@@ -65,6 +66,22 @@ class DuplexAudio:
                    out_pair=(pair[0], pair[1] if len(pair) > 1 else pair[0]),
                    in_channels=int(info.get("max_input_channels") or 1),
                    out_channels=int(info.get("max_output_channels") or 2), on_input=on_input)
+
+    @classmethod
+    def desk_from_config(cls, on_input: Callable[[np.ndarray], None]) -> "DuplexAudio":
+        """Mixing at the desk: the MacBook's own mic (the vocal mic is muted there) and Marco on the speakers."""
+        import sounddevice as sd
+
+        mic = config.get("HIREMARCO_DESK_MIC") or "MacBook Pro Microphone"
+        out = config.get("HIREMARCO_DESK_OUT_DEVICE") or config.get("HIREMARCO_TALKBACK_DEVICE") or None
+        pair_raw = config.get("HIREMARCO_DESK_CHANNELS") or "1,2"
+        pair = tuple(int(p) for p in pair_raw.replace(" ", "").split(",")[:2])
+        mic_info = sd.query_devices(mic)
+        out_info = sd.query_devices(out) if out else sd.query_devices(kind="output")
+        return cls(device=mic, out_device=out, rate=int(mic_info.get("default_samplerate") or 48000), mic_channel=1,
+                   out_pair=(pair[0], pair[1] if len(pair) > 1 else pair[0]),
+                   in_channels=int(mic_info.get("max_input_channels") or 1),
+                   out_channels=int(out_info.get("max_output_channels") or 2), on_input=on_input)
 
     def callback(self, indata, outdata, frames, time_info, status) -> None:
         if status and getattr(status, "input_overflow", False):
@@ -122,7 +139,7 @@ class DuplexAudio:
     def start(self) -> None:
         import sounddevice as sd
 
-        self._stream = sd.Stream(device=(self.device, self.device), channels=(self.in_channels, self.out_channels),
+        self._stream = sd.Stream(device=(self.device, self.out_device), channels=(self.in_channels, self.out_channels),
                                  samplerate=self.rate, dtype="float32", blocksize=self.blocksize,
                                  callback=self.callback)
         self._stream.start()
