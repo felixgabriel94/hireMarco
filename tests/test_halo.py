@@ -157,7 +157,7 @@ def test_once_awake_he_needs_no_name_until_a_take_or_a_quiet_stretch():
     assert "play" in b.hear("Play it back.")  # still awake, still no name
     assert "asked him to say it again" in b.hear("make the thing a bit more") and said[-1] == MISSED  # awake: he asks
     b.hear("Record.")
-    assert b.rolling and b.hear("stop") is None  # sung or said during the take: never a command without his name
+    assert b.rolling and b.hear("what mode are you in") is None  # during the take: only "stop" on its own, else his name
     assert "stop" in b.hear("Marco, stop.")
     b.awake_at -= AWAKE + 1
     assert b.hear("Give me the live view.") is None and len(links) == 1
