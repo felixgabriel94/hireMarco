@@ -120,6 +120,11 @@ class Console:
             self._authorized = names
         return self._authorized
 
+    def catalog(self) -> set[str]:
+        """Every UAD plug-in Console knows, owned or not."""
+        return {self.get(f"/plugins/{key}")["properties"]["Name"]["value"]
+                for key in self.get("/plugins").get("children", {})}
+
     def may_run(self, logic_name: str) -> bool:
         """Whether a plug-in named as Logic lists it ("UAD Neve 1073 (s/s)") may be loaded: a UAD one only if
         Console says so; anything else is not Console's to judge."""

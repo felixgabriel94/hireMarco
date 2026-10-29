@@ -559,6 +559,49 @@ def cmd_mcu(args) -> int:
     return 0
 
 
+def cmd_ledger(args) -> int:
+    """The license ledger: ``build`` reads the evidence on this Mac, ``show [status]`` lists it."""
+    import json
+    import os
+    from collections import Counter
+    from pathlib import Path
+
+    from hiremarco import config
+    from hiremarco.studio import ledger
+
+    maps = Path(os.environ.get("HIREMARCO_STATE", config.STATE_DIR)) / "maps"
+    path, refused = maps / "license_ledger.json", maps / "not_owned.json"
+    if args.action == "build":
+        from hiremarco.studio.console import Console, ConsoleError
+
+        names = json.loads((maps / "logic_plugins.json").read_text())
+        if not refused.exists():
+            refused.write_text(json.dumps(["Melodyne"]))  # trial ended (Owner, 2026-10-29)
+        try:
+            console = Console()
+            uad_ok, uad_all = console.authorized(), console.catalog()
+        except (ConsoleError, OSError):
+            print("UAD Console is not reachable; UAD plug-ins stay unknown")
+            uad_ok, uad_all = set(), set()
+        wanted = {ledger.base_name(n) for n in names}
+        rows = ledger.build(names, uad_ok, uad_all, set(json.loads(refused.read_text())),
+                            ledger.strings_in(ledger.used_files(), wanted), ledger.preset_folders(),
+                            ledger.registered_ni(), ledger.installed())
+        old = ledger.read_ledger(path)
+        for name, row in old.items():  # what a scratch test settled stays settled
+            if name in rows and any(e.startswith("tried") for e in row["evidence"]):
+                rows[name] = row
+        path.write_text(json.dumps(rows, indent=1))
+        counts = Counter(row["status"] for row in rows.values())
+        print(f"{len(rows)} plug-ins: " + ", ".join(f"{counts[s]} {s}" for s in ("owned", "unknown", "not_owned")))
+        return 0
+    rows = ledger.read_ledger(path)
+    for name, row in sorted(rows.items()):
+        if not args.words or row["status"] in args.words:
+            print(f"  {row['status']:<9} {name:<48} {', '.join(row['evidence'])}")
+    return 0
+
+
 def cmd_ears(args) -> int:
     """Measure a folder of exported tracks, and the mix if given."""
     import json
@@ -920,6 +963,11 @@ def main(argv: list[str] | None = None) -> int:
     co.add_argument("--channel", type=int, default=0, help="Console input, 0 = ANALOG 1")
     co.add_argument("--slot", type=int, default=1, help="1 to 4 for inserts, 0 for Unison")
     co.set_defaults(func=cmd_console)
+
+    le = sub.add_parser("ledger", help="license ledger: build | show [owned|unknown|not_owned]")
+    le.add_argument("action", choices=["build", "show"])
+    le.add_argument("words", nargs="*")
+    le.set_defaults(func=cmd_ledger)
 
     mc = sub.add_parser("mcu", help="Marco as a Mackie Control surface: serve | press NAME [I] | turn STRIP CLICKS | screen")
     mc.add_argument("action", choices=["serve", "press", "turn", "screen", "seek", "confirm", "scan", "jump", "insert", "replace", "remove", "learned"])
