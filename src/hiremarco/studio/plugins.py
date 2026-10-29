@@ -64,6 +64,7 @@ class PluginError(RuntimeError):
 class PluginState:
     plugin: str
     params: dict[str, float] = field(default_factory=dict)
+    fixed: dict[str, str] = field(default_factory=dict)  # menus and switches, read only for now
 
 
 def parse(report: str) -> PluginState:
@@ -72,6 +73,9 @@ def parse(report: str) -> PluginState:
         raise PluginError("no plugin window answered")
     state = PluginState(lines[0][1])
     for name, value in lines[1:]:
+        if value.startswith("~"):
+            state.fixed[name] = value[1:]
+            continue
         try:
             state.params[name] = float(value)
         except ValueError:

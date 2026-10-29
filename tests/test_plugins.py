@@ -119,3 +119,8 @@ def test_a_cut_off_answer_says_so(tmp_path):
     plugin = Plugin(run=FakeLogic(), conn=gate.connect(":memory:"), rules_path=rules(tmp_path), client=client)
     with pytest.raises(PluginError, match="ran out of room"):
         plugin.design("more spacey")
+
+
+def test_menus_and_switches_are_read_only_text():
+    state = parse("plugin\tUAD Auto-Tune\nRetune Speed\t20\nKey\t~F\nScale\t~Minor")
+    assert state.params == {"Retune Speed": 20.0} and state.fixed == {"Key": "F", "Scale": "Minor"}

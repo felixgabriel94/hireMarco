@@ -39,11 +39,20 @@ on run argv
 				set c to UI element 1 of r
 				set label to value of static text 1 of c
 				if label ends with ":" then set label to text 1 thru -2 of label
-				set sl to slider 1 of c
-				repeat with pair in wanted
-					if item 1 of pair is label then set value of sl to (item 2 of pair)
-				end repeat
-				set end of out to label & tab & ((value of sl) as text)
+				try
+					set sl to slider 1 of c
+					repeat with pair in wanted
+						if item 1 of pair is label then set value of sl to (item 2 of pair)
+					end repeat
+					set end of out to label & tab & ((value of sl) as text)
+				on error
+					-- not a slider (a menu or a switch): reported as text after "~", read only for now
+					set shown to ""
+					try
+						set shown to (value of (UI element 2 of c)) as text
+					end try
+					set end of out to label & tab & "~" & shown
+				end try
 			end repeat
 		end tell
 	end tell
