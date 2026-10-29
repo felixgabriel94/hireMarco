@@ -616,6 +616,8 @@ def cmd_halo(args) -> int:
 
     def demo() -> tuple[str, float]:
         t = time.monotonic() - started
+        if args.steady:  # stays up: floating, then speaking, so the look can be judged without the fade
+            return ("speaking", abs(math.sin(t * 7)) * 0.6 + 0.1) if t % 8 >= 4 else ("thinking", 0.0)
         phase = t % 20  # he answers, you talk back, he answers again, then a take records and he steps away
         if phase < 2:
             return "thinking", 0.0
@@ -831,6 +833,7 @@ def main(argv: list[str] | None = None) -> int:
 
     ha = sub.add_parser("halo")
     ha.add_argument("--preview", metavar="DIR")
+    ha.add_argument("--steady", action="store_true", help="stay up: floating, then speaking, no fade")
     ha.set_defaults(func=cmd_halo)
 
     lv = sub.add_parser("live")
