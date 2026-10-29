@@ -21,7 +21,7 @@ from dataclasses import dataclass, field, replace
 import numpy as np
 
 from hiremarco import config, gate
-from hiremarco.studio.commands import Command
+from hiremarco.studio.commands import Command, calls_marco
 from hiremarco.studio.feedback import TakeNote
 
 ROLLING = {"record", "play", "punch"}
@@ -31,10 +31,11 @@ LISTENING = "Let me listen."
 DIALING = "Let me dial that in."
 MISSED = "I missed that. Say it again?"
 FAILED = "That one didn't take. I'll note it."
+HERE = "Yeah?"
 LIVE_ON = "Live view's on. The link's on the Mac."
 STOPPED = "Stopped. Everything's held until you clear it from the desk."
 # Lines Marco says often, made once at the start so they play the moment they are needed.
-STOCK = ["Rolling", NOTED, LISTENING, DIALING, MISSED, FAILED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
+STOCK = ["Rolling", HERE, LIVE_ON, NOTED, LISTENING, DIALING, MISSED, FAILED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
          "Morning. Your session's up. Where do you want to start?"]
 
 
@@ -109,6 +110,7 @@ class Booth:
     hearing: Callable[[], str] | None = None          # the full read, spoken, then the question
     reference: Callable[[str], str] | None = None     # "sound like X" -> the signature, spoken short
     busy: bool = False                                # a command is running: the halo shows him thinking
+    called_at: float = 0.0                            # when his name was last heard, before the sentence ended
 
     def _speak(self, text: str) -> None:
         try:
@@ -244,6 +246,9 @@ class Booth:
         a = command.action
         if a == "kill":
             return self._kill()
+        if a == "summon":
+            self._speak(HERE)
+            return "called by name; answered and listening"
         if a == "unknown":
             # He heard his name but could not place the line: say so, never guess and never go quiet.
             self._speak(MISSED)
@@ -490,7 +495,11 @@ def run_booth(*, dry_run: bool = False) -> int:
             # His hearing is one realtime session; if the service drops it, open another and keep listening.
             while True:
                 try:
-                    async for line in Listener().sentences(mic()):
+                    def heard_name(partial: str) -> None:
+                        if calls_marco(partial):
+                            booth.called_at = time.monotonic()
+
+                    async for line in Listener(on_partial=heard_name).sentences(mic()):
                         await asyncio.to_thread(booth.hear, line)
                     break  # the mic closed
                 except RuntimeError as dropped:

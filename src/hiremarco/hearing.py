@@ -101,8 +101,9 @@ class Listener:
     """One realtime session: feed it PCM chunks, get finished sentences back."""
 
     def __init__(self, *, keywords: list[str] | None = None, joblog: JobLog | None = None,
-                 connect: Callable | None = None):
+                 connect: Callable | None = None, on_partial: Callable[[str], None] | None = None):
         self.keywords = keywords if keywords is not None else STUDIO_KEYWORDS
+        self.on_partial = on_partial  # each partial transcript while a sentence is still being spoken
         self.joblog = joblog or JobLog()
         self._connect = connect
 
@@ -151,6 +152,9 @@ class Listener:
                     kind = event.get("type")
                     if kind == "speechComplete" and event.get("transcript", "").strip():
                         yield event["transcript"].strip()
+                    elif self.on_partial is not None and isinstance(event.get("transcript"), str) \
+                            and kind != "error":
+                        self.on_partial(event["transcript"])  # partialMode CUMULATIVE: the sentence so far
                     elif kind == "error":
                         detail = event.get("message") or event.get("error") or ""
                         raise RuntimeError(f"Voice Transcribe error: {event.get('errorType') or 'unknown'}"

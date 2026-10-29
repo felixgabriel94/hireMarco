@@ -69,3 +69,72 @@ def test_a_rolling_take_sends_the_halo_away_and_the_conversation_brings_it_back(
     assert halo.booth_state(booth, audio) == ("thinking", 0.0)
     booth.busy = False
     assert halo.booth_state(booth, audio) == ("listening", 0.16)
+
+
+def test_his_name_alone_gets_an_answer_and_his_name_mid_sentence_raises_the_halo():
+    from types import SimpleNamespace
+    import time as clock
+
+    from hiremarco.studio.booth import HERE
+    from hiremarco.studio.commands import Command, calls_marco
+
+    for line in ("Marco.", "Hey Marco", "hey marco?", "Marco, Marco"):
+        assert understand(line, client=None) == Command("summon"), line
+    assert understand("Marco, record.", client=None) == Command("record")
+    assert calls_marco("Hey Marco, can you") and calls_marco("marco") and not calls_marco("so Marco said")
+    said = []
+    b = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: c.describe(), say=said.append,
+              feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None)
+    assert "answered" in b.hear("Hey Marco") and said == [HERE]
+    audio = SimpleNamespace(speaking=False, out_level=0.0, in_level=0.0)
+    booth = SimpleNamespace(rolling=False, busy=False, called_at=clock.monotonic())
+    assert halo.booth_state(booth, audio) == ("thinking", 0.0)
+    booth.called_at -= 10
+    assert halo.booth_state(booth, audio) == ("listening", 0.0)
+
+
+def test_the_listener_hands_on_each_partial_and_yields_only_finished_sentences(monkeypatch, tmp_path):
+    import asyncio
+    import json
+
+    from hiremarco import hearing
+
+    events = [{"type": "partialTranscript", "transcript": "Hey Mar"},
+              {"type": "partialTranscript", "transcript": "Hey Marco, re"},
+              {"type": "speechComplete", "transcript": "Hey Marco, record."}]
+
+    class FakeSocket:
+        def __init__(self):
+            self.sent = []
+
+        async def send(self, data):
+            self.sent.append(data)
+
+        async def recv(self):
+            return json.dumps({"sessionId": "s"})
+
+        def __aiter__(self):
+            async def gen():
+                for e in events:
+                    yield json.dumps(e)
+            return gen()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setenv("HIREMARCO_STATE", str(tmp_path))
+    monkeypatch.setenv("MODEL_API_KEY", "k")
+    partials = []
+    listener = hearing.Listener(connect=lambda url: FakeSocket(), on_partial=partials.append)
+
+    async def mic():
+        if False:
+            yield b""
+
+    async def run():
+        return [line async for line in listener.sentences(mic())]
+
+    assert asyncio.run(run()) == ["Hey Marco, record."] and partials == ["Hey Mar", "Hey Marco, re"]

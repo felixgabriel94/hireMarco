@@ -21,7 +21,7 @@ ACTIONS = (
     "play", "stop", "record", "go_to_start", "go_to_section", "go_to_bar", "new_track", "arm_track",
     "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
     "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "live_view", "hearing", "reference",
-    "kill", "unknown",
+    "kill", "summon", "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
 
@@ -226,13 +226,18 @@ def tidy_command(said: str) -> Command | None:
     return None
 
 
+def calls_marco(partial: str) -> bool:
+    """A transcript still being spoken that opens with his name: the halo can rise before the sentence ends."""
+    return re.match(r"^\s*(?:hey\s+)?marco\b", partial, flags=re.IGNORECASE) is not None
+
+
 def strip_wake(line: str) -> str | None:
     """'Marco, record.' -> 'record'. None when the line is not addressed to Marco.
 
     The mic often hears the wake word twice ("Marco, Marco, we're on a harmony", live 2026-10-28), so every
     leading repeat is stripped.
     """
-    m = re.match(r"^\s*(?:(?:hey\s+)?marco[\s,.:!-]+)+(.*)$", line.strip(), flags=re.IGNORECASE)
+    m = re.match(r"^\s*(?:(?:hey\s+)?marco(?:[\s,.:!?-]+|$))+(.*)$", line.strip(), flags=re.IGNORECASE)
     if not m:
         return None
     return re.sub(r"[.!?]+$", "", m.group(1)).strip().lower()
@@ -249,6 +254,8 @@ def understand(line: str, client: MuseSpark | None = None) -> Command | None:
     said = strip_wake(line)
     if said is None:
         return None
+    if not said:
+        return Command("summon")  # "Marco." or "Hey Marco" alone: he answers and waits, like a name called in a room
     if KILL_SAID.match(said):
         return Command("kill")  # checked before anything else: the one line that must never be misheard as a command
     quick = fast_match(said)
