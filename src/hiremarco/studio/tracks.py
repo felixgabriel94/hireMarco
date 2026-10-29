@@ -13,9 +13,9 @@ harmony?", then names and colors it; takes land on the same track as
 Logic's take folders, and comping stays the artist's. Harmonies that pile
 up get offered a summing stack.
 
-Rename and list go through ``scripts/tracks_io.applescript``, grounded in the
-live map of 2026-10-28 (the Inspector's "Track:" text field, the Tracks area's
-layout items). Color and stacks wait for their own map: until then they are
+Rename and list go through ``scripts/tracks_io.applescript``: rename by Logic's own
+Rename Track key command (Shift+Return), checked on the track header; grounded in the
+live map of 2026-10-28 (the Tracks header's layout items, one per track). Color and stacks wait for their own map: until then they are
 planned, said and recorded, not performed, and ``NotMapped`` says so.
 """
 
@@ -132,7 +132,7 @@ class Tracks:
         def run() -> str:
             parts = self.run(["rename", name]).strip().split("\t")
             if len(parts) != 3 or parts[2] != name:
-                raise RuntimeError(f"the name did not take (field reads {parts[-1]!r})")
+                raise RuntimeError(f"the name did not take (track header: {parts[-1]!r})")
             return f"renamed {parts[1]!r} to {name!r}"
 
         return self._gated(run, "rename_track", f"rename track to {name}")
