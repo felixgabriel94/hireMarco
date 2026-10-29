@@ -18,22 +18,25 @@ from hiremarco import config
 
 
 def logic_window_id() -> int | None:
-    """The window number of Logic's main window, for screencapture -l."""
-    script = ('tell application "System Events" to tell process "Logic Pro" to get value of attribute '
-              '"AXWindowNumber" of (first window whose name contains " - Tracks")')
-    done = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=10)
+    """The window number of Logic's main window, for screencapture -l: its largest normal window on screen."""
+    script = Path(__file__).parent / "scripts" / "logic_window.js"
+    done = subprocess.run(["osascript", "-l", "JavaScript", str(script)], capture_output=True, text=True, timeout=10)
     try:
         return int(done.stdout.strip())
     except ValueError:
         return None
 
 
-def capture(window_id: int | None = None) -> bytes:
+class NoLogicWindow(RuntimeError):
+    """Logic has no window on screen; nothing else on the screen is captured in its place."""
+
+
+def capture(window_id: int | None) -> bytes:
+    if not window_id:
+        raise NoLogicWindow("Logic Pro has no window on screen")
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "show.png"
-        args = ["screencapture", "-x", "-t", "png"]
-        args += ["-l", str(window_id)] if window_id else ["-m"]
-        subprocess.run([*args, str(path)], check=True, timeout=15)
+        subprocess.run(["screencapture", "-x", "-t", "png", "-l", str(window_id), str(path)], check=True, timeout=15)
         return path.read_bytes()
 
 

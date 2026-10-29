@@ -64,3 +64,23 @@ def test_the_link_token_is_kept_and_replaced_on_request():
     first = live.link_token()
     assert live.link_token() == first and config.get("HIREMARCO_LIVE_TOKEN") == first
     assert live.link_token(new=True) != first
+
+
+def test_no_logic_window_means_no_picture_never_the_whole_screen(monkeypatch):
+    from hiremarco.studio import show
+
+    ran = []
+    monkeypatch.setattr(show, "logic_window_id", lambda: None)
+    monkeypatch.setattr(live.subprocess, "run", lambda *a, **k: ran.append(a))
+    with pytest.raises(show.NoLogicWindow):
+        live.grab_logic(1600)
+    with pytest.raises(show.NoLogicWindow):
+        show.capture(None)
+    assert ran == []
+
+
+def test_the_window_finder_script_is_a_cgwindowlist_read_of_logic_only():
+    from pathlib import Path
+
+    script = (Path(live.__file__).parent / "scripts" / "logic_window.js").read_text()
+    assert "CGWindowListCopyWindowInfo" in script and '"Logic Pro"' in script and "layer !== 0" in script

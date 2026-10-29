@@ -46,14 +46,14 @@ img { max-width: 100%; max-height: 100%; object-fit: contain; }
 
 def grab_logic(width: int | None = None) -> bytes:
     """One JPEG of Logic's main window, scaled to ``width`` pixels wide when given."""
-    from hiremarco.studio.show import logic_window_id
+    from hiremarco.studio.show import NoLogicWindow, logic_window_id
 
     window = logic_window_id()
+    if not window:
+        raise NoLogicWindow("Logic Pro has no window on screen")
     with tempfile.TemporaryDirectory() as tmp:
         path = Path(tmp) / "live.jpg"
-        args = ["screencapture", "-x", "-o", "-t", "jpg"]
-        args += ["-l", str(window)] if window else ["-m"]
-        subprocess.run([*args, str(path)], check=True, timeout=10, capture_output=True)
+        subprocess.run(["screencapture", "-x", "-o", "-t", "jpg", "-l", str(window), str(path)], check=True, timeout=10, capture_output=True)
         if width:
             subprocess.run(["sips", "--resampleWidth", str(width), str(path)], check=True, timeout=10,
                            capture_output=True)
