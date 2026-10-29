@@ -393,6 +393,39 @@ on run argv
 		delay 0.6
 		return "undone" & tab & (item 2 of argv)
 	end if
+	if mode is "region_gain" then
+		-- the selected region's Gain in the Region inspector (mapped live 2026-10-29): the inspector's first group
+		-- holds a disclosure triangle, the region's name field and an outline of rows "label | control"; Gain is a
+		-- slider in tenths of a dB (-300 to 300) that takes a written value, and its value description reads
+		-- "-9.4 dB". The region must already be selected (the surface's Select button), and its name is checked.
+		set wanted to item 2 of argv
+		set tenths to (item 3 of argv) as integer
+		tell application "System Events"
+			set insp to first UI element of main whose description is "Inspector" and role is "AXGroup"
+			set regionPart to UI element 1 of UI element 1 of insp
+			set shownName to ""
+			try
+				set shownName to value of (first UI element of regionPart whose role is "AXTextField")
+			end try
+			if shownName is not wanted then error "the Region inspector shows " & shownName & ", not " & wanted
+			set tri to first UI element of regionPart whose role is "AXDisclosureTriangle"
+			if (value of tri) is 0 then
+				click tri
+				delay 0.4
+			end if
+			set rowsOf to every UI element of (first UI element of (first UI element of regionPart whose role is "AXScrollArea") whose role is "AXOutline") whose role is "AXRow"
+			set gainSlider to missing value
+			repeat with oneRow in rowsOf
+				try
+					if (value of UI element 1 of oneRow) is "Gain:" then set gainSlider to UI element 2 of oneRow
+				end try
+			end repeat
+			if gainSlider is missing value then error "the Region inspector has no Gain row showing"
+			set value of gainSlider to tenths
+			delay 0.3
+			return "gain" & tab & (value of attribute "AXValueDescription" of gainSlider)
+		end tell
+	end if
 	if mode is "tempo" then
 		-- set the project tempo on the Control Bar's Tempo control, then read it back
 		-- a write moves the slider one BPM toward the value and AXIncrement / AXDecrement move it ten (live

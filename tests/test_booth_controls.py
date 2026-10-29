@@ -230,3 +230,37 @@ def test_a_failed_logic_reading_leaves_his_own():
     b, _ = booth(tracks=Broken(), surface=lambda line: "ok\n")
     events, note = b._logic_tempo("instrumental 117")
     assert events == [] and "not taken" in note
+
+
+def test_beat_gain_lands_minus_20_lufs_and_keeps_peaks_under_minus_6():
+    import numpy as np
+
+    from hiremarco.mix.ears import beat_gain, lufs
+
+    rate = 48000
+    t = np.arange(rate * 4) / rate
+    hot = np.stack([0.9 * np.sin(2 * np.pi * 220 * t)] * 2, axis=1)          # a loud steady tone
+    gain, loud, peak = beat_gain(hot, rate)
+    assert abs(lufs(hot * 10 ** (gain / 20), rate) - (-20.0)) < 0.15
+    spiky = np.zeros_like(hot)
+    spiky[::rate // 2] = 1.0                                                   # quiet overall, full-scale clicks
+    spiky += 0.01 * hot
+    gain, loud, peak = beat_gain(spiky, rate)
+    assert peak + gain <= -6.0 + 0.05                                          # the peak limit decides here
+
+
+def test_set_the_levels_is_heard_without_the_model():
+    assert understand("Marco, set the levels", client=None) == Command("stage_beat")
+    assert understand("Marco, the beat's too hot", client=None) == Command("stage_beat")
+
+
+def test_the_beat_gain_selects_the_region_then_sets_it():
+    class GainTracks(LogicTracks):
+        def region_gain(self, region, db):
+            self.calls.append(("gain", region, db))
+            return f"{region} gain {db:+.1f} dB"
+
+    tracks, sent = GainTracks(), []
+    b, _ = booth(tracks=tracks, surface=lambda line: sent.append(line) or "selected strip 0\n")
+    assert b._set_beat_gain("instrumental 117", -9.4) == "instrumental 117 gain -9.4 dB"
+    assert sent == ["select instrumental+117"] and tracks.calls == [("gain", "instrumental 117", -9.4)]

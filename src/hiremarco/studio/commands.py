@@ -23,7 +23,7 @@ ACTIONS = (
     "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "live_view", "hearing", "reference",
     "kill", "summon", "dismiss", "chat", "play_take", "play_from_lyric", "solo", "unsolo", "play_from",
     "go_again", "next_part", "a_cappella", "read_beat", "accept", "tune_take", "tune_console", "flex_pass",
-    "insert_plugin", "unknown",
+    "insert_plugin", "stage_beat", "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
 
@@ -64,7 +64,8 @@ INSTRUCTIONS = (
     "the vocal' or 'throw a Pro-Q on the harmony in slot 4' means insert_plugin with the plug-in in text ('LA-2A', "
     "'Pro-Q'), the track in track (empty for the vocal or the selected track) and the slot (0 if not said). "
     "'Set the tune to the beat' or 'put the auto-tune in F minor' means tune_console with the key in text (empty "
-    "for the beat or the session key). 'First pass in Flex' or 'flex the vocal' means flex_pass. "
+    "for the beat or the session key). 'First pass in Flex' or 'flex the vocal' means flex_pass. 'Set the "
+    "levels' or 'the beat's too hot' means stage_beat. "
     "When the line is conversation rather than a command (a question about what Marco just did, a yes or no, "
     "'never mind', thanks, small talk), answer chat and put Marco's reply in text. Marco is the engineer the artist "
     "loves working with: easygoing, warm, in it together, and sharp; one short sentence, two at most; he answers what was asked, true to the "
@@ -220,6 +221,9 @@ READ_BEAT_SAID = re.compile(r"^(?:what(?:'s| is) the (?:key|tempo|bpm)(?: and (?
 TUNE_TO_SAID = re.compile(r"^(?:set|put|point|lock|tune|key) (?:the |my )?(?:auto-?tune|tune|tuning)(?: up)?(?: to| in| on)? "
                           r"(?:the )?(?P<to>beat|key|song|session|[a-g](?:#| sharp| flat|b)?(?: major| minor|m)?)(?:'?s key)?$|"
                           r"^tune (?:it |the vocal |my vocal )?to the (?P<beat>beat|song|key)$")
+# "set the levels", "gain stage the beat": the beat to -20 LUFS on its region gain.
+STAGE_SAID = re.compile(r"^(?:set (?:up )?(?:the )?levels|gain[- ]stage(?: the (?:beat|session|track))?|level (?:the|my) beat|"
+                        r"(?:bring|turn|take) (?:the|my) beat down(?: to where it should be)?|the beat'?s (?:too )?hot)$")
 # "first pass in flex", "flex the vocal": Flex Pitch in Logic, as opposed to his own file-based pass.
 FLEX_SAID = re.compile(r"^(?:(?:give me|do|run|let'?s do) )?(?:a |the )?first pass (?:in|with|on|using) flex(?: pitch)?$|"
                        r"^flex(?: pitch)? (?:it|that|the (?:take|vocals?|lead)|my (?:take|vocals?|lead))$|"
@@ -346,6 +350,8 @@ def understand(line: str, client: MuseSpark | None = None, context: list[str] | 
         return None
     if not said:
         return Command("summon")  # "Marco." or "Hey Marco" alone: he answers and waits, like a name called in a room
+    if STAGE_SAID.match(said):
+        return Command("stage_beat")
     if FLEX_SAID.match(said):
         return Command("flex_pass")
     tune_to = tune_to_said(said)  # before the knob steps: "set the tune to ..." is the Console, not a step

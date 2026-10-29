@@ -106,6 +106,21 @@ def lufs(audio: np.ndarray, rate: int) -> float:
     return round(-0.691 + 10 * np.log10(np.mean(final)) if final.size else -120.0, 1)
 
 
+BEAT_LUFS = -20.0       # where a beat sits at the start of a session (Owner 2026-10-29): room for every track after it
+BEAT_TRUE_PEAK = -6.0   # and its peaks stay this far under full scale, whatever its loudness
+
+
+def beat_gain(audio: np.ndarray, rate: int) -> tuple[float, float, float]:
+    """The region gain, in dB to a tenth, that puts a beat at BEAT_LUFS with true peaks at or under
+    BEAT_TRUE_PEAK, measured on the file itself (never the master meter, which carries the click):
+    (gain, loudness before, true peak before)."""
+    audio = np.asarray(audio, dtype=np.float64)
+    loud = lufs(audio, rate)
+    tp = 20 * np.log10(max(float(np.max(np.abs(signal.resample_poly(audio, 4, 1, axis=0)))), 1e-9))
+    gain = min(BEAT_LUFS - loud, BEAT_TRUE_PEAK - tp)
+    return round(max(min(gain, 30.0), -30.0), 1), round(loud, 1), round(tp, 1)
+
+
 def band_shares(audio: np.ndarray, rate: int) -> dict[str, float]:
     mono = audio.mean(axis=1) if audio.ndim > 1 else audio
     freqs, power = signal.welch(mono, rate, nperseg=min(8192, max(256, mono.size)))

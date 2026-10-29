@@ -463,6 +463,11 @@ class Booth:
 
         events, logic_note = self._in_time(lambda: self._logic_tempo(self._beat_region))
         bpm, tempo_why = settle_tempo(reading.bpm, label(path.stem)[1], events)
+        region = self._beat_region
+        try:
+            gain, loud, peak = self._beat_level(path)
+        except Exception as exc:  # key and tempo still stand; the level is left as it is and the log says why
+            gain, loud, peak = None, None, f"not measured: {type(exc).__name__}"
 
         def apply() -> str:
             self.key = key
@@ -479,16 +484,59 @@ class Booth:
                     done.append(f"Auto-Tune on {key}")
                 except Exception as exc:
                     done.append(f"Auto-Tune not set: {type(exc).__name__}: {str(exc)[-80:]}")
-            self._say("set the session from the beat", {"key": key, "tempo": bpm, "done": done},
-                      f"Done. {key}, {bpm:g}.")
+            if gain is not None:
+                done.append(self._set_beat_gain(region, gain))
+            self._say("set the session from the beat", {"key": key, "tempo": bpm, "beat_gain_db": gain, "done": done},
+                      f"Done. {key}, {bpm:g}" + (", and the beat's sitting at minus twenty." if gain is not None else "."))
             return "; ".join(done)
 
         self.offer = apply
-        self._say("read the beat's key and tempo; offer to set the session to it", {
+        self._say("read the beat's key and tempo and its level; offer to set the session to it", {
             "key": key, "how_the_key_was_found": why, "bpm": bpm, "how_the_tempo_was_found": tempo_why,
-            "or_half_double": reading.bpm_other or None},
-            f"Sounds like {key}, {bpm:g} BPM. Want me to set the session to that?")
-        return f"beat read from {path.name}: {key} ({why}), {bpm:g} BPM ({tempo_why}; {logic_note})"
+            "or_half_double": reading.bpm_other or None, "beat_loudness_lufs": loud, "beat_true_peak_db": peak,
+            "region_gain_to_reach_minus_20_lufs": gain},
+            f"Sounds like {key}, {bpm:g} BPM. The beat's hot, so I'll bring it down {abs(gain):g} dB. Set the session?"
+            if gain is not None and gain < 0 else f"Sounds like {key}, {bpm:g} BPM. Want me to set the session to that?")
+        return (f"beat read from {path.name}: {key} ({why}), {bpm:g} BPM ({tempo_why}; {logic_note}); "
+                + (f"level {loud} LUFS, true peak {peak} dBTP, gain {gain:+.1f} dB to reach -20 LUFS" if gain is not None
+                   else f"level {peak}"))
+
+    def _beat_level(self, path) -> tuple[float, float, float]:
+        """The region gain that puts this beat at -20 LUFS with peaks under -6 dBTP, from the file itself."""
+        import soundfile as sf
+
+        from hiremarco.mix.ears import beat_gain
+
+        audio, rate = sf.read(str(path), always_2d=True)
+        return beat_gain(audio, rate)
+
+    def _set_beat_gain(self, region: str, gain: float) -> str:
+        if self.tracks is None or not hasattr(self.tracks, "region_gain"):
+            return "beat gain not set: no Logic control in this booth"
+        try:
+            if self.surface is not None:
+                self.surface(f"select {region.replace(' ', '+')}")  # the inspector shows the selected region
+            return self.tracks.region_gain(region, gain)
+        except Exception as exc:  # the session is set otherwise; the level is said to be undone
+            return f"beat gain not set: {type(exc).__name__}: {str(exc)[-100:]}"
+
+    def _stage_beat(self) -> str:
+        """The beat at -20 LUFS on its own, without reading key and tempo again."""
+        if self.tracks is None:
+            return "no track control in this booth"
+        from hiremarco.studio import analyze
+
+        regions = self.tracks.regions()
+        path = analyze.find_audio(regions[0]) if regions else None
+        if path is None:
+            self._say("could not find the beat's file", {}, "Select the beat's track and ask me again.")
+            return "no beat file found"
+        gain, loud, peak = self._in_time(lambda: self._beat_level(path))
+        done = self._set_beat_gain(regions[0], gain)
+        self._say("set the beat's level to -20 LUFS with region gain", {"loudness_before": loud, "gain": gain,
+                  "result": done}, f"Beat's at minus twenty. Down {abs(gain):g} dB." if "not set" not in done
+                  else "I couldn't set the beat's gain.")
+        return f"{done} (was {loud} LUFS, {peak} dBTP)"
 
     def _tune_console(self, said_key: str) -> str:
         """The Console's Auto-Tune on the vocal input, pointed at a key: the one said, else the session's, else the
@@ -781,6 +829,8 @@ class Booth:
             return self._tune_take()
         if a == "read_beat":
             return self._read_beat()
+        if a == "stage_beat":
+            return self._stage_beat()
         if a == "tune_console":
             return self._tune_console(command.text)
         if a == "flex_pass":

@@ -186,6 +186,17 @@ class Tracks:
                 continue
         return found
 
+    def region_gain(self, region: str, db: float) -> str:
+        """The selected region's Gain in the Region inspector, to a tenth of a dB, read back as Logic shows it."""
+        def run() -> str:
+            shown = self.run(["region_gain", region, str(round(db * 10))]).strip().split("\t")[-1]
+            got = float(shown.replace("㏈", "").replace("dB", "").strip() or 0)  # Logic shows nothing at 0 dB
+            if abs(got - db) > 0.05:
+                raise RuntimeError(f"the region gain did not take (reads {shown})")
+            return f"{region} gain {got:+.1f} dB"
+
+        return self._gated(run, "region_gain", f"set {region}'s gain to {db:+.1f} dB")
+
     def undo(self, step: str) -> str:
         """Logic's Undo, only when the last step is the one named."""
         return self._gated(lambda: self.run(["undo", step]).strip(), "undo", f"undo {step}")
