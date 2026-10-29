@@ -114,6 +114,8 @@ class WindowCapture:
         self._stream = None
         self._output = None
         self._lock = threading.Lock()
+        self._watching = False
+        self._key = None
 
     def _wait(self, start: Callable[[Callable], None], what: str, timeout: float = 10.0):
         done, box = threading.Event(), {}
@@ -127,35 +129,73 @@ class WindowCapture:
             raise TimeoutError(f"{what} did not answer in {timeout:.0f} s")
         return box["result"]
 
-    def start(self) -> None:
-        import CoreMedia
+    def _content(self):
         import ScreenCaptureKit as SCK
-        from AppKit import NSApplication
 
-        NSApplication.sharedApplication()  # ScreenCaptureKit needs the window server session a Cocoa app opens
         content, error = self._wait(SCK.SCShareableContent.getShareableContentWithCompletionHandler_,
                                     "the window list")
         if error is not None or content is None:
             raise PermissionError(f"ScreenCaptureKit refused the window list: {error}")
+        return content
+
+    def _plan(self, content):
+        """The filter and size: Logic's window, with Marco's halo on top of it when the halo is up.
+
+        A display filter that includes only those windows, cropped to Logic's frame, shows the halo where it floats
+        and leaves out every other app's window, even one lying over Logic.
+        """
+        import ScreenCaptureKit as SCK
+        from Quartz import CGRectMake
+
         window = next((w for w in content.windows() if w.windowID() == self.window_id), None)
         if window is None:
             raise LookupError(f"window {self.window_id} is not in ScreenCaptureKit's list")
-
-        content_filter = SCK.SCContentFilter.alloc().initWithDesktopIndependentWindow_(window)
-        frame = window.frame()  # in points; the capture is asked for in pixels
+        frame = window.frame()  # global points, top-left origin
+        halos = [w for w in content.windows()
+                 if w.owningApplication() is not None and w.owningApplication().applicationName() == "MarcoHalo"
+                 and w.isOnScreen()]
+        display = next((d for d in content.displays()
+                        if d.frame().origin.x <= frame.origin.x + frame.size.width / 2 < d.frame().origin.x + d.frame().size.width
+                        and d.frame().origin.y <= frame.origin.y + frame.size.height / 2 < d.frame().origin.y + d.frame().size.height),
+                       None)
+        if display is None:
+            content_filter = SCK.SCContentFilter.alloc().initWithDesktopIndependentWindow_(window)
+            source = None
+        else:
+            content_filter = SCK.SCContentFilter.alloc().initWithDisplay_includingWindows_(display, [window, *halos])
+            source = CGRectMake(frame.origin.x - display.frame().origin.x, frame.origin.y - display.frame().origin.y,
+                                frame.size.width, frame.size.height)
         scale = content_filter.pointPixelScale() if hasattr(content_filter, "pointPixelScale") else 2.0
         width, height = scaled(frame.size.width * scale, frame.size.height * scale, self.max_width)
+        key = (tuple(sorted(w.windowID() for w in halos)), round(frame.origin.x), round(frame.origin.y),
+               round(frame.size.width), round(frame.size.height))
+        return content_filter, source, width, height, key
+
+    def _config(self, source, width, height):
+        import CoreMedia
+        import ScreenCaptureKit as SCK
+
         config = SCK.SCStreamConfiguration.alloc().init()
         config.setWidth_(width)
         config.setHeight_(height)
+        if source is not None:
+            config.setSourceRect_(source)
         config.setMinimumFrameInterval_(CoreMedia.CMTimeMake(1, self.fps))
         config.setPixelFormat_(1111970369)  # kCVPixelFormatType_32BGRA
         config.setShowsCursor_(True)
         config.setQueueDepth_(5)
+        return config
 
+    def start(self) -> None:
+        import ScreenCaptureKit as SCK
+        from AppKit import NSApplication
+
+        NSApplication.sharedApplication()  # ScreenCaptureKit needs the window server session a Cocoa app opens
+        content_filter, source, width, height, self._key = self._plan(self._content())
         self._output = output_class().alloc().init()
         self._output.capture = self
-        self._stream = SCK.SCStream.alloc().initWithFilter_configuration_delegate_(content_filter, config, None)
+        self._stream = SCK.SCStream.alloc().initWithFilter_configuration_delegate_(
+            content_filter, self._config(source, width, height), None)
         ok, add_error = self._stream.addStreamOutput_type_sampleHandlerQueue_error_(
             self._output, SCK.SCStreamOutputTypeScreen, None, None)
         if not ok:
@@ -163,8 +203,29 @@ class WindowCapture:
         (start_error,) = self._wait(self._stream.startCaptureWithCompletionHandler_, "the capture start")
         if start_error is not None:
             raise PermissionError(f"ScreenCaptureKit would not start: {start_error}")
+        self._watching = True
+        threading.Thread(target=self._follow, daemon=True).start()
+
+    def _follow(self) -> None:
+        """Every two seconds: pick up the halo when it comes or goes, and follow Logic's window if it moved."""
+        import time
+
+        while self._watching and self._stream is not None:
+            time.sleep(2)
+            try:
+                content_filter, source, width, height, key = self._plan(self._content())
+                if key == self._key or self._stream is None:
+                    continue
+                self._wait(lambda done: self._stream.updateContentFilter_completionHandler_(content_filter, done),
+                           "the filter update", timeout=5)
+                self._wait(lambda done: self._stream.updateConfiguration_completionHandler_(
+                    self._config(source, width, height), done), "the size update", timeout=5)
+                self._key = key
+            except Exception as exc:  # the stream keeps its last picture of the session; the reason is kept
+                self.error = f"{type(exc).__name__}: {exc}"[:200]
 
     def stop(self) -> None:
+        self._watching = False
         if self._stream is not None:
             try:
                 self._wait(self._stream.stopCaptureWithCompletionHandler_, "the capture stop", timeout=5)
