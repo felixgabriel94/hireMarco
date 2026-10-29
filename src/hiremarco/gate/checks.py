@@ -83,7 +83,8 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
         path = config.STATE_DIR / "gate.sqlite"
     if str(path) != ":memory:":
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
+    # The booth hears on one thread and acts on another; access is sequential, so one handle may cross threads.
+    conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.executescript(SCHEMA)
     return conn
 

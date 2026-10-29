@@ -30,9 +30,10 @@ NOTED = "That's in the mix notes."
 LISTENING = "Let me listen."
 DIALING = "Let me dial that in."
 MISSED = "I missed that. Say it again?"
+FAILED = "That one didn't take. I'll note it."
 STOPPED = "Stopped. Everything's held until you clear it from the desk."
 # Lines Marco says often, made once at the start so they play the moment they are needed.
-STOCK = ["Rolling", NOTED, LISTENING, DIALING, MISSED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
+STOCK = ["Rolling", NOTED, LISTENING, DIALING, MISSED, FAILED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
          "Morning. Your session's up. Where do you want to start?"]
 
 
@@ -124,6 +125,9 @@ class Booth:
             result = self.handle(command)
         except gate.Refused as refused:
             result = f"held: {refused.reason}"
+        except Exception as exc:  # a failed action is said and logged; the booth keeps listening
+            self._speak(FAILED)
+            result = f"failed: {type(exc).__name__}: {str(exc)[-160:]}"
         return self._done(f"heard: {line}", result, started)
 
     def _done(self, first: str, last: str, started: float) -> str:

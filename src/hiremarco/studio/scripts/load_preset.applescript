@@ -32,7 +32,14 @@ on stripInfo()
 	tell application "System Events"
 		tell process "Logic Pro"
 			set insp to first UI element of window 1 whose description is "Inspector"
-			set mixer to first UI element of (UI element 3 of list 1 of insp) whose description is "Mixer"
+			set mixer to missing value
+			repeat with grp in (every UI element of list 1 of insp)
+				try
+					set mixer to first UI element of grp whose description is "Mixer"
+					exit repeat
+				end try
+			end repeat
+			if mixer is missing value then error "the Inspector shows no channel strip (press I, select a track)"
 			set strip to UI element 1 of mixer
 			return {strip, description of (first button of strip whose description starts with "library indicator")}
 		end tell
