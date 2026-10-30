@@ -32,3 +32,8 @@ def sealed(tmp_path, monkeypatch):
 
     monkeypatch.setattr(socket.socket, "connect", no_network)
     monkeypatch.setattr(socket, "create_connection", no_network)
+    # the WhatsApp handler may start the booth in Terminal; in a test it never does, and the booth reads as running
+    from hiremarco import server
+
+    monkeypatch.setattr(server, "ensure_booth", lambda running=None: "booth faked")
+    monkeypatch.setattr(server, "booth_running", lambda port=8790: True)

@@ -131,6 +131,43 @@ def start_session(inbox: Path = INBOX, name: str | None = None) -> Path | None:
     return target
 
 
+def pending(inbox: Path = INBOX) -> list[Path]:
+    """Beats he has said to start that the booth has not set up yet (they sit in the inbox itself)."""
+    if not inbox.is_dir():
+        return []
+    return sorted((p for p in inbox.iterdir() if is_beat(p)), key=lambda p: p.stat().st_mtime)
+
+
+def rename_pending(name: str, inbox: Path = INBOX) -> Path | None:
+    """His correction of the song name, before the booth sets the session up: the newest waiting beat takes it."""
+    waiting = pending(inbox)
+    if not waiting:
+        return None
+    sidecar(waiting[-1]).write_text(name)
+    return waiting[-1]
+
+
+def last_loaded(inbox: Path = INBOX, within_s: float = 6 * 3600, now: float | None = None) -> Path | None:
+    """The beat the booth set up most recently, if it was within ``within_s``."""
+    folder = inbox / "loaded"
+    if not folder.is_dir():
+        return None
+    beats = [p for p in folder.iterdir() if is_beat(p)]
+    if not beats:
+        return None
+    newest = max(beats, key=lambda p: p.stat().st_mtime)
+    return newest if (now or time.time()) - newest.stat().st_mtime <= within_s else None
+
+
+def title(text: str) -> str:
+    """A song title as he would write it: "ángel de cristal" -> "Ángel de Cristal"."""
+    small = {"de", "del", "la", "las", "el", "los", "y", "e", "o", "a", "of", "the", "and", "in", "on", "en", "con"}
+    words = " ".join(text.split()).strip(" .!\"'“”").split(" ")
+    out = [w if any(c.isupper() for c in w) else (w if (i and w.lower() in small) else w[:1].upper() + w[1:])
+           for i, w in enumerate(words)]
+    return re.sub(r"[/:\x00]", "-", " ".join(out))[:60]
+
+
 def sidecar(path: Path) -> Path:
     return path.with_name(path.name + SIDECAR)
 

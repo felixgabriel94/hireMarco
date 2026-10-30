@@ -10,6 +10,7 @@ booth puts it on the Beat track of a new session.
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 from hiremarco import config, gate
@@ -59,26 +60,104 @@ def voice_text(message: Inbound, wa: WhatsApp, listen=None) -> str:
     return " ".join(t.text for t in turns).strip()
 
 
-def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None) -> str | None:
-    """His words, when they tell Marco to set up a session: the last beat he sent is started and he is told so.
-    None when the words are not that instruction."""
-    from hiremarco.studio.beat_in import INBOX, latest_received, session_name, start_session, wants_session
+ENGLISH = ("Reply in English, even when he writes a word, a name or a song title in Spanish or another language. "
+           "Answer in another language only when he asks you to.")
+AFFIRM = re.compile(r"^(?:yes|yeah|yep|yup|sure|ok|okay|go|go ahead|do it|please do|let'?s go|start it|si|sí|dale)\b",
+                    re.I)
+STATUS = re.compile(r"\b(?:did|have|has|is|are|was)\b.*\b(?:session|start(?:ed)?|set ?up|ready|done|loaded|logic)\b"
+                    r"|\b(?:status|where are we|how'?s it going)\b", re.I)
 
-    if not wants_session(said):
-        return None
+
+def booth_running(port: int = 8790) -> bool:
+    """His booth holds the shortcut port while it runs; a free port means it is not running."""
+    import socket
+
+    probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        probe.bind(("127.0.0.1", port))
+        return False
+    except OSError:
+        return True
+    finally:
+        probe.close()
+
+
+def ensure_booth(running=booth_running) -> str:
+    """The booth sets sessions up; when it is not running, start it the way the menu-bar app does."""
+    import subprocess
+
+    if running():
+        return "booth running"
+    script = config.STATE_DIR / "booth.command"
+    if not script.exists():
+        return "booth not running, and no booth.command to start it"
+    subprocess.run(["open", "-a", "Terminal", str(script)], check=False, timeout=15)
+    return "booth started"
+
+
+def status(inbox: Path, running=booth_running) -> str:
+    """Where his beat is, in one line he can read: waiting for his word, being set up, or set up."""
+    from hiremarco.studio.beat_in import last_loaded, latest_received, pending, requested_name
+
+    waiting = pending(inbox)
+    if waiting:
+        song = requested_name(waiting[-1]) or waiting[-1].stem
+        return f"Setting up {song} now." if running() else f"Starting it now: {song}. My booth was off, so I'm opening it."
+    kept = latest_received(inbox)
+    if kept is not None:
+        return f"Not yet. I have your beat ({kept.stem}). Say start and I'll set it up."
+    done = last_loaded(inbox)
+    if done is not None:
+        return f"Yes. {requested_name(done) or done.stem} is set up in Logic."
+    return "No beat yet. Send me one and tell me when to start."
+
+
+def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None,
+                booth=ensure_booth, running=booth_running) -> str | None:
+    """His words about a session, answered from the real state: start the beat he sent (on "start a session",
+    "set it up", or a yes to Marco's question), take a corrected title, or say where things stand. None when the
+    words are about something else (Owner 2026-10-30, after a live test where Marco missed all three)."""
+    from hiremarco.studio.beat_in import INBOX, latest_received, pending, rename_pending, session_name, \
+        start_session, title, wants_session
+
     folder = inbox or INBOX
-    if latest_received(folder) is None:
-        wa.send_text(sender, "Send me the beat first, then tell me to start.", idempotency_key=f"nobeat:{message_id}")
+    said = (said or "").strip()
+    reply = lambda text, tag: wa.send_text(sender, text, idempotency_key=f"{tag}:{message_id}")  # noqa: E731
+    short = 2 <= len(said.split()) <= 6 and "?" not in said and not re.match(r"(?i)(?:hey|hi|hello|yo|thanks|thank you|ok|okay|cool|nice|great)\b", said)
+    kept, waiting = latest_received(folder), pending(folder)
+    if STATUS.search(said) and ("?" in said or not wants_session(said)):
+        line = status(folder, running)
+        if pending(folder):
+            booth()
+        reply(line, "status")
+        return f"status: {line}"
+    if wants_session(said) or (kept is not None and AFFIRM.search(said)):
+        song = session_name(said)
+        if kept is not None:
+            started = start_session(folder, song)
+            reply(f"On it. Setting up {song or started.stem}.", "start")
+            return f"session started for {started.name}" + (f" as {song!r}" if song else "") + f"; {booth()}"
+        if waiting:
+            if song:
+                rename_pending(song, folder)
+            line = f"Already on it: setting up {song or waiting[-1].stem}." + ("" if running() else
+                                                                                " Opening my booth now.")
+            reply(line, "start")
+            return f"already started; {booth()}"
+        reply("Send me the beat first, then tell me to start.", "nobeat")
         return "asked for the beat: none is waiting"
-    song = session_name(said)
-    started = start_session(folder, song)
-    wa.send_text(sender, f"On it. Setting up {song or started.stem}.", idempotency_key=f"start:{message_id}")
-    return f"session started for {started.name}" + (f" as {song!r}" if song else "")
+    if waiting and short and not AFFIRM.search(said):
+        song = title(said)
+        rename_pending(song, folder)
+        reply(f"No problem. Naming it {song}.", "rename")
+        return f"renamed the waiting session to {song!r}; {booth()}"
+    return None
 
 
 def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None = None,
-           inbox: Path | None = None, listen=None) -> str:
+           inbox: Path | None = None, listen=None, booth=None, running=None) -> str:
     wa = wa or WhatsApp()
+    booth, running = booth or ensure_booth, running or booth_running
     heard = message.text or f"[{message.kind}]"
     trace = Trace(f"heard: {heard[:60]}")
     try:
@@ -88,7 +167,7 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
             path, started = beat
             if started:
                 wa.send_text(message.sender, "Got the beat. Setting up the session.", idempotency_key=f"beat:{message.id}")
-                return trace.done(f"beat {path.name} received with its instruction; session started")
+                return trace.done(f"beat {path.name} received with its instruction; session started; {booth()}")
             wa.send_text(message.sender, f"Got the beat ({path.stem}). Want me to start a session with it?",
                          idempotency_key=f"beat:{message.id}")
             return trace.done(f"beat kept as {path.name}, waiting for his word")
@@ -98,12 +177,12 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
             trace.add(f"voice note: {said[:60]}")
         elif message.kind != "text":
             return trace.done(f"{message.kind} noted, no handler yet")
-        started = instruction(said, message.sender, message.id, wa, inbox)
+        started = instruction(said, message.sender, message.id, wa, inbox, booth=booth, running=running)
         if started is not None:
             return trace.done(started)
         if not said:
             return trace.done("nothing heard in the voice note")
-        reply = (marco or Marco()).answer(said, job="whatsapp-reply")
+        reply = (marco or Marco()).answer(said, job="whatsapp-reply", instructions=ENGLISH)
         if not reply.text.strip():  # Meta refuses an empty text; nothing is sent and the log says why
             return trace.done("no reply: the model returned no text")
         wa.send_text(message.sender, reply.text.strip(), idempotency_key=f"reply:{message.id}")

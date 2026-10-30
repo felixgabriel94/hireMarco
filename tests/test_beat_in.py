@@ -300,6 +300,79 @@ def test_an_instruction_with_no_beat_waiting_asks_for_the_beat(tmp_path, monkeyp
     assert "none is waiting" in line and b"Send me the beat first" in sent[-1]
 
 
+def test_live_2026_10_30_a_started_beat_is_not_asked_for_again_takes_its_title_and_answers_status(tmp_path,
+                                                                                                    monkeypatch):
+    # the live test: voice note started it (heard "Anhil de Cristal"), he corrected the title, asked again to start,
+    # then asked whether it started; Marco asked for the beat, answered in Spanish, then went silent
+    from hiremarco.server import handle
+
+    wa, sent = whatsapp_line(tmp_path, monkeypatch)
+    inbox = tmp_path / "inbox"
+    handle(inbound(wa, "w1", kind="document", media_id="media-1", filename="fairyrnb.mp3", mime_type="audio/mpeg"),
+           wa=wa, inbox=inbox)
+    handle(inbound(wa, "w2", kind="text", text="Yes, start a session and name it Anhil de Cristal"), wa=wa, inbox=inbox)
+    line = handle(inbound(wa, "w3", kind="text", text="ángel de cristal"), wa=wa, inbox=inbox)
+    assert "renamed the waiting session to 'Ángel de Cristal'" in line
+    assert requested_name(inbox / "fairyrnb.mp3") == "Ángel de Cristal" and b"Naming it" in sent[-1]
+    line = handle(inbound(wa, "w4", kind="text", text="No I want you to set up the session for me and give it that "
+                                                      "title. Go start the session on Logic"), wa=wa, inbox=inbox)
+    assert line.split(" > ")[1].startswith("already started") and b"Already on it" in sent[-1]
+    line = handle(inbound(wa, "w5", kind="text", text="Did you start the session?"), wa=wa, inbox=inbox)
+    assert "status: Setting up Ángel de Cristal now." in line
+
+
+def test_a_yes_to_his_question_starts_the_waiting_beat(tmp_path, monkeypatch):
+    from hiremarco.server import handle
+
+    wa, sent = whatsapp_line(tmp_path, monkeypatch)
+    inbox = tmp_path / "inbox"
+    handle(inbound(wa, "w1", kind="document", media_id="media-1", filename="beat.wav", mime_type="audio/wav"),
+           wa=wa, inbox=inbox)
+    line = handle(inbound(wa, "w2", kind="text", text="yes"), wa=wa, inbox=inbox)
+    assert "session started for beat.wav" in line and (inbox / "beat.wav").exists()
+
+
+def test_status_says_where_the_beat_is(tmp_path):
+    import os
+
+    from hiremarco.server import status
+    from hiremarco.studio.beat_in import keep_received
+
+    inbox = tmp_path / "inbox"
+    assert status(inbox, lambda: True) == "No beat yet. Send me one and tell me when to start."
+    keep_received(b"x", "beat.wav", inbox)
+    assert status(inbox, lambda: True).startswith("Not yet. I have your beat (beat)")
+    (inbox / "loaded").mkdir()
+    (inbox / "received" / "beat.wav").rename(inbox / "loaded" / "beat.wav")
+    sidecar(inbox / "loaded" / "beat.wav").write_text("Night Shift")
+    assert status(inbox, lambda: True) == "Yes. Night Shift is set up in Logic."
+    (inbox / "next.wav").write_bytes(b"y")
+    assert status(inbox, lambda: False) == "Starting it now: next. My booth was off, so I'm opening it."
+
+
+def test_a_title_reads_the_way_he_writes_it():
+    from hiremarco.studio.beat_in import title
+
+    assert title("ángel de cristal") == "Ángel de Cristal" and title("midnight drive") == "Midnight Drive"
+    assert title("SZA type beat") == "SZA Type Beat"
+
+
+def test_chat_replies_stay_in_english(tmp_path, monkeypatch):
+    from hiremarco import marco
+    from hiremarco.server import ENGLISH, handle
+
+    wa, sent = whatsapp_line(tmp_path, monkeypatch)
+    asked = {}
+
+    class Fake:
+        def answer(self, text, **kw):
+            asked.update(kw)
+            return marco.Reply(text="Nice title.") if hasattr(marco, "Reply") else type("R", (), {"text": "Nice title."})()
+
+    handle(inbound(wa, "w1", kind="text", text="¿qué tal?"), wa=wa, inbox=tmp_path / "inbox", marco=Fake())
+    assert asked.get("instructions") == ENGLISH and "English" in ENGLISH
+
+
 def test_a_voice_note_is_heard_and_can_start_the_session(tmp_path, monkeypatch):
     import io
 
