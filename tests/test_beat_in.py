@@ -92,6 +92,7 @@ def loader(tmp_path, logic, front="Logic Pro", started=None):
     (template / "Alternatives" / "000" / "ProjectData").write_bytes(b"pd")
     started = started if started is not None else []
     return BeatLoader(run=logic.run, open_app=lambda p: setattr(logic, "opened", p), front=lambda: front,
+                      tempo=lambda beat: 105.0, align=lambda beat, folder, bpm: (beat, 0.3275, 2),
                       click=logic.click, scroll=lambda n: None, go_to_start=lambda: started.append("start") or "ok",
                       sleep=lambda s: None, template=template, sessions=tmp_path / "sessions",
                       conn=gate.connect(":memory:"), rules_path=rules(tmp_path), today=lambda: date(2026, 10, 29),
@@ -104,7 +105,8 @@ def test_a_beat_lands_on_the_beat_track_of_a_new_session_from_the_template(tmp_p
     logic, started = FakeLogic("Kai 140 Em"), []
     result = loader(tmp_path, logic, started=started).load(beat)
     session = tmp_path / "sessions" / "Kai 140 Em 2026-10-29.logicx"
-    assert result == "Kai 140 Em.wav on the Beat track at bar 1 in Kai 140 Em 2026-10-29.logicx"
+    assert result == ("Kai 140 Em.wav on the Beat track in Kai 140 Em 2026-10-29.logicx, its first hit (0.328 s in) "
+                      "on bar 2 at 105 BPM")
     assert (session / "Alternatives" / "000" / "ProjectData").read_bytes() == b"pd"   # a copy; the template untouched
     assert logic.opened == session
     assert logic.clicks[0] == (237 + 43, 239 + 22)          # PROD opened first, by its triangle
@@ -402,3 +404,38 @@ def test_marco_texts_in_lowercase_but_links_and_acronyms_keep_their_letters():
     assert casual("Session's ready. Open http://192.168.5.196:8788/?t=QWB3IDqb2k0Q") == \
         "session's ready. open http://192.168.5.196:8788/?t=QWB3IDqb2k0Q"
     assert casual("SZA vibes at 105 BPM, Ángel") == "SZA vibes at 105 BPM, ángel"
+
+
+def test_the_first_hit_is_found_where_its_attack_begins():
+    import numpy as np
+
+    from hiremarco.studio.beat_in import first_hit
+
+    rate = 48000
+    audio = np.zeros(rate, dtype=np.float32)
+    start = int(0.3275 * rate)
+    audio[start:start + 2000] = np.linspace(0.05, 0.9, 2000)        # an attack ramping in from 0.3275 s
+    audio[start + 2000:start + 6000] = 0.4
+    assert abs(first_hit(audio, rate) - 0.3275) < 0.004
+    assert first_hit(np.zeros(100, dtype=np.float32), rate) == 0.0
+
+
+def test_the_aligned_copy_puts_the_first_hit_on_a_bar_line_and_keeps_the_whole_file(tmp_path):
+    import numpy as np
+
+    from hiremarco.studio.beat_in import aligned_copy, first_hit
+
+    rate, written = 48000, {}
+    audio = np.zeros((rate * 3, 2), dtype=np.float32)
+    audio[int(0.3275 * rate):int(0.3275 * rate) + 4000] = 0.8
+    path, hit, bar = aligned_copy(Path("fairyrnb.mp3"), tmp_path, 105.0, read=lambda p: (audio, rate),
+                                  write=lambda p, d, r: written.update(path=p, data=d, rate=r))
+    assert path == tmp_path / "fairyrnb.wav" and bar == 2 and abs(hit - 0.3275) < 0.004
+    landed = first_hit(written["data"].mean(axis=1), rate)
+    assert abs(landed - 240 / 105.0) < 0.001                       # on bar 2: one bar at 105 BPM
+    assert len(written["data"]) - len(audio) == round((240 / 105.0 - hit) * rate)   # nothing cut, only silence added
+    long_intro = np.zeros((rate * 6, 2), dtype=np.float32)
+    long_intro[int(3.0 * rate):int(3.0 * rate) + 4000] = 0.8
+    _, _, bar = aligned_copy(Path("x.wav"), tmp_path, 105.0, read=lambda p: (long_intro, rate),
+                             write=lambda p, d, r: None)
+    assert bar == 3                                                # a lead-in longer than a bar lands on the next bar

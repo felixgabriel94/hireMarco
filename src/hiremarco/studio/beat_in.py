@@ -19,6 +19,11 @@ Midnight Drive") travels beside the file as "<file>.session" and names the
 session. A file is taken only after its size holds still for one poll, and is
 moved to the inbox's "loaded" folder after its load, never deleted.
 
+The beat lines up with the grid (Owner 2026-10-30): a session's timeline starts at bar 1, so the beat's first hit
+cannot sit on bar 1 with its lead-in before it. Marco measures the first hit and imports an aligned copy, the
+whole file with just enough silence in front that the first hit falls on a bar line (bar 2 for a short lead-in):
+nothing is cut, the original file is kept, and bar 1 is a count-in bar.
+
 Every keystroke and click goes to Logic only while Logic is the app in front
 (live 2026-10-29: a word typed for Logic landed in another app when it came
 to the front).
@@ -56,6 +61,51 @@ SIDECAR = ".session"  # beside a beat in the inbox: the session name the artist 
 
 class LoadError(RuntimeError):
     pass
+
+
+def first_hit(audio, rate: int) -> float:
+    """Seconds from the file's start to the attack of its first hit: where the 5 ms envelope first passes 10% of
+    the file's loudest moment, walked back (at most 30 ms) to where the attack began."""
+    import numpy as np
+
+    level = np.abs(np.asarray(audio, dtype=np.float32))
+    width = max(1, int(rate * 0.005))
+    env = np.convolve(level, np.ones(width, dtype=np.float32) / width, mode="same")
+    peak = float(env.max()) if env.size else 0.0
+    if peak <= 0:
+        return 0.0
+    i = int(np.argmax(env > 0.1 * peak))
+    floor, stop = 0.02 * peak, max(0, i - int(rate * 0.03))
+    while i > stop and env[i - 1] > floor:
+        i -= 1
+    return i / rate
+
+
+def aligned_copy(beat: Path, folder: Path, bpm: float, *, read=None, write=None) -> tuple[Path, float, int]:
+    """The whole beat with silence in front so its first hit lands on a bar line when it starts at bar 1:
+    (the copy, the first hit in seconds, the bar it lands on). A lead-in shorter than a bar lands on bar 2."""
+    import math
+
+    import numpy as np
+    import soundfile as sf
+
+    data, rate = (read or (lambda p: sf.read(str(p), dtype="float32", always_2d=True)))(beat)
+    hit = first_hit(data.mean(axis=1), rate)
+    bar = 4 * 60.0 / bpm
+    bars = max(1, math.ceil(hit / bar - 1e-9))
+    pad = int(round((bars * bar - hit) * rate))
+    out = np.concatenate([np.zeros((pad, data.shape[1]), dtype=np.float32), data])
+    folder.mkdir(parents=True, exist_ok=True)
+    target = folder / f"{beat.stem}.wav"
+    (write or (lambda p, d, r: sf.write(str(p), d, r, subtype="PCM_24")))(target, out, rate)
+    return target, hit, 1 + bars
+
+
+def beat_tempo(beat: Path) -> float:
+    """The whole tempo the session will take: the producer's label in the file name, else Marco's ear, rounded."""
+    from hiremarco.studio.analyze import label, read, settle_tempo
+
+    return settle_tempo(read(beat).bpm, label(beat.stem)[1], None)[0]
 
 
 def session_name(caption: str) -> str | None:
@@ -290,6 +340,7 @@ def parse_header(line: str) -> Header | None:
 
 class BeatLoader:
     def __init__(self, *, run: Callable[[list[str]], str] = _osascript, open_app: Callable[[Path], None] | None = None,
+                 tempo: Callable[[Path], float] | None = None, align: Callable[..., tuple[Path, float, int]] | None = None,
                  front: Callable[[], str] = frontmost, click: Callable[[float, float], None] = _click,
                  scroll: Callable[[int], None] = _scroll, go_to_start: Callable[[], str] = _go_to_start,
                  sleep: Callable[[float], None] = time.sleep, template: Path = TEMPLATE, sessions: Path = SESSIONS,
@@ -299,6 +350,7 @@ class BeatLoader:
         self.open_app = open_app or (lambda p: subprocess.run(["open", "-a", "Logic Pro", str(p)], check=True,
                                                               timeout=30))
         self.go_to_start, self.sleep = go_to_start, sleep
+        self.tempo, self.align = tempo or beat_tempo, align or aligned_copy
         self.template, self.sessions, self.today = template, sessions, today
         self.conn, self.rules_path, self.wait_s = conn, rules_path, wait_s
 
@@ -340,12 +392,14 @@ class BeatLoader:
         if after is None or not after.focus:
             raise LoadError(f"the click did not select {name!r}")
 
-    def open_session(self, beat: Path, name: str | None = None) -> Path:
+    def open_session(self, beat: Path, name: str | None = None, prepare: Callable[[Path], None] | None = None) -> Path:
         if not self.template.exists():
             raise LoadError(f"the template is missing: {self.template}")
         self.sessions.mkdir(parents=True, exist_ok=True)
         target = session_path(beat, self.sessions, self.today(), name)
         shutil.copytree(self.template, target)
+        if prepare is not None:  # files that belong in the session go in before Logic opens it
+            prepare(target)
         self.open_app(target)
         waited = 0.0
         while waited < self.wait_s:
@@ -369,17 +423,25 @@ class BeatLoader:
             raise LoadError(f"{beat.name} is not an audio file Logic imports")
 
         def run() -> str:
-            session = self.open_session(beat, name)
+            bpm = self.tempo(beat)
+            made: dict = {}
+
+            def prepare(package: Path) -> None:
+                made["copy"] = self.align(beat, package / "Media" / "Audio Files", bpm)
+
+            session = self.open_session(beat, name, prepare)
+            aligned, hit, bar = made["copy"]
             self.select(BEAT_TRACK)
             self._in_front()
             self.go_to_start()
             self._in_front()
-            self.run(["import", str(beat)])
+            self.run(["import", str(aligned)])
             self.sleep(1.0)
             regions = [r.strip() for r in self.run(["regions"]).splitlines() if r.strip()]
             if not any(beat.stem.lower() in r.lower() for r in regions):
                 raise LoadError(f"the Beat track shows {regions or 'no region'} after the import")
-            return f"{beat.name} on the Beat track at bar 1 in {session.name}"
+            return (f"{beat.name} on the Beat track in {session.name}, its first hit ({hit:.3f} s in) on bar {bar} "
+                    f"at {bpm:g} BPM")
 
         return gate.execute_effect(self.conn or gate.connect(), run, tenant_id=TENANT,
                                    idempotency_key=f"beat:{beat.name}:{time.time_ns()}", capability="load_beat",
