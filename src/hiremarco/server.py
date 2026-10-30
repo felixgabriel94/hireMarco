@@ -197,13 +197,38 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         return trace.done(f"error: {type(exc).__name__}")
 
 
+def admit_only(app, allowed: set[str]):
+    """An ASGI wrapper: requests from any address not named are refused with 403 (D-0048)."""
+    async def wrapped(scope, receive, send):
+        if scope["type"] == "http" and (scope.get("client") or ("",))[0] not in allowed:
+            await send({"type": "http.response.start", "status": 403, "headers": [(b"content-type", b"text/plain")]})
+            await send({"type": "http.response.body", "body": b"forbidden"})
+            return
+        await app(scope, receive, send)
+    return wrapped
+
+
+def awake_while(handler, hold=None):
+    """The Mac stays awake from a message's arrival until its reply is sent: a dark wake lasts 45 to 96 s (live
+    2026-10-30), shorter than a session setup (D-0048)."""
+    import subprocess
+
+    def run(message):
+        keeper = (hold or (lambda: subprocess.Popen(["caffeinate", "-i"])))()
+        try:
+            return handler(message)
+        finally:
+            keeper.terminate()
+    return run
+
+
 def build_app(*, reply: bool = True):
     from starlette.routing import Route
 
     from hiremarco.relay import make_relay
 
     return make_app(
-        handle if reply else listen_only,
+        awake_while(handle) if reply else listen_only,
         verify_token=config.require("WHATSAPP_VERIFY_TOKEN"),
         app_secret=config.require("WHATSAPP_APP_SECRET"),
         owner=config.require("OWNER_WHATSAPP"),

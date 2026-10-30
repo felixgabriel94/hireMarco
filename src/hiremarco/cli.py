@@ -109,9 +109,27 @@ def cmd_first_answer(args) -> int:
 def cmd_serve(args) -> int:
     import uvicorn
 
-    from hiremarco.server import build_app
+    from hiremarco.server import admit_only, build_app
 
-    uvicorn.run(build_app(reply=not args.listen_only), host="127.0.0.1", port=args.port, log_level="warning")
+    app = build_app(reply=not args.listen_only)
+    if args.host not in ("127.0.0.1", "localhost"):
+        # D-0048: on the home network for the Mini's relay, and only for the addresses named
+        allowed = {a.strip() for a in args.allow.split(",") if a.strip()} | {"127.0.0.1"}
+        if allowed == {"127.0.0.1"}:
+            print("listening beyond this Mac needs --allow with the relay's address")
+            return 2
+        app = admit_only(app, allowed)
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+    return 0
+
+
+def cmd_wake_relay(args) -> int:
+    """On the always-on Mini (D-0048): Meta's calls in, a magic packet to the MacBook, the call on to Marco."""
+    import uvicorn
+
+    from hiremarco.wake_relay import make_app
+
+    uvicorn.run(make_app(), host="127.0.0.1", port=args.port, log_level="warning")
     return 0
 
 
@@ -964,6 +982,8 @@ def main(argv: list[str] | None = None) -> int:
     s = sub.add_parser("serve")
     s.add_argument("--port", type=int, default=8787)
     s.add_argument("--listen-only", action="store_true")
+    s.add_argument("--host", default="127.0.0.1", help="0.0.0.0 to take the Mini relay's calls on the home network")
+    s.add_argument("--allow", default="", help="comma-separated addresses admitted when not on 127.0.0.1")
     s.set_defaults(func=cmd_serve)
 
     w = sub.add_parser("whatsapp")
@@ -1121,6 +1141,10 @@ def main(argv: list[str] | None = None) -> int:
     bt = sub.add_parser("beat")
     bt.add_argument("file")
     bt.set_defaults(func=cmd_beat)
+
+    wr = sub.add_parser("wake-relay", help="on the always-on Mini: wake the MacBook and pass Meta's calls on")
+    wr.add_argument("--port", type=int, default=8787)
+    wr.set_defaults(func=cmd_wake_relay)
 
     lb = sub.add_parser("load-beat", help="a beat onto the Beat track of a new session from the template")
     lb.add_argument("file")
