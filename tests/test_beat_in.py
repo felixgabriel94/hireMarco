@@ -5,7 +5,8 @@ import httpx
 import pytest
 
 from hiremarco import gate
-from hiremarco.studio.beat_in import (BeatLoader, Inbox, LoadError, beat_file_name, parse_header, session_path)
+from hiremarco.studio.beat_in import (BeatLoader, Inbox, LoadError, beat_file_name, parse_header, requested_name,
+                                      session_name, session_path, sidecar)
 from hiremarco.studio.booth import Booth, Tape, watch_inbox
 
 OWNER = "13055550100"
@@ -136,18 +137,60 @@ def test_a_file_that_is_not_audio_is_refused(tmp_path):
         loader(tmp_path, FakeLogic("notes")).load(notes)
 
 
-def booth_with(load_beat):
+def booth_with(load_beat, texts=None):
     said = []
     b = Booth(understand=lambda line: None, logic=lambda c: c.describe(), say=said.append, feedback=None,
-              tape=Tape(1000, seconds=1), log=lambda line: None, fillers=False, load_beat=load_beat)
-    b._read_beat = lambda: "read: E minor, 140"
+              tape=Tape(1000, seconds=1), log=lambda line: None, fillers=False, load_beat=load_beat,
+              text_owner=None if texts is None else (lambda body: texts.append(body) or "wamid.x"))
+
+    def read(ask=True):
+        def apply():
+            b.last_setup = {"key": "E minor", "bpm": 105.0, "gain": -9.7}
+            return "tempo set to 105"
+        b.offer = apply
+        return "read: E minor, 105"
+
+    b._read_beat = read
     return b, said
 
 
-def test_the_booth_says_it_got_the_beat_loads_it_then_reads_it(tmp_path):
-    b, said = booth_with(lambda p: f"{p.name} on the Beat track")
-    assert b.beat_arrived(tmp_path / "beat.wav") == "beat.wav on the Beat track; read: E minor, 140"
-    assert said == ["Got the beat. Setting up the session."]
+def test_a_sent_beat_is_loaded_read_set_without_a_yes_and_confirmed_by_text(tmp_path):
+    # Owner 2026-10-30: a beat he sends means set the session up, and tell him when it is done
+    texts = []
+    b, said = booth_with(lambda p: f"{p.name} on the Beat track", texts)
+    result = b.beat_arrived(tmp_path / "fairyrnb.mp3")
+    assert result.startswith("fairyrnb.mp3 on the Beat track; read: E minor, 105; set: tempo set to 105; texted")
+    assert said == ["Got the beat. Setting up the session."] and b.offer is None
+    assert texts == ["Session's ready: fairyrnb. E minor, 105 BPM, beat at -20 LUFS."]
+
+
+def test_the_song_he_named_reaches_the_loader_and_the_text(tmp_path):
+    texts, asked = [], []
+    b, _ = booth_with(lambda p, name=None: asked.append(name) or "loaded", texts)
+    b.beat_arrived(tmp_path / "beat.wav", "Midnight Drive")
+    assert asked == ["Midnight Drive"] and texts[0].startswith("Session's ready: Midnight Drive.")
+
+
+def test_a_caption_names_the_session_and_one_that_names_nothing_does_not():
+    assert session_name("Start a session for me for Midnight Drive. Here's the beat") == "Midnight Drive"
+    assert session_name("start a session for me for Midnight Drive here's the beat") == "Midnight Drive"
+    assert session_name("call it Midnight Drive") == "Midnight Drive"
+    assert session_name('session called "Kai Night" please') == "Kai Night"
+    assert session_name("here you go") is None and session_name("for me") is None and session_name("") is None
+    assert session_name("call it AC/DC tribute") == "AC-DC tribute"
+
+
+def test_a_named_session_takes_the_song_name_and_the_name_travels_with_the_beat(tmp_path):
+    assert session_path(Path("x.mp3"), tmp_path, date(2026, 10, 30), "Midnight Drive").name == \
+        "Midnight Drive 2026-10-30.logicx"
+    inbox = Inbox(tmp_path)
+    beat = tmp_path / "x.mp3"
+    beat.write_bytes(b"1")
+    sidecar(beat).write_text("Midnight Drive")
+    inbox.ready()
+    assert inbox.ready() == [beat] and requested_name(beat) == "Midnight Drive"
+    moved = inbox.done(beat)
+    assert requested_name(moved) == "Midnight Drive" and not sidecar(beat).exists()
 
 
 def test_a_beat_waits_for_a_rolling_take_and_a_failed_load_is_said(tmp_path):
@@ -170,15 +213,20 @@ def test_the_watcher_moves_a_loaded_beat_and_leaves_a_failed_one_tried_once(tmp_
     (tmp_path / "bad.wav").write_bytes(b"2")
     seen = []
 
+    sidecar(tmp_path / "good.wav").write_text("Good Song")
+    named = []
+
     class FakeBooth:
         log = staticmethod(lambda line: None)
 
-        def beat_arrived(self, path):
+        def beat_arrived(self, path, name=None):
             seen.append(path.name)
+            named.append(name)
             return "beat not loaded: LoadError" if path.name == "bad.wav" else "loaded"
 
     watch_inbox(FakeBooth(), inbox, rounds=4, sleep=lambda s: None)
     assert sorted(seen) == ["bad.wav", "good.wav"]          # each once
+    assert sorted(n or "" for n in named) == ["", "Good Song"]
     assert (tmp_path / "loaded" / "good.wav").exists() and (tmp_path / "bad.wav").exists()
 
 
@@ -206,10 +254,13 @@ def test_a_beat_sent_on_whatsapp_lands_in_the_inbox_and_a_voice_note_does_not(tm
     record_inbound(wa.conn, "wamid.beat", OWNER, "document")
     inbox = tmp_path / "inbox"
     line = handle(Inbound(id="wamid.beat", sender=OWNER, kind="document", media_id="media-1",
-                          filename="Kai 140 Em.wav", mime_type="audio/wav"), wa=wa, inbox=inbox)
+                          filename="Kai 140 Em.wav", mime_type="audio/wav",
+                          caption="Start a session for me for Midnight Drive. Here's the beat"), wa=wa, inbox=inbox)
     assert "beat saved to the inbox as Kai 140 Em.wav" in line
     assert (inbox / "Kai 140 Em.wav").read_bytes() == b"RIFF-beat"
+    assert requested_name(inbox / "Kai 140 Em.wav") == "Midnight Drive"
     assert b"Beat track" in sent[-1]
     voice = handle(Inbound(id="wamid.v", sender=OWNER, kind="audio", media_id="media-1", mime_type="audio/ogg",
                            voice=True), wa=wa, inbox=inbox)
-    assert "audio noted" in voice and sorted(p.name for p in inbox.iterdir()) == ["Kai 140 Em.wav"]
+    assert "audio noted" in voice and sorted(p.name for p in inbox.iterdir()) == ["Kai 140 Em.wav",
+                                                                                   "Kai 140 Em.wav.session"]

@@ -25,7 +25,7 @@ def listen_only(message: Inbound) -> str:
 def save_beat(message: Inbound, wa: WhatsApp, inbox: Path | None = None) -> Path | None:
     """A beat or instrumental he sends (an audio file or a document, not a voice note) saved into the beat inbox,
     where the booth puts it on the Beat track of a new session (Owner 2026-10-29). None for anything else."""
-    from hiremarco.studio.beat_in import INBOX, beat_file_name
+    from hiremarco.studio.beat_in import INBOX, beat_file_name, session_name, sidecar
 
     if message.kind not in ("audio", "document") or message.voice or not message.media_id:
         return None
@@ -38,6 +38,9 @@ def save_beat(message: Inbound, wa: WhatsApp, inbox: Path | None = None) -> Path
     target, n = folder / name, 2
     while target.exists():
         target, n = folder / f"{Path(name).stem} {n}{Path(name).suffix}", n + 1
+    name = session_name(message.caption)
+    if name:  # beside the beat before the beat appears, so the booth sees both at once
+        sidecar(target).write_text(name)
     partial = target.with_name(f".{target.name}.part")  # hidden until whole, so the inbox never takes half a file
     partial.write_bytes(data)
     partial.rename(target)

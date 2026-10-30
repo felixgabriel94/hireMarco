@@ -11,8 +11,9 @@ read back before the load counts as done; the booth then reads the beat (key,
 tempo, level, tuning) and offers to set the session, as it does when asked.
 
 A beat reaches Marco through the inbox folder: the artist saves or AirDrops it
-there, and WhatsApp drops an audio file or document there once the webhook is
-public. A file is taken only after its size holds still for one poll, and is
+there, and WhatsApp drops an audio file or document there. A caption that names
+the song ("start a session for me for Midnight Drive", "call it Midnight
+Drive") travels beside the file as "<file>.session" and names the session. A file is taken only after its size holds still for one poll, and is
 moved to the inbox's "loaded" folder after its load, never deleted.
 
 Every keystroke and click goes to Logic only while Logic is the app in front
@@ -47,8 +48,42 @@ MIME_EXT = {"audio/wav": ".wav", "audio/x-wav": ".wav", "audio/wave": ".wav", "a
             "audio/x-flac": ".flac"}
 
 
+SIDECAR = ".session"  # beside a beat in the inbox: the session name the artist asked for
+
+
 class LoadError(RuntimeError):
     pass
+
+
+def session_name(caption: str) -> str | None:
+    """The song name in a caption sent with a beat, or None. "Start a session for me for Midnight Drive. Here's the
+    beat" and "call it Midnight Drive" both give "Midnight Drive"; a caption that names nothing gives None."""
+    text = " ".join((caption or "").split())
+    if not text:
+        return None
+    end = r"(?=[.!?,;]|\s+here(?:'s|s| is)\b|\s+(?:please|thanks)\b|$)"
+    patterns = (r"\b(?:call|name|title)\s+(?:it|the session|this|the song)\s+[\"“']?(?P<n>.+?)[\"”']?" + end,
+                r"\b(?:called|named|titled)\s+[\"“']?(?P<n>.+?)[\"”']?" + end,
+                r"\b(?:session|song)\b.*?\bfor\s+(?!me\b|us\b|you\b)[\"“']?(?P<n>.+?)[\"”']?" + end)
+    for pattern in patterns:
+        m = re.search(pattern, text, re.I)
+        if m:
+            name = re.sub(r"[/:\x00]", "-", m.group("n")).strip(" \"'“”")[:60].strip()
+            if name:
+                return name
+    return None
+
+
+def sidecar(path: Path) -> Path:
+    return path.with_name(path.name + SIDECAR)
+
+
+def requested_name(path: Path) -> str | None:
+    """The session name sent with this beat, if one was."""
+    try:
+        return sidecar(path).read_text().strip() or None
+    except OSError:
+        return None
 
 
 def is_beat(path: Path) -> bool:
@@ -68,9 +103,10 @@ def beat_file_name(filename: str, mime_type: str, fallback: str) -> str | None:
     return re.sub(r"[/:\x00]", "-", name)
 
 
-def session_path(beat: Path, sessions: Path, today: date) -> Path:
-    """A new session's package, named after the beat and the day, never on top of one that exists."""
-    stem = re.sub(r"[/:\x00]", "-", beat.stem).strip() or "Beat"
+def session_path(beat: Path, sessions: Path, today: date, name: str | None = None) -> Path:
+    """A new session's package, named after the song he named or else the beat, and the day; never on top of one
+    that exists."""
+    stem = re.sub(r"[/:\x00]", "-", name or beat.stem).strip() or "Beat"
     base = f"{stem} {today.isoformat()}"
     candidate, n = sessions / f"{base}.logicx", 2
     while candidate.exists():
@@ -105,6 +141,8 @@ class Inbox:
         while target.exists():
             target, n = target_dir / f"{path.stem} {n}{path.suffix}", n + 1
         shutil.move(str(path), target)
+        if sidecar(path).exists():
+            shutil.move(str(sidecar(path)), sidecar(target))
         return target
 
 
@@ -210,11 +248,11 @@ class BeatLoader:
         if after is None or not after.focus:
             raise LoadError(f"the click did not select {name!r}")
 
-    def open_session(self, beat: Path) -> Path:
+    def open_session(self, beat: Path, name: str | None = None) -> Path:
         if not self.template.exists():
             raise LoadError(f"the template is missing: {self.template}")
         self.sessions.mkdir(parents=True, exist_ok=True)
-        target = session_path(beat, self.sessions, self.today())
+        target = session_path(beat, self.sessions, self.today(), name)
         shutil.copytree(self.template, target)
         self.open_app(target)
         waited = 0.0
@@ -231,14 +269,15 @@ class BeatLoader:
         raise LoadError(f"Logic did not show {target.name} within {self.wait_s:g} s "
                         "(an unsaved song may be asking to be saved first)")
 
-    def load(self, beat: Path) -> str:
-        """A new session from the template with the beat on its Beat track at bar 1, read back."""
+    def load(self, beat: Path, name: str | None = None) -> str:
+        """A new session from the template with the beat on its Beat track at bar 1, read back; named after the
+        song he named, else the beat."""
         beat = beat.resolve()
         if not is_beat(beat):
             raise LoadError(f"{beat.name} is not an audio file Logic imports")
 
         def run() -> str:
-            session = self.open_session(beat)
+            session = self.open_session(beat, name)
             self.select(BEAT_TRACK)
             self._in_front()
             self.go_to_start()

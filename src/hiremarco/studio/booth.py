@@ -161,26 +161,51 @@ class Booth:
     surface: Callable[[str], str] | None = None       # one command to his Mackie surface, its reply
     flex: Callable[[str], str] | None = None          # Flex Pitch's first pass in the given key, its read-back
     vocal_input: int = 0                              # the Console channel the vocal mic comes in on (ANALOG 1)
-    load_beat: Callable[[Path], str] | None = None    # studio.beat_in.BeatLoader.load: a session with the beat on Beat
+    load_beat: Callable[..., str] | None = None       # studio.beat_in.BeatLoader.load: a session with the beat on Beat
+    text_owner: Callable[[str], str] | None = None    # one WhatsApp text to the artist; None: the line is said only
+    last_setup: dict = field(default_factory=dict)    # the key, tempo and beat gain the session was last set to
 
-    def beat_arrived(self, path: Path) -> str:
+    def beat_arrived(self, path: Path, name: str | None = None) -> str:
         """A beat in his inbox (Owner 2026-10-29): a new session from the template with the beat on the Beat track
-        inside PROD, then read and offered, as when he asks what key the beat is in. Held while a take rolls."""
+        inside PROD, then read and set, tempo, beat level and the Console's key, without waiting for a yes (Owner
+        2026-10-30: a sent beat means set it up), and a text to him when it is done. Held while a take rolls."""
         if self.load_beat is None:
             return "no beat loader in this booth"
         if self.rolling:
             return "holding the beat until the take stops"
         self._say("a beat arrived; opening a session from the template with it on the Beat track",
-                  {"file": path.name}, "Got the beat. Setting up the session.")
+                  {"file": path.name, "song": name}, "Got the beat. Setting up the session.")
         try:
-            loaded = self.load_beat(path)
+            loaded = self.load_beat(path, name) if name else self.load_beat(path)
         except Exception as exc:  # the file stays where it was; he hears why
             self._say("could not put the beat in a session", {"file": path.name, "why": str(exc)[-160:]},
                       "I couldn't put the beat in the session. It's still in the inbox.")
+            self._text(f"I couldn't put {path.name} in a session. It's still in the inbox.")
             return f"beat not loaded: {type(exc).__name__}: {str(exc)[-160:]}"
         if self.tracks is not None:
             self.session = self.tracks.scan()
-        return f"{loaded}; {self._read_beat()}"
+        self.last_setup = {}
+        read = self._read_beat(ask=False)
+        setup = ""
+        if self.offer is not None:
+            apply, self.offer = self.offer, None
+            setup = apply()
+        done = self.last_setup
+        song = name or path.stem
+        if done:
+            level = ", beat at -20 LUFS" if done.get("gain") is not None else ""
+            sent = self._text(f"Session's ready: {song}. {done['key']}, {done['bpm']:g} BPM{level}.")
+        else:
+            sent = self._text(f"{song} is on the Beat track, but I couldn't read its key and tempo.")
+        return f"{loaded}; {read}; set: {setup or 'nothing'}; {sent}"
+
+    def _text(self, body: str) -> str:
+        if self.text_owner is None:
+            return "no text line"
+        try:
+            return f"texted: {self.text_owner(body)}"
+        except Exception as exc:  # outside the window, held by the gate, or the line is down; the log says which
+            return f"not texted: {type(exc).__name__}: {str(exc)[-80:]}"
 
     def toggle(self) -> str:
         """Command+Option+M: wake him if he is away, send him away if he is with you. Held while a take rolls."""
@@ -488,8 +513,9 @@ class Booth:
             return labelled, f"your files say {labelled}; the ear heard {reading.key}"
         return reading.key, f"by ear, an estimate (same notes as {analyze.relative(reading.key)})"
 
-    def _read_beat(self) -> str:
-        """The selected track's audio: its key and tempo, said, and offered for the session."""
+    def _read_beat(self, ask: bool = True) -> str:
+        """The selected track's audio: its key and tempo, said, and offered for the session. ``ask`` False: read and
+        left as the offer without the question, for a caller that applies it at once (a beat he sent)."""
         found = self._beat()
         if isinstance(found, str):
             return found
@@ -512,6 +538,7 @@ class Booth:
             a4, cents = None, None
 
         def apply() -> str:
+            self.last_setup = {"key": key, "bpm": bpm, "gain": gain}
             self.key = key
             self.reference_cents = cents or 0.0
             done = [f"key {key} for pitch checks"]
@@ -536,12 +563,13 @@ class Booth:
             return "; ".join(done)
 
         self.offer = apply
-        self._say("read the beat's key and tempo and its level; offer to set the session to it", {
-            "key": key, "how_the_key_was_found": why, "bpm": bpm, "how_the_tempo_was_found": tempo_why,
-            "or_half_double": reading.bpm_other or None, "beat_loudness_lufs": loud, "beat_true_peak_db": peak,
-            "region_gain_to_reach_minus_20_lufs": gain, "beat_tuning_a4_hz": a4},
-            f"Sounds like {key}, {bpm:g} BPM. The beat's hot, so I'll bring it down {abs(gain):g} dB. Set the session?"
-            if gain is not None and gain < 0 else f"Sounds like {key}, {bpm:g} BPM. Want me to set the session to that?")
+        if ask:
+            self._say("read the beat's key and tempo and its level; offer to set the session to it", {
+                "key": key, "how_the_key_was_found": why, "bpm": bpm, "how_the_tempo_was_found": tempo_why,
+                "or_half_double": reading.bpm_other or None, "beat_loudness_lufs": loud, "beat_true_peak_db": peak,
+                "region_gain_to_reach_minus_20_lufs": gain, "beat_tuning_a4_hz": a4},
+                f"Sounds like {key}, {bpm:g} BPM. The beat's hot, so I'll bring it down {abs(gain):g} dB. Set the session?"
+                if gain is not None and gain < 0 else f"Sounds like {key}, {bpm:g} BPM. Want me to set the session to that?")
         return (f"beat read from {path.name}: {key} ({why}), {bpm:g} BPM ({tempo_why}; {logic_note}); "
                 + (f"level {loud} LUFS, true peak {peak} dBTP, gain {gain:+.1f} dB to reach -20 LUFS" if gain is not None
                    else f"level {peak}") + (f"; tuning A = {a4:g} Hz ({cents:+g} cents)" if a4 else "; tuning not measured"))
@@ -1022,6 +1050,14 @@ def _shortcut_listener(booth: "Booth", sock) -> None:
             booth.on_place(data.strip().split()[1].decode())  # the menu bar's "Listen at"
 
 
+def _text_owner_plain(body: str) -> str:
+    """One WhatsApp text to the artist, through the gate, inside the 24-hour window his own message opened."""
+    from hiremarco.whatsapp import WhatsApp
+
+    owner = config.require("OWNER_WHATSAPP")
+    return WhatsApp().send_text(owner, body, idempotency_key=f"booth-text:{time.time_ns()}") or "sent"
+
+
 def _text_owner(body: str, url: str) -> str:
     """One text to the Owner's WhatsApp, through the gate. Turned on by HIREMARCO_TEXT_LINKS=on, after the
     first WhatsApp message (filmed Thursday) has gone out, so nothing else is his first message from Marco."""
@@ -1108,7 +1144,7 @@ def watch_inbox(booth: "Booth", inbox=None, *, poll: float = 2.0, rounds: int | 
                 sleep: Callable[[float], None] = time.sleep) -> list[str]:
     """His beat inbox, every ``poll`` seconds: each new beat once. A beat held for a rolling take comes back on a
     later poll; a loaded one moves to the inbox's "loaded" folder; a failed one stays where it is, tried once."""
-    from hiremarco.studio.beat_in import Inbox
+    from hiremarco.studio.beat_in import Inbox, requested_name
 
     inbox = inbox or Inbox()
     tried: set = set()
@@ -1120,7 +1156,8 @@ def watch_inbox(booth: "Booth", inbox=None, *, poll: float = 2.0, rounds: int | 
             for path in inbox.ready():
                 if path in tried:
                     continue
-                result = booth.beat_arrived(path)
+                name = requested_name(path)
+                result = booth.beat_arrived(path, name) if name else booth.beat_arrived(path)
                 booth.log(f"beat inbox: {result}")
                 results.append(result)
                 if result.startswith("holding"):
@@ -1203,6 +1240,7 @@ def run_booth(*, dry_run: bool = False) -> int:
                   flex=None if dry_run else flex.first_pass,
                   load_beat=None if dry_run else __import__("hiremarco.studio.beat_in", fromlist=["BeatLoader"])
                   .BeatLoader().load,
+                  text_owner=None if dry_run else _text_owner_plain,
                   transcribe=lambda audio, r: transcribe(audio, r, diarize=False),
                   play_clip=(lambda pcm, label: print(f"   (guide, dry run: {label})")) if dry_run
                   else (lambda pcm, label: talkback.play_clip(pcm, label)))
