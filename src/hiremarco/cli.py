@@ -119,7 +119,9 @@ def cmd_serve(args) -> int:
             print("listening beyond this Mac needs --allow with the relay's address")
             return 2
         app = admit_only(app, allowed)
-    uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
+    # the allowlist judges the connection's own address: uvicorn would otherwise take the X-Forwarded-For a tunnel
+    # sets as the caller (live 2026-10-30: the tunnel's calls were refused as the public address)
+    uvicorn.run(app, host=args.host, port=args.port, log_level="warning", proxy_headers=False)
     return 0
 
 
