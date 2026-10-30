@@ -192,9 +192,8 @@ class Booth:
             setup = apply()
         done = self.last_setup
         song = name or path.stem
-        if done:
-            level = ", beat at -20 LUFS" if done.get("gain") is not None else ""
-            sent = self._text(f"Session's ready: {song}. {done['key']}, {done['bpm']:g} BPM{level}.")
+        if done:  # Owner 2026-10-30: the text is just "session's ready."; the details are in Logic and the log
+            sent = self._text("session's ready.")
         else:
             sent = self._text(f"{song} is on the Beat track, but I couldn't read its key and tempo.")
         return f"{loaded}; {read}; set: {setup or 'nothing'}; {sent}"

@@ -161,14 +161,14 @@ def test_a_sent_beat_is_loaded_read_set_without_a_yes_and_confirmed_by_text(tmp_
     result = b.beat_arrived(tmp_path / "fairyrnb.mp3")
     assert result.startswith("fairyrnb.mp3 on the Beat track; read: E minor, 105; set: tempo set to 105; texted")
     assert said == ["Got the beat. Setting up the session."] and b.offer is None
-    assert texts == ["Session's ready: fairyrnb. E minor, 105 BPM, beat at -20 LUFS."]
+    assert texts == ["session's ready."]
 
 
 def test_the_song_he_named_reaches_the_loader_and_the_text(tmp_path):
     texts, asked = [], []
     b, _ = booth_with(lambda p, name=None: asked.append(name) or "loaded", texts)
     b.beat_arrived(tmp_path / "beat.wav", "Midnight Drive")
-    assert asked == ["Midnight Drive"] and texts[0].startswith("Session's ready: Midnight Drive.")
+    assert asked == ["Midnight Drive"] and texts == ["session's ready."]
 
 
 def test_a_caption_names_the_session_and_one_that_names_nothing_does_not():
