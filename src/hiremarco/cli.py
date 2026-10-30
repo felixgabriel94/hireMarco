@@ -97,7 +97,7 @@ def cmd_first_answer(args) -> int:
     question = " ".join(args.prompt) or FIRST_QUESTION
     trace = Trace(f"heard: {question}")
     try:
-        reply = Marco().answer(question, job="first-answer", max_completion_tokens=80)
+        reply = Marco().answer(question, job="first-answer", max_completion_tokens=400, reasoning_effort="minimal")
     except gate.Refused as refused:
         trace.done(f"held: {refused.reason}")
         return 1

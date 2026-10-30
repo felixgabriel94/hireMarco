@@ -90,3 +90,31 @@ def test_listen_only_never_replies():
 
     line = listen_only(Inbound(id="w", sender=OWNER, kind="text", text="Marco?"))
     assert line.startswith("heard: Marco? > listening only, no reply")
+
+
+def test_an_empty_reply_is_never_sent(tmp_path, monkeypatch):
+    # live 2026-10-30: the model spent its budget thinking and answered nothing; Meta refuses an empty text
+    monkeypatch.setenv("HIREMARCO_STATE", str(tmp_path))
+    monkeypatch.setenv("OWNER_WHATSAPP", OWNER)
+    rules_path = tmp_path / "RULES.md"
+    rules_path.write_text(f"send: whatsapp -> {OWNER} ; the Owner's own chat ; until 2099-01-01\n")
+    sent = []
+    transport = httpx.MockTransport(lambda r: (sent.append(r.content), httpx.Response(200, json={"messages": [{"id": "wamid.o"}]}))[1])
+    wa = WhatsApp(token="t", phone_number_id="1", conn=gate.connect(":memory:"), transport=transport, rules_path=rules_path)
+    record_inbound(wa.conn, "wamid.e", OWNER, "text")
+    line = handle(Inbound(id="wamid.e", sender=OWNER, kind="text", text="hey"), marco=marco.Marco(muse(tmp_path, text="")), wa=wa)
+    assert "no reply: the model returned no text" in line
+    assert len(sent) == 1 and b'"status":"read"' in sent[0]
+
+
+def test_chat_replies_think_low_with_room_to_answer(tmp_path):
+    bodies = []
+
+    def handler(request):
+        bodies.append(request.content)
+        return httpx.Response(200, json={"model": "muse-spark-1.3", "choices": [{"message": {"role": "assistant", "content": "Hey."},
+                                         "finish_reason": "stop"}], "usage": {"prompt_tokens": 5, "completion_tokens": 2}})
+
+    client = MuseSpark(api_key="k", joblog=JobLog(tmp_path / "j.jsonl"), transport=httpx.MockTransport(handler))
+    marco.Marco(client).answer("hey")
+    assert b'"reasoning_effort":"low"' in bodies[0] and b'"max_completion_tokens":800' in bodies[0]

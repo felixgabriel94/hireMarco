@@ -59,6 +59,8 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         if message.kind != "text":
             return trace.done(f"{message.kind} noted, no handler yet")
         reply = (marco or Marco()).answer(message.text, job="whatsapp-reply")
+        if not reply.text.strip():  # Meta refuses an empty text; nothing is sent and the log says why
+            return trace.done("no reply: the model returned no text")
         wa.send_text(message.sender, reply.text.strip(), idempotency_key=f"reply:{message.id}")
         return trace.done("replied")
     except gate.Refused as refused:

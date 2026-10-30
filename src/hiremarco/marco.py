@@ -48,9 +48,13 @@ class Marco:
     def __init__(self, client: MuseSpark | None = None):
         self.client = client or MuseSpark()
 
-    def answer(self, text: str, *, job: str = "answer", max_completion_tokens: int = 200) -> Reply:
+    def answer(self, text: str, *, job: str = "answer", max_completion_tokens: int = 800,
+               reasoning_effort: str = "low") -> Reply:
+        """Marco's reply. The budget counts his thinking too: at 200 tokens he thought it all away and the reply
+        came back empty (live 2026-10-30, a WhatsApp "hey"), so chat replies think low with room to spare."""
         if private_persona_on() and self.client.model.endswith("-contributor"):
             raise gate.Refused("the private persona never goes to a contributor model")
         system = persona()
         gate.check_model_call(TENANT, model=self.client.model, system=system, prompt=text, joblog=self.client.joblog)
-        return self.client.ask(text, developer=system, job=job, max_completion_tokens=max_completion_tokens)
+        return self.client.ask(text, developer=system, job=job, max_completion_tokens=max_completion_tokens,
+                               reasoning_effort=reasoning_effort)
