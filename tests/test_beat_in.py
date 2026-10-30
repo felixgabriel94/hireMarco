@@ -172,10 +172,10 @@ def test_the_song_he_named_reaches_the_loader_and_the_text(tmp_path):
 
 
 def test_a_caption_names_the_session_and_one_that_names_nothing_does_not():
-    assert session_name("Start a session for me for Midnight Drive. Here's the beat") == "Midnight Drive"
-    assert session_name("start a session for me for Midnight Drive here's the beat") == "Midnight Drive"
-    assert session_name("call it Midnight Drive") == "Midnight Drive"
-    assert session_name('session called "Kai Night" please') == "Kai Night"
+    assert session_name("Start a session for me for Midnight Drive. Here's the beat") == "midnight drive"
+    assert session_name("start a session for me for Midnight Drive here's the beat") == "midnight drive"
+    assert session_name("call it Midnight Drive") == "midnight drive"
+    assert session_name('session called "Kai Night" please') == "kai night"
     assert session_name("here you go") is None and session_name("for me") is None and session_name("") is None
     assert session_name("call it AC/DC tribute") == "AC-DC tribute"
 
@@ -271,11 +271,11 @@ def test_a_sent_beat_waits_for_his_word_then_his_text_starts_it(tmp_path, monkey
     assert "waiting for his word" in line
     assert [p.name for p in inbox.iterdir() if p.is_file()] == []               # nothing for the booth yet
     assert (inbox / "received" / "fairyrnb.mp3").read_bytes() == b"RIFF-beat"
-    assert b"Want me to start a session with it?" in sent[-1]
+    assert b"want me to start a session with it?" in sent[-1]
     line = handle(inbound(wa, "w2", kind="text", text="Start a session for Midnight Drive"), wa=wa, inbox=inbox)
-    assert "session started for fairyrnb.mp3 as 'Midnight Drive'" in line
-    assert (inbox / "fairyrnb.mp3").exists() and requested_name(inbox / "fairyrnb.mp3") == "Midnight Drive"
-    assert b"On it. Setting up Midnight Drive." in sent[-1]
+    assert "session started for fairyrnb.mp3 as 'midnight drive'" in line
+    assert (inbox / "fairyrnb.mp3").exists() and requested_name(inbox / "fairyrnb.mp3") == "midnight drive"
+    assert b"on it. setting up midnight drive." in sent[-1]
 
 
 def test_a_caption_that_is_the_instruction_starts_at_once(tmp_path, monkeypatch):
@@ -288,8 +288,8 @@ def test_a_caption_that_is_the_instruction_starts_at_once(tmp_path, monkeypatch)
                   wa=wa, inbox=inbox)
     assert "received with its instruction; session started" in line
     assert (inbox / "Kai 140 Em.wav").read_bytes() == b"RIFF-beat"
-    assert requested_name(inbox / "Kai 140 Em.wav") == "Midnight Drive"
-    assert b"Setting up the session" in sent[-1]
+    assert requested_name(inbox / "Kai 140 Em.wav") == "midnight drive"
+    assert b"setting up the session" in sent[-1]
 
 
 def test_an_instruction_with_no_beat_waiting_asks_for_the_beat(tmp_path, monkeypatch):
@@ -297,7 +297,7 @@ def test_an_instruction_with_no_beat_waiting_asks_for_the_beat(tmp_path, monkeyp
 
     wa, sent = whatsapp_line(tmp_path, monkeypatch)
     line = handle(inbound(wa, "w1", kind="text", text="set it up"), wa=wa, inbox=tmp_path / "inbox")
-    assert "none is waiting" in line and b"Send me the beat first" in sent[-1]
+    assert "none is waiting" in line and b"send me the beat first" in sent[-1]
 
 
 def test_live_2026_10_30_a_started_beat_is_not_asked_for_again_takes_its_title_and_answers_status(tmp_path,
@@ -312,13 +312,13 @@ def test_live_2026_10_30_a_started_beat_is_not_asked_for_again_takes_its_title_a
            wa=wa, inbox=inbox)
     handle(inbound(wa, "w2", kind="text", text="Yes, start a session and name it Anhil de Cristal"), wa=wa, inbox=inbox)
     line = handle(inbound(wa, "w3", kind="text", text="ángel de cristal"), wa=wa, inbox=inbox)
-    assert "renamed the waiting session to 'Ángel de Cristal'" in line
-    assert requested_name(inbox / "fairyrnb.mp3") == "Ángel de Cristal" and b"Naming it" in sent[-1]
+    assert "renamed the waiting session to 'ángel de cristal'" in line
+    assert requested_name(inbox / "fairyrnb.mp3") == "ángel de cristal" and b"naming it" in sent[-1]
     line = handle(inbound(wa, "w4", kind="text", text="No I want you to set up the session for me and give it that "
                                                       "title. Go start the session on Logic"), wa=wa, inbox=inbox)
-    assert line.split(" > ")[1].startswith("already started") and b"Already on it" in sent[-1]
+    assert line.split(" > ")[1].startswith("already started") and b"already on it" in sent[-1]
     line = handle(inbound(wa, "w5", kind="text", text="Did you start the session?"), wa=wa, inbox=inbox)
-    assert "status: Setting up Ángel de Cristal now." in line
+    assert "status: Setting up ángel de cristal now." in line
 
 
 def test_a_yes_to_his_question_starts_the_waiting_beat(tmp_path, monkeypatch):
@@ -350,11 +350,11 @@ def test_status_says_where_the_beat_is(tmp_path):
     assert status(inbox, lambda: False) == "Starting it now: next. My booth was off, so I'm opening it."
 
 
-def test_a_title_reads_the_way_he_writes_it():
+def test_a_title_is_kept_lowercase_and_an_acronym_stays():
     from hiremarco.studio.beat_in import title
 
-    assert title("ángel de cristal") == "Ángel de Cristal" and title("midnight drive") == "Midnight Drive"
-    assert title("SZA type beat") == "SZA Type Beat"
+    assert title("ángel de cristal") == "ángel de cristal" and title("Midnight Drive") == "midnight drive"
+    assert title("SZA type beat") == "SZA type beat"
 
 
 def test_chat_replies_stay_in_english(tmp_path, monkeypatch):
@@ -393,4 +393,12 @@ def test_a_voice_note_is_heard_and_can_start_the_session(tmp_path, monkeypatch):
     line = handle(inbound(wa, "w2", kind="audio", media_id="v-1", mime_type="audio/ogg; codecs=opus", voice=True),
                   wa=wa, inbox=inbox, listen=lambda audio, rate: heard.append(rate) or [Turn(0, 900, "Set it up, call it Night Shift")])
     assert heard == [48000] and "voice note: Set it up, call it Night Shift" in line
-    assert requested_name(inbox / "beat.wav") == "Night Shift" and b"Setting up Night Shift" in sent[-1]
+    assert requested_name(inbox / "beat.wav") == "night shift" and b"setting up night shift" in sent[-1]
+
+
+def test_marco_texts_in_lowercase_but_links_and_acronyms_keep_their_letters():
+    from hiremarco.style import casual
+
+    assert casual("Session's ready. Open http://192.168.5.196:8788/?t=QWB3IDqb2k0Q") == \
+        "session's ready. open http://192.168.5.196:8788/?t=QWB3IDqb2k0Q"
+    assert casual("SZA vibes at 105 BPM, Ángel") == "SZA vibes at 105 BPM, ángel"

@@ -71,7 +71,7 @@ def session_name(caption: str) -> str | None:
     for pattern in patterns:
         m = re.search(pattern, text, re.I)
         if m:
-            name = re.sub(r"[/:\x00]", "-", m.group("n")).strip(" \"'“”")[:60].strip()
+            name = title(m.group("n"))
             if name:
                 return name
     return None
@@ -160,12 +160,10 @@ def last_loaded(inbox: Path = INBOX, within_s: float = 6 * 3600, now: float | No
 
 
 def title(text: str) -> str:
-    """A song title as he would write it: "ángel de cristal" -> "Ángel de Cristal"."""
-    small = {"de", "del", "la", "las", "el", "los", "y", "e", "o", "a", "of", "the", "and", "in", "on", "en", "con"}
-    words = " ".join(text.split()).strip(" .!\"'“”").split(" ")
-    out = [w if any(c.isupper() for c in w) else (w if (i and w.lower() in small) else w[:1].upper() + w[1:])
-           for i, w in enumerate(words)]
-    return re.sub(r"[/:\x00]", "-", " ".join(out))[:60]
+    """A song title as Marco keeps it: lowercase, the way he texts (Owner 2026-10-30); an all-caps name stays."""
+    from hiremarco.style import casual
+
+    return re.sub(r"[/:\x00]", "-", casual(" ".join(text.split()).strip(" .!\"'“”")))[:60]
 
 
 def sidecar(path: Path) -> Path:

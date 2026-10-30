@@ -109,7 +109,8 @@ def test_send_inside_window(wa):
     assert client.send_text(OWNER, "Morning, Felix", idempotency_key="k") == "wamid.out123456"
     method, path, body = calls[0]
     assert (method, path) == ("POST", "/v25.0/111/messages")
-    assert body == {"messaging_product": "whatsapp", "to": OWNER, "type": "text", "text": {"body": "Morning, Felix"}}
+    # sent the way Marco texts: lowercase (Owner 2026-10-30)
+    assert body == {"messaging_product": "whatsapp", "to": OWNER, "type": "text", "text": {"body": "morning, felix"}}
 
 
 def test_send_outside_window_refused(wa):

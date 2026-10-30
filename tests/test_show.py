@@ -47,7 +47,7 @@ def test_send_image_uploads_then_sends_with_a_caption(tmp_path):
     (upload_path, upload_type, _), (send_path, _, send_body) = calls
     assert upload_path == "/v25.0/111/media" and upload_type.startswith("multipart/form-data")
     assert json.loads(send_body) == {"messaging_product": "whatsapp", "to": OWNER, "type": "image",
-                                     "image": {"id": "media-7", "caption": "Here's the session."}}
+                                     "image": {"id": "media-7", "caption": "here's the session."}}
 
 
 def test_show_captures_then_sends_and_the_booth_hears_it(tmp_path):

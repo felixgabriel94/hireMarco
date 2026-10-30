@@ -17,6 +17,7 @@ from typing import Any
 import httpx
 
 from hiremarco import config, gate
+from hiremarco.style import casual
 
 GRAPH_URL = "https://graph.facebook.com/v25.0"
 WINDOW = timedelta(hours=24)
@@ -107,6 +108,7 @@ class WhatsApp:
 
     def send_text(self, to: str, body: str, *, idempotency_key: str, critic=None,
                   now: datetime | None = None) -> str:
+        body = casual(body)
         return self._send(to, {"type": "text", "text": {"body": body}}, text_for_gate=body,
                           idempotency_key=idempotency_key, capability="send_message", critic=critic, now=now)
 
@@ -114,6 +116,7 @@ class WhatsApp:
                   now: datetime | None = None) -> str:
         """A message with a button that opens the link. A plain link to an address on the home network is not
         made tappable by WhatsApp (live 2026-10-29: the Owner had to copy it out), a button is."""
+        body, label = casual(body), casual(label)
         payload = {"type": "interactive", "interactive": {
             "type": "cta_url", "body": {"text": body},
             "action": {"name": "cta_url", "parameters": {"display_text": label[:20], "url": url}}}}
@@ -162,6 +165,7 @@ class WhatsApp:
     def send_image(self, to: str, png: bytes, caption: str, *, idempotency_key: str, critic=None,
                    now: datetime | None = None) -> str:
         """A picture with a short caption: uploaded and sent inside one gated action."""
+        caption = casual(caption)
         if not self._inside_window(to, now):
             raise gate.Refused("outside the 24-hour window; a template would cost money, so asking the Owner first")
 
