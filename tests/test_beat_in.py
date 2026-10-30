@@ -230,10 +230,8 @@ def test_the_watcher_moves_a_loaded_beat_and_leaves_a_failed_one_tried_once(tmp_
     assert (tmp_path / "loaded" / "good.wav").exists() and (tmp_path / "bad.wav").exists()
 
 
-def test_a_beat_sent_on_whatsapp_lands_in_the_inbox_and_a_voice_note_does_not(tmp_path, monkeypatch):
-    from hiremarco.server import handle
-    from hiremarco.whatsapp import Inbound, WhatsApp
-    from hiremarco.whatsapp.client import record_inbound
+def whatsapp_line(tmp_path, monkeypatch):
+    from hiremarco.whatsapp import WhatsApp
 
     monkeypatch.setenv("HIREMARCO_STATE", str(tmp_path))
     monkeypatch.setenv("OWNER_WHATSAPP", OWNER)
@@ -251,16 +249,75 @@ def test_a_beat_sent_on_whatsapp_lands_in_the_inbox_and_a_voice_note_does_not(tm
 
     wa = WhatsApp(token="t", phone_number_id="1", conn=gate.connect(":memory:"), transport=httpx.MockTransport(respond),
                   rules_path=rules_path)
-    record_inbound(wa.conn, "wamid.beat", OWNER, "document")
+    return wa, sent
+
+
+def inbound(wa, mid, **kw):
+    from hiremarco.whatsapp import Inbound
+    from hiremarco.whatsapp.client import record_inbound
+
+    record_inbound(wa.conn, mid, OWNER, kw.get("kind", "text"))
+    return Inbound(id=mid, sender=OWNER, **kw)
+
+
+def test_a_sent_beat_waits_for_his_word_then_his_text_starts_it(tmp_path, monkeypatch):
+    # Owner 2026-10-30: his instruction starts it; the beat alone is only received
+    from hiremarco.server import handle
+
+    wa, sent = whatsapp_line(tmp_path, monkeypatch)
     inbox = tmp_path / "inbox"
-    line = handle(Inbound(id="wamid.beat", sender=OWNER, kind="document", media_id="media-1",
-                          filename="Kai 140 Em.wav", mime_type="audio/wav",
-                          caption="Start a session for me for Midnight Drive. Here's the beat"), wa=wa, inbox=inbox)
-    assert "beat saved to the inbox as Kai 140 Em.wav" in line
+    line = handle(inbound(wa, "w1", kind="document", media_id="media-1", filename="fairyrnb.mp3",
+                          mime_type="audio/mpeg"), wa=wa, inbox=inbox)
+    assert "waiting for his word" in line
+    assert [p.name for p in inbox.iterdir() if p.is_file()] == []               # nothing for the booth yet
+    assert (inbox / "received" / "fairyrnb.mp3").read_bytes() == b"RIFF-beat"
+    assert b"Want me to start a session with it?" in sent[-1]
+    line = handle(inbound(wa, "w2", kind="text", text="Start a session for Midnight Drive"), wa=wa, inbox=inbox)
+    assert "session started for fairyrnb.mp3 as 'Midnight Drive'" in line
+    assert (inbox / "fairyrnb.mp3").exists() and requested_name(inbox / "fairyrnb.mp3") == "Midnight Drive"
+    assert b"On it. Setting up Midnight Drive." in sent[-1]
+
+
+def test_a_caption_that_is_the_instruction_starts_at_once(tmp_path, monkeypatch):
+    from hiremarco.server import handle
+
+    wa, sent = whatsapp_line(tmp_path, monkeypatch)
+    inbox = tmp_path / "inbox"
+    line = handle(inbound(wa, "w1", kind="document", media_id="media-1", filename="Kai 140 Em.wav",
+                          mime_type="audio/wav", caption="Start a session for me for Midnight Drive. Here's the beat"),
+                  wa=wa, inbox=inbox)
+    assert "received with its instruction; session started" in line
     assert (inbox / "Kai 140 Em.wav").read_bytes() == b"RIFF-beat"
     assert requested_name(inbox / "Kai 140 Em.wav") == "Midnight Drive"
-    assert b"Beat track" in sent[-1]
-    voice = handle(Inbound(id="wamid.v", sender=OWNER, kind="audio", media_id="media-1", mime_type="audio/ogg",
-                           voice=True), wa=wa, inbox=inbox)
-    assert "audio noted" in voice and sorted(p.name for p in inbox.iterdir()) == ["Kai 140 Em.wav",
-                                                                                   "Kai 140 Em.wav.session"]
+    assert b"Setting up the session" in sent[-1]
+
+
+def test_an_instruction_with_no_beat_waiting_asks_for_the_beat(tmp_path, monkeypatch):
+    from hiremarco.server import handle
+
+    wa, sent = whatsapp_line(tmp_path, monkeypatch)
+    line = handle(inbound(wa, "w1", kind="text", text="set it up"), wa=wa, inbox=tmp_path / "inbox")
+    assert "none is waiting" in line and b"Send me the beat first" in sent[-1]
+
+
+def test_a_voice_note_is_heard_and_can_start_the_session(tmp_path, monkeypatch):
+    import io
+
+    import numpy as np
+    import soundfile as sf
+
+    from hiremarco.hearing import Turn
+    from hiremarco.server import handle
+
+    wa, sent = whatsapp_line(tmp_path, monkeypatch)
+    inbox = tmp_path / "inbox"
+    handle(inbound(wa, "w1", kind="document", media_id="media-1", filename="beat.wav", mime_type="audio/wav"),
+           wa=wa, inbox=inbox)
+    ogg = io.BytesIO()
+    sf.write(ogg, np.zeros(4800, dtype="float32"), 48000, format="OGG", subtype="OPUS")
+    monkeypatch.setattr(wa, "download_media", lambda media_id: (ogg.getvalue(), "audio/ogg"))
+    heard = []
+    line = handle(inbound(wa, "w2", kind="audio", media_id="v-1", mime_type="audio/ogg; codecs=opus", voice=True),
+                  wa=wa, inbox=inbox, listen=lambda audio, rate: heard.append(rate) or [Turn(0, 900, "Set it up, call it Night Shift")])
+    assert heard == [48000] and "voice note: Set it up, call it Night Shift" in line
+    assert requested_name(inbox / "beat.wav") == "Night Shift" and b"Setting up Night Shift" in sent[-1]

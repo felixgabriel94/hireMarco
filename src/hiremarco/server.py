@@ -3,8 +3,9 @@
 When the Owner writes, Marco marks it read, shows the typing dots, answers
 through Muse Spark and replies, each step on his live log. Voice notes and
 photos are acknowledged here and handled by the packages that need them. A
-beat he sends as an audio file or a document is saved into the beat inbox,
-where the booth puts it on the Beat track of a new session.
+beat he sends as an audio file or a document is kept until he says to start
+a session, by text, by the caption on the beat or by voice note; then the
+booth puts it on the Beat track of a new session.
 """
 
 from __future__ import annotations
@@ -22,10 +23,12 @@ def listen_only(message: Inbound) -> str:
     return Trace(f"heard: {(message.text or message.kind)[:60]}").done("listening only, no reply")
 
 
-def save_beat(message: Inbound, wa: WhatsApp, inbox: Path | None = None) -> Path | None:
-    """A beat or instrumental he sends (an audio file or a document, not a voice note) saved into the beat inbox,
-    where the booth puts it on the Beat track of a new session (Owner 2026-10-29). None for anything else."""
-    from hiremarco.studio.beat_in import INBOX, beat_file_name, session_name, sidecar
+def save_beat(message: Inbound, wa: WhatsApp, inbox: Path | None = None) -> tuple[Path, bool] | None:
+    """A beat or instrumental he sends (an audio file or a document, not a voice note). It is kept in the inbox's
+    "received" folder and set up only on his instruction (Owner 2026-10-30); a caption that is the instruction ("start
+    a session for Midnight Drive") starts it at once. (path, started), or None for anything that is not a beat."""
+    from hiremarco.studio.beat_in import INBOX, beat_file_name, keep_received, session_name, start_session, \
+        wants_session
 
     if message.kind not in ("audio", "document") or message.voice or not message.media_id:
         return None
@@ -34,21 +37,47 @@ def save_beat(message: Inbound, wa: WhatsApp, inbox: Path | None = None) -> Path
         return None
     data, _ = wa.download_media(message.media_id)
     folder = inbox or INBOX
-    folder.mkdir(parents=True, exist_ok=True)
-    target, n = folder / name, 2
-    while target.exists():
-        target, n = folder / f"{Path(name).stem} {n}{Path(name).suffix}", n + 1
-    name = session_name(message.caption)
-    if name:  # beside the beat before the beat appears, so the booth sees both at once
-        sidecar(target).write_text(name)
-    partial = target.with_name(f".{target.name}.part")  # hidden until whole, so the inbox never takes half a file
-    partial.write_bytes(data)
-    partial.rename(target)
-    return target
+    kept = keep_received(data, name, folder)
+    if wants_session(message.caption):
+        return start_session(folder, session_name(message.caption)) or kept, True
+    return kept, False
+
+
+def voice_text(message: Inbound, wa: WhatsApp, listen=None) -> str:
+    """What he said in a WhatsApp voice note, transcribed."""
+    import io
+
+    import soundfile as sf
+
+    from hiremarco.hearing import transcribe
+
+    data, _ = wa.download_media(message.media_id)
+    audio, rate = sf.read(io.BytesIO(data), dtype="float32")
+    if audio.ndim > 1:
+        audio = audio.mean(axis=1)
+    turns = (listen or (lambda a, r: transcribe(a, r, diarize=False)))(audio, rate)
+    return " ".join(t.text for t in turns).strip()
+
+
+def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None) -> str | None:
+    """His words, when they tell Marco to set up a session: the last beat he sent is started and he is told so.
+    None when the words are not that instruction."""
+    from hiremarco.studio.beat_in import INBOX, latest_received, session_name, start_session, wants_session
+
+    if not wants_session(said):
+        return None
+    folder = inbox or INBOX
+    if latest_received(folder) is None:
+        wa.send_text(sender, "Send me the beat first, then tell me to start.", idempotency_key=f"nobeat:{message_id}")
+        return "asked for the beat: none is waiting"
+    song = session_name(said)
+    started = start_session(folder, song)
+    wa.send_text(sender, f"On it. Setting up {song or started.stem}.", idempotency_key=f"start:{message_id}")
+    return f"session started for {started.name}" + (f" as {song!r}" if song else "")
 
 
 def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None = None,
-           inbox: Path | None = None) -> str:
+           inbox: Path | None = None, listen=None) -> str:
     wa = wa or WhatsApp()
     heard = message.text or f"[{message.kind}]"
     trace = Trace(f"heard: {heard[:60]}")
@@ -56,12 +85,25 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         wa.mark_read(message.id, typing=True)
         beat = save_beat(message, wa, inbox)
         if beat is not None:
-            wa.send_text(message.sender, "Got the beat. It's going on the Beat track in a new session.",
+            path, started = beat
+            if started:
+                wa.send_text(message.sender, "Got the beat. Setting up the session.", idempotency_key=f"beat:{message.id}")
+                return trace.done(f"beat {path.name} received with its instruction; session started")
+            wa.send_text(message.sender, f"Got the beat ({path.stem}). Want me to start a session with it?",
                          idempotency_key=f"beat:{message.id}")
-            return trace.done(f"beat saved to the inbox as {beat.name}")
-        if message.kind != "text":
+            return trace.done(f"beat kept as {path.name}, waiting for his word")
+        said = message.text
+        if message.kind == "audio" and message.voice and message.media_id:
+            said = voice_text(message, wa, listen)
+            trace.add(f"voice note: {said[:60]}")
+        elif message.kind != "text":
             return trace.done(f"{message.kind} noted, no handler yet")
-        reply = (marco or Marco()).answer(message.text, job="whatsapp-reply")
+        started = instruction(said, message.sender, message.id, wa, inbox)
+        if started is not None:
+            return trace.done(started)
+        if not said:
+            return trace.done("nothing heard in the voice note")
+        reply = (marco or Marco()).answer(said, job="whatsapp-reply")
         if not reply.text.strip():  # Meta refuses an empty text; nothing is sent and the log says why
             return trace.done("no reply: the model returned no text")
         wa.send_text(message.sender, reply.text.strip(), idempotency_key=f"reply:{message.id}")

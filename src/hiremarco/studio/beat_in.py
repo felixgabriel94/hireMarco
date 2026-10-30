@@ -11,9 +11,12 @@ read back before the load counts as done; the booth then reads the beat (key,
 tempo, level, tuning) and offers to set the session, as it does when asked.
 
 A beat reaches Marco through the inbox folder: the artist saves or AirDrops it
-there, and WhatsApp drops an audio file or document there. A caption that names
-the song ("start a session for me for Midnight Drive", "call it Midnight
-Drive") travels beside the file as "<file>.session" and names the session. A file is taken only after its size holds still for one poll, and is
+there and the booth sets it up. A beat sent on WhatsApp waits in the inbox's
+"received" folder until he says to start (Owner 2026-10-30: his instruction
+starts it, by text, caption or voice note); then it moves into the inbox. A
+song name he gives ("start a session for me for Midnight Drive", "call it
+Midnight Drive") travels beside the file as "<file>.session" and names the
+session. A file is taken only after its size holds still for one poll, and is
 moved to the inbox's "loaded" folder after its load, never deleted.
 
 Every keystroke and click goes to Logic only while Logic is the app in front
@@ -72,6 +75,60 @@ def session_name(caption: str) -> str | None:
             if name:
                 return name
     return None
+
+
+def wants_session(text: str) -> bool:
+    """He is telling Marco to set up a session: "start a session for Midnight Drive", "set it up", "load the beat",
+    "let's start the session". A song name alone counts too ("call it Midnight Drive")."""
+    said = " ".join((text or "").lower().split())
+    if not said:
+        return False
+    if re.search(r"\bset (?:it|this|that|the session|everything) up\b", said):
+        return True
+    if re.search(r"\b(?:start|set up|setup|open|begin|load|create|make|build|spin up|get)\b.{0,30}?"
+                 r"\b(?:session|it up|the beat|this beat|that beat|a project|the project)\b", said):
+        return True
+    return re.search(r"\b(?:call|name|title)\s+(?:it|the session|this|the song)\b", said) is not None
+
+
+def received_folder(inbox: Path = INBOX) -> Path:
+    return inbox / "received"
+
+
+def keep_received(data: bytes, name: str, inbox: Path = INBOX) -> Path:
+    """A sent beat kept, not set up: it waits in the inbox's "received" folder for his instruction."""
+    folder = received_folder(inbox)
+    folder.mkdir(parents=True, exist_ok=True)
+    target, n = folder / name, 2
+    while target.exists():
+        target, n = folder / f"{Path(name).stem} {n}{Path(name).suffix}", n + 1
+    partial = target.with_name(f".{target.name}.part")
+    partial.write_bytes(data)
+    partial.rename(target)
+    return target
+
+
+def latest_received(inbox: Path = INBOX) -> Path | None:
+    folder = received_folder(inbox)
+    if not folder.is_dir():
+        return None
+    beats = [p for p in folder.iterdir() if is_beat(p)]
+    return max(beats, key=lambda p: p.stat().st_mtime) if beats else None
+
+
+def start_session(inbox: Path = INBOX, name: str | None = None) -> Path | None:
+    """His instruction: the last beat he sent moves into the inbox, with the song name beside it, and the booth sets
+    the session up. None when no beat is waiting."""
+    beat = latest_received(inbox)
+    if beat is None:
+        return None
+    target, n = inbox / beat.name, 2
+    while target.exists():
+        target, n = inbox / f"{beat.stem} {n}{beat.suffix}", n + 1
+    if name:  # beside the beat before the beat appears, so the booth sees both at once
+        sidecar(target).write_text(name)
+    shutil.move(str(beat), target)
+    return target
 
 
 def sidecar(path: Path) -> Path:
