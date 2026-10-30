@@ -56,7 +56,8 @@ def voice_text(message: Inbound, wa: WhatsApp, listen=None) -> str:
     audio, rate = sf.read(io.BytesIO(data), dtype="float32")
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
-    turns = (listen or (lambda a, r: transcribe(a, r, diarize=False)))(audio, rate)
+    # he names songs in Spanish too: "Angel de Cristal" came back as "Anhil de Cristal" (live 2026-10-30)
+    turns = (listen or (lambda a, r: transcribe(a, r, diarize=False, languages=["English", "Spanish"])))(audio, rate)
     return " ".join(t.text for t in turns).strip()
 
 

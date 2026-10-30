@@ -72,13 +72,16 @@ def _log(joblog: JobLog, job: str, audio_ms: int, started: float, ok: bool, note
 
 
 def transcribe(audio: np.ndarray, rate: int, *, diarize: bool = True, keywords: list[str] | None = None,
-               joblog: JobLog | None = None, transport: httpx.BaseTransport | None = None) -> list[Turn]:
+               languages: list[str] | None = None, joblog: JobLog | None = None,
+               transport: httpx.BaseTransport | None = None) -> list[Turn]:
     joblog = joblog or JobLog()
     gate.check_model_call(TENANT, model=MODEL, system="", prompt="", joblog=joblog)
     pcm = to_pcm24k(audio, rate)
     request = {"model": MODEL, "audioEncoding": "WAV", "mode": "DIARIZATION" if diarize else "ENDPOINTING"}
     if keywords:
         request["keywords"] = keywords
+    if languages:  # accepted by the batch endpoint (checked 2026-10-30); its effect on names is not yet measured
+        request["languageBias"] = languages
     started = time.monotonic()
     with httpx.Client(base_url=BASE_URL, timeout=120, transport=transport) as http:
         response = http.post("/asr/transcribe", headers={"Authorization": f"Bearer {config.require('MODEL_API_KEY')}",
