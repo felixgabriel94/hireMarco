@@ -89,6 +89,9 @@ def ensure_booth(running=booth_running) -> str:
 
     if running():
         return "booth running"
+    from hiremarco.studio.beat_in import wake_display
+
+    wake_display()  # the Mac waits dark while he is away; his word lights it up
     script = config.STATE_DIR / "booth.command"
     if not script.exists():
         return "booth not running, and no booth.command to start it"

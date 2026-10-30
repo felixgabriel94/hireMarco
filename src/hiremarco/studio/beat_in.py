@@ -288,6 +288,31 @@ class Inbox:
         return target
 
 
+def wake_display() -> None:
+    """Light the screen if it went dark (Owner 2026-10-30: the Mac waits dark while he is away, and his text wakes
+    it); a no-op when it is already on."""
+    subprocess.run(["caffeinate", "-u", "-t", "2"], check=False, timeout=10)
+
+
+def dismiss_notices() -> str:
+    """Logic's one-button notices that stop a fresh session (live 2026-10-30: "Plug-ins load as needed"), pressed OK.
+    Only a dialog whose sole choice is OK is pressed; a question with Save or Cancel is left for the artist."""
+    script = (
+        'tell application "System Events" to tell process "Logic Pro"\n'
+        '  set pressed to ""\n'
+        '  repeat with w in (every window whose subrole is "AXDialog")\n'
+        '    set names to title of every button of w\n'
+        '    if names contains "OK" and names does not contain "Cancel" and names does not contain "Save" then\n'
+        '      set pressed to pressed & (value of static text 1 of w) & ";"\n'
+        '      click (first button of w whose title is "OK")\n'
+        '    end if\n'
+        '  end repeat\n'
+        '  return pressed\n'
+        'end tell')
+    done = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=15)
+    return done.stdout.strip()
+
+
 def frontmost() -> str:
     return subprocess.run(["osascript", "-e", 'tell application "System Events" to get name of first process whose '
                            'frontmost is true'], capture_output=True, text=True, timeout=10).stdout.strip()
@@ -345,14 +370,16 @@ class BeatLoader:
                  scroll: Callable[[int], None] = _scroll, go_to_start: Callable[[], str] = _go_to_start,
                  sleep: Callable[[float], None] = time.sleep, template: Path = TEMPLATE, sessions: Path = SESSIONS,
                  conn=None, rules_path: Path | None = None, today: Callable[[], date] = date.today,
-                 wait_s: float = 60.0):
+                 wait_s: float = 180.0, wake: Callable[[], None] = wake_display,
+                 notices: Callable[[], str] = dismiss_notices):
         self.run, self.front, self.click, self.scroll = run, front, click, scroll
         self.open_app = open_app or (lambda p: subprocess.run(["open", "-a", "Logic Pro", str(p)], check=True,
                                                               timeout=30))
         self.go_to_start, self.sleep = go_to_start, sleep
         self.tempo, self.align = tempo or beat_tempo, align or aligned_copy
         self.template, self.sessions, self.today = template, sessions, today
-        self.conn, self.rules_path, self.wait_s = conn, rules_path, wait_s
+        self.conn, self.rules_path, self.wait_s = conn, rules_path, wait_s  # Logic opening cold takes over a minute
+        self.wake, self.notices = wake, notices
 
     def _in_front(self) -> None:
         if self.front() != "Logic Pro":
@@ -400,6 +427,7 @@ class BeatLoader:
         shutil.copytree(self.template, target)
         if prepare is not None:  # files that belong in the session go in before Logic opens it
             prepare(target)
+        self.wake()
         self.open_app(target)
         waited = 0.0
         while waited < self.wait_s:
@@ -409,6 +437,8 @@ class BeatLoader:
             except Exception:  # the window is not up yet, or a dialog is in front of it
                 pass
             if title.startswith(target.stem):
+                self.sleep(1.0)
+                self.notices()
                 return target
             self.sleep(1.0)
             waited += 1.0

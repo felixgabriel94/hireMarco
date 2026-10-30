@@ -96,7 +96,7 @@ def loader(tmp_path, logic, front="Logic Pro", started=None):
                       click=logic.click, scroll=lambda n: None, go_to_start=lambda: started.append("start") or "ok",
                       sleep=lambda s: None, template=template, sessions=tmp_path / "sessions",
                       conn=gate.connect(":memory:"), rules_path=rules(tmp_path), today=lambda: date(2026, 10, 29),
-                      wait_s=3)
+                      wait_s=3, wake=lambda: logic.calls.append(["wake"]), notices=lambda: "")
 
 
 def test_a_beat_lands_on_the_beat_track_of_a_new_session_from_the_template(tmp_path):
@@ -108,7 +108,7 @@ def test_a_beat_lands_on_the_beat_track_of_a_new_session_from_the_template(tmp_p
     assert result == ("Kai 140 Em.wav on the Beat track in Kai 140 Em 2026-10-29.logicx, its first hit (0.328 s in) "
                       "on bar 2 at 105 BPM")
     assert (session / "Alternatives" / "000" / "ProjectData").read_bytes() == b"pd"   # a copy; the template untouched
-    assert logic.opened == session
+    assert logic.opened == session and logic.calls[0] == ["wake"]   # the screen lit before Logic opens
     assert logic.clicks[0] == (237 + 43, 239 + 22)          # PROD opened first, by its triangle
     assert logic.clicks[1][1] == 283 + 22                  # then the Beat header clicked
     assert started == ["start"]
@@ -458,3 +458,15 @@ def test_the_grid_is_found_on_the_kicks_behind_an_intro():
     got = find(audio, rate, bpm, intro)
     assert abs(((got.grid - intro) / beat + 0.5) % 1 - 0.5) * beat < 0.01
     assert got.on_grid > 0.9
+
+
+def test_only_a_one_button_notice_is_pressed(monkeypatch):
+    import subprocess
+
+    from hiremarco.studio import beat_in
+
+    seen = {}
+    monkeypatch.setattr(subprocess, "run", lambda args, **kw: seen.setdefault("script", args[-1]) and
+                        type("R", (), {"stdout": "Plug-ins load as needed;"})())
+    assert beat_in.dismiss_notices() == "Plug-ins load as needed;"
+    assert 'does not contain "Cancel"' in seen["script"] and 'does not contain "Save"' in seen["script"]

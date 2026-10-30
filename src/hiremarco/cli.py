@@ -817,6 +817,31 @@ def cmd_load_beat(args) -> int:
     return 0
 
 
+def cmd_stage(args) -> int:
+    """The Mac waits dark while he is away (Owner 2026-10-30): on keeps it awake with the screen off, so his text
+    can wake the screen and Marco opens Logic; off lets it sleep again. The lock-screen setting stays his own hand."""
+    import os
+    from pathlib import Path
+
+    agent = Path.home() / "Library" / "LaunchAgents" / "com.hiremarco.awake.plist"
+    domain = f"gui/{os.getuid()}"
+    if args.action == "on":
+        agent.write_text(
+            '<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+            '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n<plist version="1.0"><dict>'
+            '<key>Label</key><string>com.hiremarco.awake</string>'
+            '<key>ProgramArguments</key><array><string>/usr/bin/caffeinate</string><string>-i</string>'
+            '<string>-s</string></array><key>RunAtLoad</key><true/><key>KeepAlive</key><true/></dict></plist>\n')
+        subprocess.run(["launchctl", "bootstrap", domain, str(agent)], check=False)
+        subprocess.run(["pmset", "displaysleepnow"], check=False)
+        print("stage on: the Mac stays awake with the screen dark; a text lights it and Marco opens Logic")
+        return 0
+    subprocess.run(["launchctl", "bootout", f"{domain}/com.hiremarco.awake"], check=False)
+    agent.unlink(missing_ok=True)
+    print("stage off: the Mac sleeps as usual again")
+    return 0
+
+
 def cmd_place(args) -> int:
     """Tell the running booth where you are, the same as the menu bar's Listen in the booth / at the desk."""
     import socket
@@ -1100,6 +1125,10 @@ def main(argv: list[str] | None = None) -> int:
     lb = sub.add_parser("load-beat", help="a beat onto the Beat track of a new session from the template")
     lb.add_argument("file")
     lb.set_defaults(func=cmd_load_beat)
+
+    st = sub.add_parser("stage", help="on: the Mac waits awake with the screen dark for his text; off: back to normal")
+    st.add_argument("action", choices=["on", "off"])
+    st.set_defaults(func=cmd_stage)
 
     pl = sub.add_parser("place")
     pl.add_argument("where", choices=["booth", "desk"])
