@@ -439,3 +439,22 @@ def test_the_aligned_copy_puts_the_first_hit_on_a_bar_line_and_keeps_the_whole_f
     _, _, bar = aligned_copy(Path("x.wav"), tmp_path, 105.0, read=lambda p: (long_intro, rate),
                              write=lambda p, d, r: None)
     assert bar == 3                                                # a lead-in longer than a bar lands on the next bar
+
+
+def test_the_grid_is_found_on_the_kicks_behind_an_intro():
+    import numpy as np
+
+    from hiremarco.studio.downbeat import find
+
+    rate, bpm = 22050, 120.0
+    beat = 60.0 / bpm
+    intro = 0.73
+    audio = np.random.default_rng(1).standard_normal(int(rate * (intro + 34 * 4 * beat))).astype(np.float32) * 0.002
+    t = np.arange(int(0.08 * rate)) / rate
+    kick = (np.sin(2 * np.pi * 55 * t) * np.exp(-t * 30)).astype(np.float32)
+    for k in range(34 * 4):
+        at = int((intro + k * beat) * rate)
+        audio[at:at + kick.size] += kick * (1.0 if k % 4 == 0 else 0.6)
+    got = find(audio, rate, bpm, intro)
+    assert abs(((got.grid - intro) / beat + 0.5) % 1 - 0.5) * beat < 0.01
+    assert got.on_grid > 0.9
