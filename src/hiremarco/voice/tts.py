@@ -58,8 +58,8 @@ class Speech:
 
 
 def speakable(text: str) -> str:
-    """Music written the way it is said: "A major" is "Ay major" (live 2026-10-31 the voice said "uh major"), "F#" is
-    "F sharp", "Bb" is "B flat", "Am" is "Ay minor". A capital A that is a word ("A beat arrived") stays as it is."""
+    """Music written the way it is said: "A major" is "Eigh major" (live 2026-10-31 the voice said "uh major"), "F#" is
+    "F sharp", "Bb" is "B flat", "Am" is "Eigh minor". A capital A that is a word ("A beat arrived") stays as it is."""
     import re
 
     # no "Hmm" or "Mm" to open a line (Owner 2026-10-31), whoever wrote it
@@ -68,9 +68,9 @@ def speakable(text: str) -> str:
     t = re.sub(r"\b([A-G])(?:b|♭)(?=m\b|\s|[.,;:!?]|$)", r"\1 flat", t)
     t = re.sub(r"\b([A-G])m\b", r"\1 minor", t)
     note = r"A(?=\s+(?:sharp|flat|major|minor|natural)\b)"
-    t = re.sub(rf"\b{note}", "Ay", t)
-    t = re.sub(r"\b(key of) A\b", r"\1 Ay", t)
-    t = re.sub(r"(?<=\b[A-G] )A\b|\bA(?= [A-G]\b)", "Ay", t)  # in a run of note names: "G A B"
+    t = re.sub(rf"\b{note}", "Eigh", t)
+    t = re.sub(r"\b(key of) A\b", r"\1 Eigh", t)
+    t = re.sub(r"(?<=\b[A-G] )A\b|\bA(?= [A-G]\b)", "Eigh", t)  # in a run of note names: "G A B"
     return t
 
 
