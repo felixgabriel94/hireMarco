@@ -17,6 +17,7 @@
     uv run marco call place --to +1... --purpose "book a table" [--details "..."]   one call, through the gate
                                          (anyone but the Owner: --owner-said "his words, with the full number")
     uv run marco call transcript ID      the call's transcript and cost, into the state folder
+    uv run marco call profile [set F V]  Felix's standing facts for call briefs, kept outside the repo
     uv run marco twilio check            read only: the verified caller IDs and the last calls' status
     uv run marco say "text"              one talkback line in the headphones, kept as a WAV
     uv run marco say --tone              a one-second tone on the talkback output, to test the routing
@@ -219,9 +220,26 @@ def cmd_relay(args) -> int:
 
 
 def cmd_call(args) -> int:
-    from hiremarco.calls import CallError, Calls, transcript_lines
+    import json
+
+    from hiremarco.calls import CallError, Calls, off_brief, transcript_lines
+    from hiremarco.calls import brief as briefs
     from hiremarco.critic import Critic
 
+    if args.action == "profile":
+        profile = briefs.load_profile()
+        if args.id == "set":
+            if len(args.rest) < 2 or args.rest[0] not in briefs.PROFILE_FIELDS:
+                print(f"call profile set FIELD VALUE, FIELD one of {', '.join(briefs.PROFILE_FIELDS)}")
+                return 1
+            profile[args.rest[0]] = " ".join(" ".join(args.rest[1:]).split())
+            path = briefs.save_profile(profile)
+            print(f"{args.rest[0]} set in {path}")
+            return 0
+        for key, value in profile.items():
+            print(f"  {key:<17} {'set' if value else 'EMPTY'}")
+        print(f"profile: {briefs.profile_path()} (outside the repo)")
+        return 0
     calls = Calls()
     try:
         if args.action == "setup":
@@ -233,10 +251,16 @@ def cmd_call(args) -> int:
             print(f"agent {made['agent_id']} ready, voice model {made['tts_model']}; line id stored in the env file")
             return 0
         if args.action == "place":
+            given = json.loads(open(args.brief_file).read()) if args.brief_file else {}
+            given = {**{k: str(v) for k, v in given.items()}, **briefs.parse_pairs(args.brief)}
             trace = Trace(f"call: {args.purpose}")
             try:
                 placed = calls.place(args.to, args.purpose, args.details, critic=None if args.no_critic else Critic(),
-                                     owner_request=args.owner_said or None)
+                                     owner_request=args.owner_said or None, brief=given, kind=args.kind or None)
+            except briefs.BriefIncomplete as gap:
+                trace.done(f"not dialed: {gap}")
+                print("fill them with --brief FIELD=VALUE, or the standing ones with `marco call profile set`")
+                return 1
             except gate.Refused as refused:
                 trace.done(f"held: {refused.reason}")
                 return 1
@@ -247,6 +271,8 @@ def cmd_call(args) -> int:
 
         data = json.loads(path.read_text())
         print("\n".join(transcript_lines(data)) or "(no transcript yet)")
+        if off_brief(data):
+            print(f"asked beyond the brief, for Felix:\n{off_brief(data)}")
         meta = data.get("metadata") or {}
         print(f"status {data.get('status')}, {meta.get('call_duration_secs')} s, cost {meta.get('cost_fiat')} USD;"
               f" saved to {path}")
@@ -1120,12 +1146,16 @@ def main(argv: list[str] | None = None) -> int:
     r.set_defaults(func=cmd_relay)
 
     ca = sub.add_parser("call")
-    ca.add_argument("action", choices=["setup", "place", "transcript"])
-    ca.add_argument("id", nargs="?", help="the conversation id, for transcript")
+    ca.add_argument("action", choices=["setup", "place", "transcript", "profile"])
+    ca.add_argument("id", nargs="?", help="the conversation id, for transcript; set, for profile")
+    ca.add_argument("rest", nargs="*", help="profile set FIELD VALUE")
     ca.add_argument("--relay-url", default="", help="https://<tunnel>/llm/v1, for setup")
     ca.add_argument("--to", default="", help="E.164 with the plus")
     ca.add_argument("--purpose", default="")
     ca.add_argument("--details", default="")
+    ca.add_argument("--brief", action="append", default=[], help="FIELD=VALUE, one per field the call needs")
+    ca.add_argument("--brief-file", default="", help="a JSON file of brief fields")
+    ca.add_argument("--kind", default="", help="reservation or generic (default: from the purpose)")
     ca.add_argument("--no-critic", action="store_true", help="skip the critic's second look")
     ca.add_argument("--owner-said", default="", help="the Owner's own words naming the number, for anyone but him")
     ca.set_defaults(func=cmd_call)

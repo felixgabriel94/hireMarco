@@ -6,6 +6,7 @@ import pytest
 
 from hiremarco import config, gate
 from hiremarco.calls import AGENT_NAME, PHONE_LABEL, SECRET_NAME, TTS_FALLBACK, TTS_MODEL, CallError, Calls, first_message
+from hiremarco.calls.brief import BriefIncomplete
 from hiremarco.calls.twilio import TwilioCheck, masked
 from hiremarco.joblog import JobLog
 
@@ -84,6 +85,8 @@ def test_setup_creates_agent_secret_and_stores_ids(env):
     agent = body["conversation_config"]["agent"]
     assert agent["first_message"] == "" and body["conversation_config"]["turn"]["initial_wait_time"] == 3.0
     assert "Your first words, exactly: {{opening}}" in prompt["prompt"]
+    assert "{{brief}}" in prompt["prompt"] and "steer back to the purpose" in prompt["prompt"]
+    assert body["platform_settings"]["data_collection"]["off_brief"]["type"] == "string"
     assert prompt["backup_llm_config"] == {"preference": "disabled"}
     lowered = prompt["prompt"].lower()
     assert "no exclamation marks" in lowered and "never invent a date, a time, a party size or a name" in lowered
@@ -137,7 +140,14 @@ def placing(env, monkeypatch):
     transport, seen = fake({("POST", "/v1/convai/twilio/outbound-call"):
                             {"success": True, "message": "ok", "conversation_id": "conv_1", "callSid": "CA123"}})
     calls = Calls(transport=transport, conn=gate.connect(":memory:"), joblog=env["log"], rules_path=env["rules"])
+    place = calls.place
+    calls.place = lambda *a, **k: place(*a, **{"brief": FULL_BRIEF, **k})
     return calls, seen
+
+
+FULL_BRIEF = {"name": "Felix Example", "party_size": "4", "date": "Thursday", "time": "8 pm", "time_window": "30 min",
+              "seating": "indoor", "occasion": "none", "special_requests": "none", "email": "f@example.com",
+              "ask": "their opening hours", "if_unavailable": "thank them and end the call"}
 
 
 def test_place_sends_opening_details_and_machine_hangup(placing, env):
@@ -148,9 +158,10 @@ def test_place_sends_opening_details_and_machine_hangup(placing, env):
     assert body["agent_id"] == "agent-1" and body["agent_phone_number_id"] == "pn-marco"
     assert body["to_number"] == "+" + OWNER
     client = body["conversation_initiation_client_data"]
-    assert client["dynamic_variables"] == {
-        "opening": "Hi, just so you know, this call is recorded. I'm calling to book a table for Felix.",
-        "purpose": "book a table", "details": "test call, no booking"}
+    variables = client["dynamic_variables"]
+    assert variables["opening"] == "Hi, just so you know, this call is recorded. I'm calling to book a table for Felix."
+    assert (variables["purpose"], variables["details"]) == ("book a table", "test call, no booking")
+    assert "- party size: 4" in variables["brief"] and "never read out card details" in variables["brief"]
     amd = body["telephony_call_config"]["twilio_machine_detection"]
     assert amd["actions"] == [{"action": "hang_up", "answered_by": ["machine_start", "fax"]}]
     row = env["log"].rows()[-1]
@@ -206,6 +217,17 @@ def test_named_switch_never_opens_whatsapp_to_anyone_else(env):
                             rules_path=env["rules"], owner_request="text +15557770000")
 
 
+def test_an_incomplete_brief_is_refused_before_dialing(env, monkeypatch):
+    monkeypatch.setenv("ELEVENLABS_CALL_AGENT_ID", "agent-1")
+    monkeypatch.setenv("ELEVENLABS_PHONE_NUMBER_ID", "pn-marco")
+    transport, seen = fake({})
+    calls = Calls(transport=transport, conn=gate.connect(":memory:"), joblog=env["log"], rules_path=env["rules"])
+    with pytest.raises(BriefIncomplete) as gap:
+        calls.place("+" + OWNER, "book a table", brief={"party_size": "4", "date": "Thursday"}, today=TODAY)
+    assert gap.value.missing == ["name", "time", "time_window", "seating", "occasion", "special_requests", "email"]
+    assert seen == [] and env["log"].rows() == []
+
+
 def test_place_needs_plus_number(placing):
     calls, seen = placing
     with pytest.raises(CallError, match="E.164"):
@@ -229,12 +251,15 @@ def test_transcript_saved_outside_repo_with_cost(env):
     conv = {"status": "done", "conversation_id": "conv_1", "agent_id": "agent-1",
             "transcript": [{"role": "agent", "time_in_call_secs": 0, "message": "Hi, just so you know, this call is recorded."},
                            {"role": "user", "time_in_call_secs": 4, "message": "Hello"}],
-            "metadata": {"call_duration_secs": 42, "cost_fiat": 0.07, "cost": 350}}
+            "metadata": {"call_duration_secs": 42, "cost_fiat": 0.07, "cost": 350},
+            "analysis": {"data_collection_results": {"off_brief": {"data_collection_id": "off_brief", "rationale": "r",
+                                                                   "value": "Asked for a last name spelling"}}}}
     transport, _ = fake({("GET", "/v1/convai/conversations/conv_1"): conv})
     path = Calls(transport=transport, joblog=env["log"]).transcript("conv_1", env["tmp"] / "calls")
     assert json.loads(path.read_text())["transcript"][1]["message"] == "Hello"
     row = env["log"].rows()[-1]
     assert row["job"] == "call-cost" and row["cost_usd"] == 0.07 and row["duration_ms"] == 42000
+    assert "off brief: Asked for a last name spelling" in row["note"]
     with pytest.raises(CallError):
         Calls(transport=transport, joblog=env["log"]).transcript("../etc")
 
