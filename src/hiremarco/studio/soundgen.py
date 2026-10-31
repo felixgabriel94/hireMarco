@@ -23,6 +23,9 @@ from hiremarco import config, gate
 from hiremarco.joblog import JobLog, JobRow
 
 URL = "https://api.elevenlabs.io/v1/music"
+FORMAT = "pcm_48000"  # uncompressed: 16-bit stereo at 48 kHz (live 2026-10-31: 5 s came back as 962,976 bytes);
+#                       the default is a 128 kbps MP3
+RATE, CHANNELS = 48000, 2
 MODEL = "music_v1"
 TENANT = "owner"
 MAX_SECONDS = 60.0
@@ -69,7 +72,7 @@ def generate(text: str, seconds: float, *, api_key: str | None = None, joblog: J
     key = api_key or config.require("ELEVENLABS_API_KEY")
     started = time.monotonic()
     with httpx.Client(timeout=240, transport=transport) as http:
-        r = http.post(URL, headers={"xi-api-key": key},
+        r = http.post(URL, params={"output_format": FORMAT}, headers={"xi-api-key": key},
                       json={"prompt": text, "music_length_ms": int(seconds * 1000), "model_id": MODEL})
     ms = int((time.monotonic() - started) * 1000)
     if r.status_code >= 400 or not r.headers.get("content-type", "").startswith("audio"):
@@ -88,7 +91,11 @@ def fit(audio_bytes: bytes, wanted_key: str, folder: Path, name: str, *, read_ke
     import librosa
     import soundfile as sf
 
-    data, rate = sf.read(io.BytesIO(audio_bytes), dtype="float32", always_2d=True)
+    if audio_bytes[:4] in (b"RIFF", b"ID3\x03") or audio_bytes[:2] == b"\xff\xfb":
+        data, rate = sf.read(io.BytesIO(audio_bytes), dtype="float32", always_2d=True)
+    else:  # raw PCM from the API: 16-bit little-endian, interleaved stereo
+        pcm = np.frombuffer(audio_bytes[: len(audio_bytes) // (2 * CHANNELS) * 2 * CHANNELS], dtype="<i2")
+        data, rate = pcm.reshape(-1, CHANNELS).astype("float32") / 32768.0, RATE
     folder.mkdir(parents=True, exist_ok=True)
     raw = folder / f".{name}.raw.wav"
     sf.write(str(raw), data, rate, subtype="PCM_24")

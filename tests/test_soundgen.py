@@ -45,3 +45,12 @@ def test_the_clip_is_moved_into_the_key_and_written_for_logic(tmp_path):
     made = soundgen.fit(buf.getvalue(), "A major", tmp_path, "pad", read_key=lambda d, r: "G major")
     assert made.shift == 2 and made.path.exists() and sf.info(str(made.path)).subtype == "PCM_24"
     assert not list(tmp_path.glob(".*raw*"))
+
+
+def test_raw_pcm_from_the_api_becomes_a_48k_stereo_wav(tmp_path):
+    pcm = (np.stack([np.full(4800, 1000, dtype="<i2"), np.full(4800, -1000, dtype="<i2")], axis=1)).tobytes()
+    made = soundgen.fit(pcm, "A major", tmp_path, "pad", read_key=lambda d, r: "A major")
+    info = sf.info(str(made.path))
+    assert (info.samplerate, info.channels, info.subtype) == (48000, 2, "PCM_24") and made.shift == 0
+    data, _ = sf.read(str(made.path))
+    assert data[0, 0] > 0 > data[0, 1]                                    # left and right kept apart
