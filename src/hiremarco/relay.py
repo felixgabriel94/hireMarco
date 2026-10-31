@@ -12,8 +12,10 @@ On a call (live 2026-10-31) three things are the relay's, not the model's: Marco
 first reply is the opening line from the prompt, word for word and with no model
 call, so the recording notice is always the first thing said; every turn asks for
 minimal reasoning and few tokens, because turns of 3 to 5 s left the callee saying
-"Hello?" and once made ElevenLabs give up; and audio tags such as "[happy]" are
-taken out of what Marco says.
+"Hello?" and once made ElevenLabs give up; audio tags such as "[happy]" are
+taken out of what Marco says; and a word the profile respells (``say_as``, a
+name the voice read in the wrong language) is swapped for its respelling in
+speech, while spelling it out letter by letter is left alone.
 """
 
 from __future__ import annotations
@@ -29,6 +31,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse, Response, StreamingResponse
 
 from hiremarco import config, gate
+from hiremarco.calls import brief as briefs
 from hiremarco.joblog import JobLog, JobRow
 from hiremarco.meta.client import BASE_URL, DEFAULT_MODEL
 from hiremarco.meta.pricing import cost_usd
@@ -61,15 +64,23 @@ def opening_for(messages: list[dict]) -> str | None:
     return None
 
 
-class TagFilter:
-    """Takes audio tags out of streamed text, holding a "[" until its "]" arrives (or 26 characters pass)."""
+def respell(text: str, pairs: dict[str, str]) -> str:
+    for word, spoken in pairs.items():
+        text = re.sub(rf"\b{re.escape(word)}\b", spoken, text)
+    return text
 
-    def __init__(self):
+
+class TagFilter:
+    """Cleans streamed text: takes audio tags out, holding a "[" until its "]" arrives (or 26 characters pass),
+    and swaps in respellings, holding a word cut at the end of a chunk until it is whole."""
+
+    def __init__(self, pairs: dict[str, str] | None = None):
         self.held = ""
         self.started = False
+        self.pairs = pairs or {}
 
     def _out(self, text: str) -> str:
-        text = TAG.sub("", text)
+        text = respell(TAG.sub("", text), self.pairs)
         if not self.started:
             text = text.lstrip()
             self.started = bool(text)
@@ -80,6 +91,10 @@ class TagFilter:
         i = text.rfind("[")
         if i != -1 and "]" not in text[i:] and len(text) - i <= 26:
             text, self.held = text[:i], text[i:]
+        elif self.pairs:
+            cut = re.search(r"[A-Za-z'-]+$", text)
+            if cut:
+                text, self.held = text[:cut.start()], text[cut.start():]
         return self._out(text)
 
     def flush(self) -> str:
@@ -159,16 +174,17 @@ def make_relay(transport: httpx.AsyncBaseTransport | None = None, joblog: JobLog
                 return JSONResponse({"error": f"upstream {response.status_code}"}, status_code=502)
             data = response.json()
             record(data.get("usage") or {}, True)
+            pairs = briefs.say_as()
             for choice in data.get("choices") or []:
                 message = choice.get("message") or {}
                 if isinstance(message.get("content"), str):
-                    message["content"] = TAG.sub("", message["content"]).strip()
+                    message["content"] = respell(TAG.sub("", message["content"]).strip(), pairs)
             return JSONResponse(data)
 
         async def relay_stream() -> AsyncIterator[bytes]:
             usage: dict = {}
             ok = True
-            tags = TagFilter()
+            tags = TagFilter(briefs.say_as())
             try:
                 async with client.stream("POST", "/chat/completions", json=forward, headers=headers) as upstream:
                     if upstream.status_code >= 400:

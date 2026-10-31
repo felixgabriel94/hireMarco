@@ -123,3 +123,29 @@ def test_audio_tags_are_taken_out_even_split_across_chunks(tmp_path, monkeypatch
     spoken = "".join(json.loads(line[6:])["choices"][0]["delta"].get("content", "")
                      for line in r.text.splitlines() if line.startswith("data: {"))
     assert spoken == "Thursday at eight. Thanks"
+
+
+def test_a_profile_respelling_is_said_and_spelling_out_is_left_alone(tmp_path, monkeypatch):
+    from hiremarco.calls import brief as briefs
+
+    monkeypatch.setenv("RELAY_TOKEN", "relay-secret")
+    monkeypatch.setenv("MODEL_API_KEY", "meta-key")
+    briefs.save_profile({**briefs.PROFILE_FIELDS, "say_as": "Zorrilla=Zor-illa; =x; bad"})
+    assert briefs.say_as() == {"Zorrilla": "Zor-illa"}
+
+    def upstream(request):
+        if json.loads(request.content).get("stream"):
+            parts = ["Under Felix Zorr", "illa. That's Z O R", " R I L L A, Zorrilla"]
+            lines = [f'data: {{"choices":[{{"delta":{{"content":{json.dumps(p)}}}}}]}}' for p in parts] + ["data: [DONE]"]
+            return httpx.Response(200, text="\n".join(lines) + "\n", headers={"content-type": "text/event-stream"})
+        return httpx.Response(200, json={"choices": [{"message": {"content": "Felix Zorrilla, yes."}}], "usage": {}})
+
+    app = Starlette(routes=[Route("/llm/v1/chat/completions", make_relay(
+        transport=httpx.MockTransport(upstream), joblog=JobLog(tmp_path / "j.jsonl")), methods=["POST"])])
+    client = TestClient(app)
+    turn = [{"role": "assistant", "content": OPENING}, {"role": "user", "content": "Name?"}]
+    assert post(client, {"messages": turn}).json()["choices"][0]["message"]["content"] == "Felix Zor-illa, yes."
+    r = post(client, {"stream": True, "messages": turn})
+    spoken = "".join(json.loads(line[6:])["choices"][0]["delta"].get("content", "")
+                     for line in r.text.splitlines() if line.startswith("data: {"))
+    assert spoken == "Under Felix Zor-illa. That's Z O R R I L L A, Zor-illa"

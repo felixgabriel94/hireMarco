@@ -41,7 +41,19 @@ FIXED = {
     "card_hold": "Felix completes any card hold himself, by a link or a callback; never read out card details",
     "callback": "this number, the line Marco is calling from",
 }
-PROFILE_FIELDS = {"full_name": "", "email": "", "seating": "", "special_requests": "", "time_window": ""}
+# say_as: how a word is said aloud on a call, "Word=Respelling; Other=Respelling" (the relay swaps it in speech only)
+PROFILE_FIELDS = {"full_name": "", "email": "", "seating": "", "special_requests": "", "time_window": "", "say_as": ""}
+
+
+def say_as(profile: dict[str, str] | None = None) -> dict[str, str]:
+    """The profile's respellings, word to how it is said; letter-by-letter spelling is left alone."""
+    profile = load_profile() if profile is None else profile
+    pairs = {}
+    for item in (profile.get("say_as") or "").split(";"):
+        word, sep, spoken = item.partition("=")
+        if sep and word.strip() and spoken.strip():
+            pairs[word.strip()] = spoken.strip()
+    return pairs
 
 
 def profile_path() -> Path:
