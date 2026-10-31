@@ -781,13 +781,21 @@ class Booth:
             self.lifter.go(__import__("hiremarco.studio.gain", fromlist=["Spot"]).Spot(3))
             self.lifter.deselect("all")
             region = self.lifter.select(track)
+            try:  # the beat's own gain, lowered when it was staged: the stems' stack gets the same (Owner 2026-10-31)
+                lowered = float(_osa("regions_io.applescript", ["param", "Gain"]) or 0) / 10  # tenths of a dB
+            except (RuntimeError, ValueError):
+                lowered = 0.0
             _osa("regions_io.applescript", ["stems"])
+            if lowered:
+                time.sleep(1.0)
+                _osa("tracks_io.applescript", ["fader", f"{region} (Stems)", f"{lowered:g}"])
         except Exception as exc:
             failed = f"{type(exc).__name__}: {str(exc)[-160:]}"
             self._say("the stem split did not run", {"what_failed": failed}, FAILED)
             return f"stems failed: {failed}"
         self._say("split the beat into stems with Logic's Stem Splitter", {"region": region}, "Stems are in.")
-        return f"stems split from {region} on {track}"
+        return f"stems split from {region} on {track}" + (f"; the stack's fader at {lowered:g} dB, as the beat"
+                                                           if lowered else "")
 
     def _timing(self, said: str) -> str:
         """Where the last take's attacks land against the grid, in milliseconds, by bar and beat (Owner 2026-10-31:

@@ -472,6 +472,40 @@ on run argv
 			error "the send on " & busName & " stopped at " & d
 		end tell
 	end if
+	if mode is "fader" then
+		-- a track's volume fader in dB on the Inspector's channel strip (mapped live 2026-10-31): a slider described
+		-- "volume fader" whose value description reads "0.0 dB"; stepped there like a send and read back. After a
+		-- stem split the stack's own strip shows here, which is where the beat's lowered gain is put back (Owner).
+		set wantedTrack to item 2 of argv
+		set target to (item 3 of argv) as real
+		tell application "System Events"
+			set insp to first UI element of main whose description is "Inspector" and role is "AXGroup"
+			set strip to first UI element of (UI element 1 of UI element 3 of UI element 1 of insp) whose description is wantedTrack
+			set f to first UI element of strip whose description is "volume fader"
+			repeat 300 times
+				set d to value of attribute "AXValueDescription" of f
+				set t to d
+				if t ends with " dB" then set t to text 1 thru -4 of t
+				if t is "-∞" then
+					set now to -200
+				else
+					set now to t as real
+				end if
+				if now ≥ target - 0.15 and now ≤ target + 0.15 then return "fader" & tab & wantedTrack & tab & d
+				if target - now ≥ 6 then
+					perform action "AXIncrement" of f
+				else if now - target ≥ 6 then
+					perform action "AXDecrement" of f
+				else if now < target then
+					set value of f to 2.0E+9
+				else
+					set value of f to 0
+				end if
+				delay 0.04
+			end repeat
+			error "the fader on " & wantedTrack & " stopped at " & d
+		end tell
+	end if
 	if mode is "tempo" then
 		-- set the project tempo on the Control Bar's Tempo control, then read it back
 		-- a write moves the slider one BPM toward the value and AXIncrement / AXDecrement move it ten (live

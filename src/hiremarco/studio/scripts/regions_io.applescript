@@ -116,7 +116,7 @@ on run argv
 			set px to (item 1 of tp) + (item 1 of tz) / 2
 			set lane to missing value
 			repeat with l in (every UI element of lanes whose role is "AXLayoutArea")
-				if (description of l) ends with ("“" & wanted & "”") then set lane to contents of l
+				if (description of l) contains ("“" & wanted & "”") then set lane to contents of l -- a muted lane reads "Track 2 “Beat”, mute"
 			end repeat
 			if lane is missing value then error "no track named " & wanted & " is showing"
 			set hit to missing value
@@ -175,6 +175,7 @@ on run argv
 				end if
 			end repeat
 			if s is missing value then error "no " & (item 2 of argv) & " row: is an audio region selected?"
+			if (count of argv) < 3 then return (value of s) as text -- read only
 			set target to (item 3 of argv) as real
 			repeat 80 times
 				if ((value of s) as real) is target then exit repeat

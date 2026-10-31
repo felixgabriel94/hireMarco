@@ -58,7 +58,9 @@ class Lifter:
     def __init__(self, *, go: Callable[[Spot], object] = lambda s: _osa("markers_io.applescript", ["gotoexact", *s.args()]),
                  select: Callable[[str], str] = lambda track: _osa("regions_io.applescript", ["under", track]),
                  split: Callable[[], None] = _split,
-                 set_gain: Callable[[float], str] = lambda db: _osa("regions_io.applescript", ["gain", f"{db:g}"]),
+                 # the inspector's Gain slider counts tenths of a dB (live 2026-10-31: -7.5 dB reads -75), so the
+                 # dB are sent times ten and the read-back divided again
+                 set_gain: Callable[[float], str] = lambda db: f'{float(_osa("regions_io.applescript", ["gain", f"{round(db * 10)}"])) / 10:g}',
                  selected: Callable[[], str] = lambda: _osa("regions_io.applescript", ["selected"]),
                  deselect: Callable[[str], str] = lambda which: _osa("regions_io.applescript", ["deselect", which]),
                  sleep: Callable[[float], None] = time.sleep):
