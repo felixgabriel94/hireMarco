@@ -106,6 +106,7 @@ def test_setup_creates_agent_secret_and_stores_ids(env):
     assert "no exclamation marks" in lowered and "never invent a date, a time, a party size or a name" in lowered
     # after the rehearsal call: no narrated hang-up, contractions shown by example, a fixed answer for "what company"
     assert "never describe what you are doing" in lowered and "no dashes" in lowered
+    assert "\"No, that's everything, thanks.\" and end the call; don't repeat the goodbye." in prompt["prompt"]
     assert "\"it's for thursday at eight, a table for four.\"" in lowered
     assert "\"I'm Felix's assistant, calling for him personally.\"" in prompt["prompt"]
     assert "\u2014" not in prompt["prompt"] and "\u2013" not in prompt["prompt"]
