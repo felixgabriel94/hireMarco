@@ -154,12 +154,13 @@ def agent_body(llm_url: str, secret_id: str, voice_id: str, tts_model: str = TTS
 def voicemail_text(purpose: str, written: str = "") -> str:
     """What Marco leaves on a voicemail: the brief's own words, or a short default from the purpose.
 
-    It opens with the recording notice, as every call does under RULES.md, until a rule there says otherwise.
+    No recording notice: RULES.md leaves it out of a voicemail after a recorded greeting (Owner 2026-10-31); a
+    call that reaches a person still opens with it, said by the relay.
     """
     body = " ".join(written.split()) or (
         f"It's Marco, Felix's assistant, calling to {' '.join(purpose.split()).rstrip('.')} for Felix. "
         "Felix will follow up. Thanks, bye.")
-    return f"{gate.RECORDING_OPENING} {body}"
+    return body
 
 
 def call_key(to: str, purpose: str, details: str, today: date | None = None) -> str:

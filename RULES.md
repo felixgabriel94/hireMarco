@@ -17,6 +17,11 @@ Anything that cannot be taken back also passes the critic, which fails
 closed. Check: `tests/test_rules.py`, `tests/test_gate.py`,
 `tests/test_critic.py`.
 
+**A voicemail left after a recorded greeting does not carry the recording
+notice; a call that reaches a person still opens with it.** Owner,
+2026-10-31: the notice protects a live conversation, and on a voicemail the
+only other voice is a recording. Check: `tests/test_calls.py`.
+
 Grammar, one line each, under the heading that follows:
 
     send: <tool> -> <destination> ; <purpose> ; until <YYYY-MM-DD | revoked>

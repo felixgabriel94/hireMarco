@@ -184,8 +184,10 @@ def test_place_sends_opening_details_and_machine_hangup(placing, env):
     amd = body["telephony_call_config"]["twilio_machine_detection"]
     # only a fax hangs up: a bot voice labelled a machine (an AI receptionist) stays on the line
     assert amd == {"mode": "detect_message_end", "actions": [{"action": "hang_up", "answered_by": ["fax"]}]}
-    assert variables["voicemail"] == ("Hi, just so you know, this call is recorded. It's Marco, Felix's assistant, "
-                                      "calling to book a table for Felix. Felix will follow up. Thanks, bye.")
+    # RULES.md: a voicemail after a recorded greeting carries no recording notice; the live opening still does
+    assert variables["voicemail"] == ("It's Marco, Felix's assistant, calling to book a table for Felix. "
+                                      "Felix will follow up. Thanks, bye.")
+    assert variables["opening"].startswith(gate.RECORDING_OPENING)
     row = env["log"].rows()[-1]
     assert row["job"] == "call" and "conv_1" in row["note"] and "CA123" in row["note"]
     assert OWNER not in json.dumps(env["log"].rows())
@@ -255,7 +257,7 @@ def test_the_brief_can_write_the_voicemail(placing):
     calls.place("+" + OWNER, "pass on a message", brief={**FULL_BRIEF, "voicemail": "Maddy, it's Marco. He'll call soon."},
                 today=TODAY)
     variables = seen[0][3]["conversation_initiation_client_data"]["dynamic_variables"]
-    assert variables["voicemail"] == "Hi, just so you know, this call is recorded. Maddy, it's Marco. He'll call soon."
+    assert variables["voicemail"] == "Maddy, it's Marco. He'll call soon."
     assert "voicemail" not in variables["brief"]
 
 
