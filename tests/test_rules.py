@@ -66,10 +66,11 @@ def test_owner_destination_is_off_while_owner_unset(tmp_path, monkeypatch):
     assert rules.allowed("whatsapp", "15551234567", date(2026, 10, 28), p) is False
 
 
-def test_repo_rules_file_switches_only_whatsapp_to_the_owner():
-    # RULES.md in this repository turns on WhatsApp to the Owner, talkback and Logic; nothing reaches anyone else.
+def test_repo_rules_file_reaches_only_the_owner():
+    # RULES.md in this repository turns on WhatsApp and calls to the Owner, talkback and Logic; nothing reaches
+    # anyone else (Owner 2026-10-31: the calls line to his own phone).
     assert [(s.tool, s.destination) for s in rules.switches()] == [
-        ("whatsapp", "owner"), ("talkback", "*"), ("logic", "*")]
+        ("whatsapp", "owner"), ("talkback", "*"), ("logic", "*"), ("calls", "owner")]
 
 
 def test_read_grants_exact_address_and_domain(tmp_path):
