@@ -104,8 +104,20 @@ def ensure_booth(running=booth_running) -> str:
     script = config.STATE_DIR / "booth.command"
     if not script.exists():
         return "booth not running, and no booth.command to start it"
-    subprocess.run(["open", "-a", "Terminal", str(script)], check=False, timeout=15)
+    # opened behind the front app, then Terminal hidden: the booth runs in it (its microphone and screen grants are
+    # Terminal's), but nothing of it shows (Owner 2026-10-31: the halo and Logic are what the film sees)
+    subprocess.run(["open", "-g", "-a", "Terminal", str(script)], check=False, timeout=15)
+    hide_terminal()
     return "booth started"
+
+
+def hide_terminal(wait_s: float = 1.5) -> None:
+    import subprocess
+    import time
+
+    time.sleep(wait_s)
+    subprocess.run(["osascript", "-e", 'tell application "System Events" to set visible of process "Terminal" to false'],
+                   check=False, capture_output=True, timeout=10)
 
 
 def status(inbox: Path, running=booth_running) -> str:
