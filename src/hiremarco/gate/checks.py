@@ -41,6 +41,8 @@ PERSON_CHANNELS = {"whatsapp", "voice"}
 
 # Every call opens with this line, word for word; it is also the film's caption.
 RECORDING_NOTICE = "Hi, this call is recorded. I'm an AI assistant calling to book a table for Felix."
+# Any call's opening, whatever it is calling about; the notice above is the booking call's, word for word.
+RECORDING_OPENING = "Hi, this call is recorded. I'm an AI assistant calling to "
 
 DAILY_LIMITS = {"voice": 30, "whatsapp": 100}
 DUPLICATE_WINDOW_S = 600
@@ -127,7 +129,7 @@ def check_outbound(
             raise Refused("a person is reached by phone number only")
         if channel == "whatsapp" and target != _owner():
             raise Refused("WhatsApp goes to the Owner only")
-        if channel == "voice" and not message.startswith(RECORDING_NOTICE):
+        if channel == "voice" and not message.startswith(RECORDING_OPENING):
             raise Refused("a call must open with the recording notice")
     elif target != "*":
         raise Refused(f"{channel} reaches no person; its target is '*'")

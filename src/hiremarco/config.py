@@ -27,6 +27,12 @@ KNOWN_KEYS = (
     "RELAY_TOKEN",              # what ElevenLabs sends to reach the call relay; made by `marco relay token`
     "ELEVENLABS_API_KEY",       # Marco's voice: text to speech
     "ELEVENLABS_VOICE_ID",      # the voice he speaks in
+    "ELEVENLABS_CALL_AGENT_ID", # the "Marco (calls)" agent, written by `marco call setup` (not secret)
+    "ELEVENLABS_PHONE_NUMBER_ID",  # the imported line Marco calls from, written by `marco call setup` (not secret)
+    "CALL_RELAY_URL",           # the tunnel's public address of the call relay, ending /llm/v1 (not secret)
+    "TWILIO_ACCOUNT_SID",       # the Twilio account the line sits in
+    "TWILIO_API_KEY_SID",       # Marco's own Standard key, marco-ops, for `marco twilio check` (read only)
+    "TWILIO_API_KEY_SECRET",
 )
 
 

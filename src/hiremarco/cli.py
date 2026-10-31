@@ -13,6 +13,10 @@
     uv run marco google signin           one Google sign-in for mail (read) and calendar
     uv run marco mail check              granted senders' mail from the last two days
     uv run marco relay token             make the call relay's token, copy it to the clipboard for ElevenLabs
+    uv run marco call setup [--relay-url URL]  the "Marco (calls)" agent on ElevenLabs, made or brought up to date
+    uv run marco call place --to +1... --purpose "book a table" [--details "..."]   one call, through the gate
+    uv run marco call transcript ID      the call's transcript and cost, into the state folder
+    uv run marco twilio check            read only: the verified caller IDs and the last calls' status
     uv run marco say "text"              one talkback line in the headphones, kept as a WAV
     uv run marco say --tone              a one-second tone on the talkback output, to test the routing
     uv run marco say --fresh "text"      a new take of a line Marco has said before
@@ -210,6 +214,61 @@ def cmd_relay(args) -> int:
         config.set_value("RELAY_TOKEN", token)
     subprocess.run(["pbcopy"], input=token.encode(), check=True)
     print("RELAY_TOKEN copied to the clipboard; paste it as the custom LLM's API key secret in ElevenLabs")
+    return 0
+
+
+def cmd_call(args) -> int:
+    from hiremarco.calls import CallError, Calls, transcript_lines
+    from hiremarco.critic import Critic
+
+    calls = Calls()
+    try:
+        if args.action == "setup":
+            url = args.relay_url or config.get("CALL_RELAY_URL")
+            if not url:
+                print("no relay address: pass --relay-url https://<tunnel>/llm/v1 once; it is kept in the env file")
+                return 1
+            made = calls.setup(url)
+            print(f"agent {made['agent_id']} ready, voice model {made['tts_model']}; line id stored in the env file")
+            return 0
+        if args.action == "place":
+            trace = Trace(f"call: {args.purpose}")
+            try:
+                placed = calls.place(args.to, args.purpose, args.details, critic=None if args.no_critic else Critic())
+            except gate.Refused as refused:
+                trace.done(f"held: {refused.reason}")
+                return 1
+            trace.done(f"ringing: conversation {placed['conversation_id']} callSid {placed['callSid']}")
+            return 0
+        path = calls.transcript(args.id)
+        import json
+
+        data = json.loads(path.read_text())
+        print("\n".join(transcript_lines(data)) or "(no transcript yet)")
+        meta = data.get("metadata") or {}
+        print(f"status {data.get('status')}, {meta.get('call_duration_secs')} s, cost {meta.get('cost_fiat')} USD;"
+              f" saved to {path}")
+        return 0
+    except CallError as err:
+        print(f"call: {err}")
+        return 1
+
+
+def cmd_twilio(args) -> int:
+    from hiremarco.calls.twilio import TwilioCheck, TwilioError
+
+    try:
+        check = TwilioCheck()
+        ids, recent = check.caller_ids(), check.recent_calls(args.last)
+    except TwilioError as err:
+        print(f"twilio: {err}")
+        return 1
+    print("verified caller IDs:")
+    for c in ids:
+        print(f"  {c['label']}  {c['number']}")
+    print(f"last {len(recent)} calls:")
+    for c in recent:
+        print(f"  {c['start']}  {c['direction']}  {c['status']}  {c['seconds']} s  to {c['to']}  {c['sid']}")
     return 0
 
 
@@ -1058,6 +1117,21 @@ def main(argv: list[str] | None = None) -> int:
     r.add_argument("action", choices=["token"])
     r.set_defaults(func=cmd_relay)
 
+    ca = sub.add_parser("call")
+    ca.add_argument("action", choices=["setup", "place", "transcript"])
+    ca.add_argument("id", nargs="?", help="the conversation id, for transcript")
+    ca.add_argument("--relay-url", default="", help="https://<tunnel>/llm/v1, for setup")
+    ca.add_argument("--to", default="", help="E.164 with the plus")
+    ca.add_argument("--purpose", default="")
+    ca.add_argument("--details", default="")
+    ca.add_argument("--no-critic", action="store_true", help="skip the critic's second look")
+    ca.set_defaults(func=cmd_call)
+
+    tw = sub.add_parser("twilio")
+    tw.add_argument("action", choices=["check"])
+    tw.add_argument("--last", type=int, default=5)
+    tw.set_defaults(func=cmd_twilio)
+
     sy = sub.add_parser("say")
     sy.add_argument("--tone", action="store_true")
     sy.add_argument("--fresh", action="store_true")
@@ -1249,6 +1323,10 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("say needs the text, or --tone")
     if args.command == "gate" and args.action == "kill" and not args.state:
         parser.error("gate kill needs on or off")
+    if args.command == "call" and args.action == "place" and not (args.to and args.purpose):
+        parser.error("call place needs --to and --purpose")
+    if args.command == "call" and args.action == "transcript" and not args.id:
+        parser.error("call transcript needs the conversation id")
     if args.command == "whatsapp" and args.action == "send" and not args.text:
         parser.error("whatsapp send needs the text")
     return args.func(args)

@@ -83,6 +83,7 @@ below grows as the build does; `git log` carries the dates.
 | Oct 28 | `hiremarco.studio.tracks` | Recording and mixing are different jobs: Marco scans the session and knows which he is in, gives no mix opinion while recording unless asked, and keeps the session tidy as it grows: "we're on a harmony" names the track (color and summing stacks planned, mapped next), takes land on the same track, a mix pass runs on request, "keep it balanced as we go" turns on the light watch |
 | Oct 28 | `hiremarco.mix.hearing` | The mix hearing: on a developed session Marco reads everything first, says what he hears in plain words, and asks how the artist feels; the answer becomes the song's guardrails (tracks to keep, wishes per track, a reference sound as Muse Wonder's understanding of it, measured numbers when a reference file is given), saved with the song and honored by every later pass. The artist is the CEO |
 | Oct 28 | `hiremarco.marco`, `server`, `livelog`, `cli` | Marco's voice through the gate, the running webhook, his on-screen log, the `marco` command |
+| Oct 31 | `hiremarco.calls` | Marco's phone calls: one ElevenLabs agent on the relay's brain, made or updated by `marco call setup`; each call through the gate's `calls` switch, opening with the recording notice for its purpose, hanging up on a machine, with its transcript and cost read back; a read-only Twilio check |
 
 Planned, in order: the studio (voice
 commands in Logic, three plugin knobs, take notes, the ready-to-mix export,
