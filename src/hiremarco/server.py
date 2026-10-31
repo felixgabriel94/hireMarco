@@ -17,7 +17,8 @@ from hiremarco import config, gate
 from hiremarco.livelog import Trace
 from hiremarco.marco import Marco
 from hiremarco.whatsapp import Inbound, WhatsApp, make_app
-from hiremarco.whatsapp.brain import decide, history, studio
+from hiremarco.whatsapp.brain import context, decide, history
+from hiremarco.whatsapp.facts import forget, keep
 from hiremarco.whatsapp.memory import remember
 
 
@@ -201,8 +202,11 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
         did = f"cancelled: {back.name} back in received" if back else "nothing waiting to cancel"
         if back is None:
             text = "Nothing's waiting to be set up."
+    kept = [f for f in decision.remember if keep(wa.conn, f)]
+    gone = [g for f in decision.forget for g in forget(wa.conn, f)]
     wa.send_text(sender, text, idempotency_key=f"brain:{message_id}")
-    return f"brain: {decision.action}; {did}"
+    memory = (f"; kept {len(kept)}" if kept else "") + (f"; forgot {len(gone)}" if gone else "")
+    return f"brain: {decision.action}; {did}{memory}"
 
 
 def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None = None,
@@ -234,7 +238,8 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         if said:
             try:
                 marco = marco or Marco()
-                decision = decide(marco, said, studio(inbox or _inbox(), running), turns, instructions=ENGLISH)
+                decision = decide(marco, said, context(wa.conn, inbox or _inbox(), running, said), turns,
+                                  instructions=ENGLISH)
             except gate.Refused:
                 raise
             except Exception as exc:  # the brain is unreachable or answered off-schema: the fixed patterns answer

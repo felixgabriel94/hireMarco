@@ -172,3 +172,68 @@ def test_a_named_song_asking_to_be_saved_is_saved_and_the_setup_goes_on(tmp_path
     box = loader(tmp_path, logic)
     box.open_app = lambda p: target_holder.append(p)
     assert box.open_session(beat).name.startswith("beat") and pressed == ["Save"]
+
+
+def test_facts_are_his_words_dated_listable_and_forgettable_never_deleted(tmp_path):
+    from hiremarco import gate
+    from hiremarco.whatsapp.facts import block, forget, keep, known
+
+    conn = gate.connect(":memory:")
+    monday = datetime(2026, 10, 26, 18, 0, tzinfo=timezone.utc)
+    assert keep(conn, "the hook needs more space", ts=monday) and not keep(conn, "The hook needs more space.")
+    keep(conn, "my cousin Dani plays bass", ts=monday + timedelta(days=1))
+    assert [t for _, t in known(conn)] == ["the hook needs more space", "my cousin Dani plays bass"]
+    lines = block(conn, "who plays bass on this?")
+    assert lines[0].endswith("my cousin Dani plays bass") and lines[0].startswith("Mon Oct 27") or \
+        lines[0].startswith("Tue Oct 27")
+    assert forget(conn, "the thing about the hook needing space") == ["the hook needs more space"]
+    assert [t for _, t in known(conn)] == ["my cousin Dani plays bass"]
+    assert conn.execute("select count(*) from facts").fetchone()[0] == 2          # marked, still on record
+
+
+def test_the_facts_block_stays_inside_its_budget():
+    from hiremarco import gate
+    from hiremarco.whatsapp.facts import block, keep
+
+    conn = gate.connect(":memory:")
+    for i in range(60):
+        keep(conn, f"fact number {i} about a long and winding thing he said one night in the studio")
+    lines = block(conn, "")
+    assert 0 < len(lines) < 60 and sum(len(line.split()) * 1.3 for line in lines) <= 400 + 20
+
+
+def test_the_brain_keeps_and_forgets_in_the_same_breath_and_reads_who_he_is(tmp_path, monkeypatch):
+    from hiremarco.server import handle
+    from hiremarco.whatsapp.facts import known
+
+    wa, sent = whatsapp_line(tmp_path, monkeypatch)
+    profile = tmp_path / "felix.md"
+    profile.write_text("# Felix\n\nFelix sings and produces in Miami.")
+    monkeypatch.setenv("HIREMARCO_PROFILE", str(profile))
+    brain = Brain("reply", reply="noted.")
+    brain.decision["remember"] = ["the hook needs more space", "Dani plays bass on everything"]
+    brain.decision["forget"] = []
+    line = handle(inbound(wa, "w1", kind="text", text="the hook needs more space, and Dani plays bass on everything"),
+                  wa=wa, inbox=tmp_path / "inbox", marco=brain)
+    assert line.endswith("kept 2 > " + line.rsplit("> ", 1)[1]) or "kept 2" in line
+    assert [t for _, t in known(wa.conn)] == ["the hook needs more space", "Dani plays bass on everything"]
+    brain = Brain("reply", reply="forgotten.")
+    brain.decision["remember"], brain.decision["forget"] = [], ["Dani plays bass"]
+    line = handle(inbound(wa, "w2", kind="text", text="forget what I said about Dani"), wa=wa, inbox=tmp_path / "inbox",
+                  marco=brain)
+    assert "forgot 1" in line and [t for _, t in known(wa.conn)] == ["the hook needs more space"]
+    shown = brain.seen[-1]["text"]
+    assert shown["about_felix"] == "# Felix\n\nFelix sings and produces in Miami."
+    assert shown["facts"] and shown["facts"][0].endswith("Dani plays bass on everything") or \
+        any(f.endswith("the hook needs more space") for f in shown["facts"])
+
+
+def test_the_persona_drops_its_comment_blocks_and_reads_the_env_file(tmp_path, monkeypatch):
+    from hiremarco import marco
+
+    (tmp_path / "SOUL.md").write_text("<!--\nnotes for editors\n-->\n# Marco\n\nHe wants people to win.")
+    (tmp_path / "voice.md").write_text("Short sentences.")
+    env = tmp_path / "sealed.env"
+    env.write_text(f"HIREMARCO_PERSONA_DIR={tmp_path}\n")
+    text = marco.persona()
+    assert text == "# Marco\n\nHe wants people to win.\n\nShort sentences." and marco.private_persona_on()

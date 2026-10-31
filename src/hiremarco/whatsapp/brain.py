@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,13 +24,17 @@ SCHEMA = {
         "action": {"type": "string", "enum": list(ACTIONS)},
         "title": {"type": "string"},
         "reply": {"type": "string"},
+        "remember": {"type": "array", "items": {"type": "string"}},
+        "forget": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["action", "title", "reply"],
+    "required": ["action", "title", "reply", "remember", "forget"],
     "additionalProperties": False,
 }
-RULES = """You are answering Felix on WhatsApp. Each message you get carries the time, the real state of his studio \
-(read from his Mac a moment ago) and what he just said; the turns before it are your conversation, oldest first, \
-with the time each was said. Use all of it: what he asked earlier, what you told him, and what happened since.
+RULES = """You are answering Felix on WhatsApp. Each message you get carries the time, who Felix is (about_felix), \
+what he has told you before that lasts (facts, each with the day he said it), the real state of his studio (read \
+from his Mac a moment ago) and what he just said; the turns before it are your conversation, oldest first, with the \
+time each was said. Use all of it: what he asked earlier, what you told him, what happened since, and what you know \
+about him. When a fact bears on what he asks, use it and say when he told you ("Thursday you said...").
 
 Decide one action, then write the text you send him.
 - start: set up a Logic session with the beat he sent (studio.beat_sent). Put the song name in title if he gave one.
@@ -49,7 +53,13 @@ The text: one or two short sentences, in English unless he asks for another lang
 your action does: with reply, nothing changes, so never say you renamed, dropped, started or retried anything. Never \
 say something is done or ready unless studio shows it. After start or retry, say you're on it; the booth texts him when the session is \
 ready. If the last setup failed, tell him why in plain words and what you need from him, if anything. Leave title \
-empty unless the action is start, retry or rename."""
+empty unless the action is start, retry or rename.
+
+Memory. remember: anything lasting he states in this message, each as one short sentence in his words, kept \
+exactly as he meant it: a preference, a plan, a fact about his music, his people, his schedule. Not the beat he \
+just sent, not a one-off instruction, not a question, never your guess; most messages give an empty list. forget: \
+when he asks you to forget or drop something, the words of the fact to forget; otherwise empty. When he asks what \
+you remember or know about him, answer from about_felix and facts, listing them plainly; if facts is empty, say so."""
 
 
 @dataclass
@@ -57,6 +67,8 @@ class Decision:
     action: str
     title: str
     reply: str
+    remember: list[str] = field(default_factory=list)
+    forget: list[str] = field(default_factory=list)
 
 
 def studio(inbox: Path, running: Callable[[], bool]) -> dict:
@@ -80,6 +92,27 @@ def studio(inbox: Path, running: Callable[[], bool]) -> dict:
     }
 
 
+def about_felix() -> str:
+    """Who Felix is, in his own file (HIREMARCO_PROFILE, a short markdown file he edits), or the one line we start
+    with."""
+    from hiremarco import config
+
+    path = config.get("HIREMARCO_PROFILE")
+    if path:
+        try:
+            return Path(path).read_text().strip()
+        except OSError:
+            pass
+    return "Felix is a singer and producer in Miami."
+
+
+def context(conn, inbox: Path, running: Callable[[], bool], said: str) -> dict:
+    """Everything the brain reads beside the conversation: who he is, what he told you, the studio now."""
+    from hiremarco.whatsapp.facts import block
+
+    return {"about_felix": about_felix(), "facts": block(conn, said), "studio": studio(inbox, running)}
+
+
 def history(conn, limit: int = 40) -> list[dict]:
     """The conversation as chat turns, each with the time it was said."""
     return [{"role": "user" if who == "felix" else "assistant", "content": f"[{when(ts)}] {text}"}
@@ -89,7 +122,8 @@ def history(conn, limit: int = 40) -> list[dict]:
 def decide(marco, said: str, state: dict, turns: list[dict], *, instructions: str = "",
            now: datetime | None = None) -> Decision:
     """One brain call. Raises when the brain cannot be reached or answers outside the schema."""
-    asked = json.dumps({"now": when(now or datetime.now(timezone.utc)), "studio": state, "felix_says": said},
+    state = state if "studio" in state else {"studio": state}
+    asked = json.dumps({"now": when(now or datetime.now(timezone.utc)), **state, "felix_says": said},
                        ensure_ascii=False)
     # live 2026-10-30: at 1500 tokens a "No" was all thinking and no answer; low thinking used 995 of 4000
     reply = marco.converse(turns, asked, instructions=f"{RULES}\n\n{instructions}".strip(), job="whatsapp-brain",
@@ -99,4 +133,6 @@ def decide(marco, said: str, state: dict, turns: list[dict], *, instructions: st
     data = json.loads(reply.text)
     if data.get("action") not in ACTIONS or not str(data.get("reply", "")).strip():
         raise ValueError(f"the brain answered outside the schema: {str(data)[:80]}")
-    return Decision(data["action"], str(data.get("title") or "").strip(), data["reply"].strip())
+    return Decision(data["action"], str(data.get("title") or "").strip(), data["reply"].strip(),
+                    [str(f).strip() for f in data.get("remember") or [] if str(f).strip()][:3],
+                    [str(f).strip() for f in data.get("forget") or [] if str(f).strip()][:3])

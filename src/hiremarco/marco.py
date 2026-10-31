@@ -13,10 +13,10 @@ contributor model never sees it.
 
 from __future__ import annotations
 
-import os
+import re
 from pathlib import Path
 
-from hiremarco import gate
+from hiremarco import config, gate
 from hiremarco.meta.client import MuseSpark, Reply
 
 TENANT = "owner"
@@ -29,19 +29,20 @@ PUBLIC_PERSONA = (
 
 
 def private_persona_on() -> bool:
-    return bool(os.environ.get("HIREMARCO_PERSONA_DIR"))
+    return bool(config.get("HIREMARCO_PERSONA_DIR"))
 
 
 def persona() -> str:
-    folder = os.environ.get("HIREMARCO_PERSONA_DIR")
+    """The three persona files, their comment blocks (notes to the people who edit them) removed."""
+    folder = config.get("HIREMARCO_PERSONA_DIR")
     if not folder:
         return PUBLIC_PERSONA
     parts = []
     for name in PERSONA_FILES:
         path = Path(folder) / name
         if path.is_file():
-            parts.append(path.read_text())
-    return "\n\n".join(parts) if parts else PUBLIC_PERSONA
+            parts.append(re.sub(r"<!--.*?-->", "", path.read_text(), flags=re.S).strip())
+    return "\n\n".join(p for p in parts if p) or PUBLIC_PERSONA
 
 
 class Marco:
