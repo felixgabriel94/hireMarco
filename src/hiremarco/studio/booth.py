@@ -152,6 +152,7 @@ class Booth:
     soloed: bool = False                              # he soloed a track, and takes it off before the next take
     a_cappella: bool = False                          # this take is recorded with the vocal soloed, on purpose
     take_start: object | None = None                  # (Position, tempo, beats per bar) read when the take began
+    voice_takes: dict = field(default_factory=dict)   # track name -> (its last take's audio, its take_start)
     auto_note: bool = False                           # a note after every take of AUTO_NOTE_SECONDS or more
     fillers: bool = True                              # "Hmm." while he thinks; off in tests that count lines
     _filled: bool = False
@@ -834,6 +835,16 @@ class Booth:
         self._say("raised the gain of those words by themselves", {"words": command.text, "db": db}, "Brought it up.")
         return f"{done} ({command.text!r}, estimate of the edges)"
 
+    def _keep_voice(self, take) -> None:
+        """Each track's last take kept with where it began, so a stack of harmonies can be cleaned voice by voice: a
+        voice that holds through another's breath has no breath there and is not cut (Owner 2026-10-31)."""
+        if self.lifter is None or self.take_start is None or take.size == 0:
+            return
+        try:
+            self.voice_takes[self.lifter.selected()] = (take.copy(), self.take_start)
+        except Exception:
+            pass
+
     def _clean_breaths(self, command: Command) -> str:
         """The last take's breaths cut out and the phrases faded (Owner 2026-10-31: clean, and still natural)."""
         import re as _re
@@ -845,37 +856,51 @@ class Booth:
             return "no region control in this booth"
         if self.rolling:
             return "holding the clean-up until the take stops"
-        take = self.tape.last_take()
-        if self.take_start is None or take.size == 0:
-            self._say("no take to clean", {}, "I need a take to clean.")
-            return "no take to clean"
-        found = breaths.find(take, self.tape.rate)
-        if not found:
-            self._say("found no breaths in the take", {}, "That take's already clean.")
-            return "no breaths found"
-        start, tempo, beats_per_bar = self.take_start
-
-        def at(seconds: float):
-            return Spot(*(int(v) for v in start.later(max(0.0, seconds - COUNT_IN_SECONDS), tempo,
-                                                      beats_per_bar).typed().split()))
-
         lift = self.lifter
         from hiremarco.studio.gain import _osa
 
-        cleaner = breaths.Cleaner(at=at, go=lift.go, deselect=lift.deselect, select=lift.select, split=lift.split,
-                                  delete=lambda: _osa("regions_io.applescript", ["delete"]),
-                                  param=lambda name, v: _osa("regions_io.applescript", ["param", name, f"{v:g}"]),
-                                  sleep=time.sleep)
+        group = (command.track or "").lower().rstrip("s")  # "harmonies" -> every kept voice named Harmony...
+        voices = {name: kept for name, kept in self.voice_takes.items() if group and group[:6] in name.lower()}
+        if not voices:
+            take = self.tape.last_take()
+            if self.take_start is None or take.size == 0:
+                self._say("no take to clean", {}, "I need a take to clean.")
+                return "no take to clean"
+            try:
+                track = command.track or lift.selected()
+            except Exception as exc:
+                return f"breaths failed: {type(exc).__name__}"
+            voices = {track: (take, self.take_start)}
         keep = {int(n) for n in _re.findall(r"\d+", command.text or "")}
-        try:
-            removed = cleaner.clean(command.track or lift.selected(), found, keep)
-        except Exception as exc:  # Logic did not do it; one undo per step puts it back
-            failed = f"{type(exc).__name__}: {str(exc)[-160:]}"
-            self._say("the breath clean-up stopped partway", {"what_failed": failed}, FAILED)
-            return f"breaths failed: {failed}"
-        self._say("removed the breaths from the take and faded the phrases", {"removed": len(removed),
-                  "kept": sorted(keep)}, f"Cleaned {len(removed)} breath{'s' if len(removed) != 1 else ''}.")
-        return f"breaths removed: {len(removed)} of {len(found)}" + (f", kept {sorted(keep)}" if keep else "")
+        removed, found_total, report = 0, 0, []
+        for track, (take, take_start) in voices.items():
+            found = breaths.find(take, self.tape.rate)
+            found_total += len(found)
+            start, tempo, beats_per_bar = take_start
+
+            def at(seconds: float, start=start, tempo=tempo, beats_per_bar=beats_per_bar):
+                return Spot(*(int(v) for v in start.later(max(0.0, seconds - COUNT_IN_SECONDS), tempo,
+                                                          beats_per_bar).typed().split()))
+
+            cleaner = breaths.Cleaner(at=at, go=lift.go, deselect=lift.deselect, select=lift.select,
+                                      split=lift.split, delete=lambda: _osa("regions_io.applescript", ["delete"]),
+                                      param=lambda name, v: _osa("regions_io.applescript", ["param", name, f"{v:g}"]),
+                                      sleep=time.sleep)
+            try:
+                gone = cleaner.clean(track, found, keep)
+            except Exception as exc:  # Logic did not do it; one undo per step puts it back
+                failed = f"{type(exc).__name__}: {str(exc)[-160:]}"
+                self._say("the breath clean-up stopped partway", {"track": track, "what_failed": failed}, FAILED)
+                return f"breaths failed on {track}: {failed}"
+            removed += len(gone)
+            report.append(f"{track} {len(gone)}")
+        if not found_total:
+            self._say("found no breaths in the take", {}, "That take's already clean.")
+            return "no breaths found"
+        self._say("removed the breaths and faded the phrases", {"removed": removed, "per track": report,
+                  "kept": sorted(keep)}, f"Cleaned {removed} breath{'s' if removed != 1 else ''}.")
+        return f"breaths removed: {removed} of {found_total} ({', '.join(report)})" + (
+            f", kept {sorted(keep)}" if keep else "")
 
     def _arrange(self, command: Command) -> str:
         """The structure (arrange, copy_section, list_sections) and his bookmarks (bookmark, go_to_bookmark)."""
@@ -1128,6 +1153,7 @@ class Booth:
             self.tape.mark_stop()
             self._asked_after_take = False  # a new take: the next answer to his name can ask how it felt
             take = self.tape.last_take()
+            self._keep_voice(take)
             if self.auto_note and take.size >= AUTO_NOTE_SECONDS * self.tape.rate:
                 # after a real take he says how it went, like a producer would, then moves on: hype when it is
                 # good, the one spot to fix when it is not (Owner 2026-10-29)

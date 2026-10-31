@@ -55,3 +55,42 @@ def test_each_breath_is_cut_from_its_region_alone_deleted_and_the_phrases_faded(
     assert all(calls[i - 1] == ("deselect", "all") for i, c in enumerate(calls) if c[0] == "select")  # one region
     assert ("param", "Fade-Out", 15) in calls and ("param", "Fade-In", 5) in calls
     assert ("go", 1.8) in calls                                           # the deleted piece is picked mid-breath
+
+
+def test_a_stack_is_cleaned_voice_by_voice_and_a_voice_holding_through_is_not_cut():
+    from hiremarco.studio.booth import Booth, Tape
+    from hiremarco.studio.commands import Command
+    from hiremarco.studio.position import Position
+
+    cuts = []
+
+    class Lift:
+        go = staticmethod(lambda spot: None)
+        deselect = staticmethod(lambda which: None)
+        split = staticmethod(lambda: None)
+        selected = staticmethod(lambda: "Harmony 1")
+
+        def __init__(self):
+            self.track = ""
+
+        def select(self, track):
+            self.track = track
+            return "r"
+
+    lift = Lift()
+    b = Booth(understand=lambda line: None, logic=lambda c: c.describe(), say=lambda t: None,
+              feedback=lambda take, rate: None, tape=Tape(RATE, seconds=1), log=lambda line: None, lifter=lift)
+    start = (Position(13, 1, 1, 1), 120.0, 4)
+    breathing = np.concatenate([silence(0.3), tone(1.0), silence(0.3), noise(0.4, 0.05, 300, 3000, 1), tone(1.0)])
+    holding = np.concatenate([silence(0.3), tone(3.0, hz=330.0)])                # sings straight through
+    b.voice_takes = {"Harmony 1": (breathing, start), "Harmony 2": (holding, start)}
+    import hiremarco.studio.gain as gain
+
+    gain_osa = gain._osa
+    gain._osa = lambda script, args: cuts.append((lift.track, args[0])) or "ok"
+    try:
+        line = b.handle(Command("clean_breaths", track="harmonies"))
+    finally:
+        gain._osa = gain_osa
+    assert "breaths removed: 1 of 1" in line and "Harmony 1 1" in line and "Harmony 2 0" in line
+    assert {t for t, what in cuts if what == "delete"} == {"Harmony 1"}
