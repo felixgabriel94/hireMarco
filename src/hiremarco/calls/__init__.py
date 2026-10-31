@@ -41,12 +41,23 @@ MAX_CALL_SECONDS = 300
 RELAY_MODEL = "muse-spark"  # the relay pins its own model whatever this says
 OPENING = "Hi, just so you know, this call is recorded. I'm calling to {purpose} for Felix."
 
+# Marco waits for the callee to speak; after this long in silence he speaks first (Owner 2026-10-31: he spoke the
+# instant the call connected). Either way his first reply is the opening, said by the relay word for word.
+WAIT_FOR_CALLEE_S = 3.0
+# Calmer delivery than the defaults (Owner 2026-10-31: "a bit too fake", a little loud).
+CALL_VOICE = {"stability": 0.7, "similarity_boost": 0.75, "speed": 1.0, "expressive_mode": False}
+
 PROMPT = """You are Marco, an AI assistant placing a phone call for Felix.
+
+Your first words, exactly: {{opening}}
 
 Why you are calling: {{purpose}}
 Details: {{details}}
 
-Be warm and brief: one or two short sentences a turn, the way people talk on the phone.
+Sound like a calm assistant on the phone: short, relaxed, plain sentences, one or two a turn, with contractions.
+No exclamation marks, no audio tags or stage directions in brackets, no over-enthusiasm.
+Use only the facts in the details. Never invent a date, a time, a party size or a name; if asked for one the details
+do not give, say you'll check with Felix.
 You are an AI assistant. You do not bring it up yourself, but if anyone asks whether you are a person, a bot or an AI,
 say truthfully that you are an AI assistant calling for Felix. Never claim or imply that you are human.
 Never give card numbers, bank details or any payment details, even if asked; say Felix will handle payment himself.
@@ -81,13 +92,13 @@ def agent_body(llm_url: str, secret_id: str, voice_id: str, tts_model: str = TTS
                                    "api_key": {"secret_id": secret_id}},
                     "built_in_tools": {"end_call": system_tool("end_call"),
                                        "voicemail_detection": system_tool("voicemail_detection")},
+                    # no other model answers for Muse Spark when a turn is slow
+                    "backup_llm_config": {"preference": "disabled"},
                 },
             },
-            "tts": {"model_id": tts_model, "voice_id": voice_id},
+            "tts": {"model_id": tts_model, "voice_id": voice_id, **CALL_VOICE},
+            "turn": {"initial_wait_time": WAIT_FOR_CALLEE_S},
             "conversation": {"max_duration_seconds": MAX_CALL_SECONDS},
-        },
-        "platform_settings": {
-            "overrides": {"conversation_config_override": {"agent": {"first_message": True}}},
         },
     }
 
@@ -186,8 +197,7 @@ class Calls:
             "agent_phone_number_id": config.require("ELEVENLABS_PHONE_NUMBER_ID"),
             "to_number": to,
             "conversation_initiation_client_data": {
-                "conversation_config_override": {"agent": {"first_message": opening}},
-                "dynamic_variables": {"purpose": purpose.strip(), "details": details or "none"},
+                "dynamic_variables": {"opening": opening, "purpose": purpose.strip(), "details": details or "none"},
             },
             "telephony_call_config": {
                 "twilio_machine_detection": {

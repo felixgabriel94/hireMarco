@@ -76,9 +76,17 @@ def test_setup_creates_agent_secret_and_stores_ids(env):
     assert "never claim or imply that you are human" in prompt["prompt"].lower()
     assert "say truthfully that you are an ai assistant" in prompt["prompt"].lower()
     assert "payment" in prompt["prompt"]
-    assert body["conversation_config"]["tts"] == {"model_id": TTS_MODEL, "voice_id": "voice-1"}
+    tts = body["conversation_config"]["tts"]
+    assert tts["model_id"] == TTS_MODEL and tts["voice_id"] == "voice-1"
+    assert tts["expressive_mode"] is False and tts["stability"] >= 0.7 and tts["speed"] == 1.0
     assert body["conversation_config"]["conversation"]["max_duration_seconds"] == 300
-    assert body["platform_settings"]["overrides"]["conversation_config_override"]["agent"]["first_message"] is True
+    # he waits for the callee, then speaks after 3 s of silence; the relay says the opening
+    agent = body["conversation_config"]["agent"]
+    assert agent["first_message"] == "" and body["conversation_config"]["turn"]["initial_wait_time"] == 3.0
+    assert "Your first words, exactly: {{opening}}" in prompt["prompt"]
+    assert prompt["backup_llm_config"] == {"preference": "disabled"}
+    lowered = prompt["prompt"].lower()
+    assert "no exclamation marks" in lowered and "never invent a date, a time, a party size or a name" in lowered
     stored = config.load_env()
     assert stored["ELEVENLABS_CALL_AGENT_ID"] == "agent-1"
     assert stored["ELEVENLABS_PHONE_NUMBER_ID"] == "pn-marco"
@@ -140,10 +148,9 @@ def test_place_sends_opening_details_and_machine_hangup(placing, env):
     assert body["agent_id"] == "agent-1" and body["agent_phone_number_id"] == "pn-marco"
     assert body["to_number"] == "+" + OWNER
     client = body["conversation_initiation_client_data"]
-    assert client["conversation_config_override"]["agent"]["first_message"] == (
-        "Hi, just so you know, this call is recorded. I'm calling to book a table for Felix."
-    )
-    assert client["dynamic_variables"] == {"purpose": "book a table", "details": "test call, no booking"}
+    assert client["dynamic_variables"] == {
+        "opening": "Hi, just so you know, this call is recorded. I'm calling to book a table for Felix.",
+        "purpose": "book a table", "details": "test call, no booking"}
     amd = body["telephony_call_config"]["twilio_machine_detection"]
     assert amd["actions"] == [{"action": "hang_up", "answered_by": ["machine_start", "fax"]}]
     row = env["log"].rows()[-1]

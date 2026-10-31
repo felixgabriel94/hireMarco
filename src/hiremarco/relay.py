@@ -7,12 +7,20 @@ RELAY_TOKEN, runs the gate's model check (kill switch, daily cap), pins the
 model to Muse Spark whatever the request says, forwards to the Meta Model
 API with the Mac's own key, streams the answer back, and logs the cost. The
 Meta key never leaves this machine.
+
+On a call (live 2026-10-31) three things are the relay's, not the model's: Marco's
+first reply is the opening line from the prompt, word for word and with no model
+call, so the recording notice is always the first thing said; every turn asks for
+minimal reasoning and few tokens, because turns of 3 to 5 s left the callee saying
+"Hello?" and once made ElevenLabs give up; and audio tags such as "[happy]" are
+taken out of what Marco says.
 """
 
 from __future__ import annotations
 
 import hmac
 import json
+import re
 import time
 from collections.abc import AsyncIterator
 
@@ -29,6 +37,61 @@ TENANT = "owner"
 CALL_MODEL = DEFAULT_MODEL
 ALLOWED_FIELDS = {"messages", "stream", "temperature", "tools", "tool_choice", "max_completion_tokens",
                   "max_tokens", "response_format", "stream_options"}
+CALL_REASONING = "minimal"
+CALL_MAX_TOKENS = 300
+# The calls prompt carries this line; the relay speaks what follows it as Marco's first reply.
+OPENING_MARK = "Your first words, exactly:"
+OPENING_LINE = re.compile(re.escape(OPENING_MARK) + r"\s*(.+)")
+TAG = re.compile(r"\s?\[[A-Za-z][A-Za-z ,'-]{0,24}\]")
+
+
+def opening_for(messages: list[dict]) -> str | None:
+    """The first reply of a call, when no assistant turn has happened yet and the prompt names one.
+
+    The line must start with the recording notice; anything else is replaced by the bare notice.
+    """
+    if any(m.get("role") == "assistant" for m in messages):
+        return None
+    for m in messages:
+        if m.get("role") in ("system", "developer"):
+            found = OPENING_LINE.search(str(m.get("content", "")))
+            if found:
+                line = found.group(1).strip()
+                return line if line.startswith(gate.RECORDING_OPENING) else gate.RECORDING_OPENING
+    return None
+
+
+class TagFilter:
+    """Takes audio tags out of streamed text, holding a "[" until its "]" arrives (or 26 characters pass)."""
+
+    def __init__(self):
+        self.held = ""
+        self.started = False
+
+    def _out(self, text: str) -> str:
+        text = TAG.sub("", text)
+        if not self.started:
+            text = text.lstrip()
+            self.started = bool(text)
+        return text
+
+    def feed(self, text: str) -> str:
+        text, self.held = self.held + text, ""
+        i = text.rfind("[")
+        if i != -1 and "]" not in text[i:] and len(text) - i <= 26:
+            text, self.held = text[:i], text[i:]
+        return self._out(text)
+
+    def flush(self) -> str:
+        text, self.held = self.held, ""
+        return self._out(text)
+
+
+def _chunk(text: str, finish: str | None = None) -> bytes:
+    delta = {"role": "assistant", "content": text} if text else {}
+    body = {"object": "chat.completion.chunk", "model": CALL_MODEL,
+            "choices": [{"index": 0, "delta": delta, "finish_reason": finish}]}
+    return f"data: {json.dumps(body)}\n\n".encode()
 
 
 def _authorized(request: Request) -> bool:
@@ -55,9 +118,24 @@ def make_relay(transport: httpx.AsyncBaseTransport | None = None, joblog: JobLog
         except gate.Refused as refused:
             return JSONResponse({"error": refused.reason}, status_code=403)
 
+        opening = opening_for(messages)
+        if opening is not None:
+            log.append(JobRow(job="call-relay", model=CALL_MODEL, note="opening line, no model call"))
+            if body.get("stream"):
+                async def say_opening() -> AsyncIterator[bytes]:
+                    yield _chunk(opening)
+                    yield _chunk("", "stop")
+                    yield b"data: [DONE]\n\n"
+                return StreamingResponse(say_opening(), media_type="text/event-stream")
+            return JSONResponse({"object": "chat.completion", "model": CALL_MODEL, "choices": [
+                {"index": 0, "message": {"role": "assistant", "content": opening}, "finish_reason": "stop"}]})
+
         forward = {k: v for k, v in body.items() if k in ALLOWED_FIELDS}
         if "max_tokens" in forward:  # Meta's field name is max_completion_tokens
             forward.setdefault("max_completion_tokens", forward.pop("max_tokens"))
+        forward["max_completion_tokens"] = min(int(forward.get("max_completion_tokens") or CALL_MAX_TOKENS),
+                                               CALL_MAX_TOKENS)
+        forward["reasoning_effort"] = CALL_REASONING
         forward["model"] = CALL_MODEL
         stream = bool(forward.get("stream"))
         if stream:
@@ -81,11 +159,16 @@ def make_relay(transport: httpx.AsyncBaseTransport | None = None, joblog: JobLog
                 return JSONResponse({"error": f"upstream {response.status_code}"}, status_code=502)
             data = response.json()
             record(data.get("usage") or {}, True)
+            for choice in data.get("choices") or []:
+                message = choice.get("message") or {}
+                if isinstance(message.get("content"), str):
+                    message["content"] = TAG.sub("", message["content"]).strip()
             return JSONResponse(data)
 
         async def relay_stream() -> AsyncIterator[bytes]:
             usage: dict = {}
             ok = True
+            tags = TagFilter()
             try:
                 async with client.stream("POST", "/chat/completions", json=forward, headers=headers) as upstream:
                     if upstream.status_code >= 400:
@@ -93,12 +176,22 @@ def make_relay(transport: httpx.AsyncBaseTransport | None = None, joblog: JobLog
                         yield b'data: {"error": "upstream"}\n\n'
                         return
                     async for line in upstream.aiter_lines():
-                        if line.startswith("data: ") and line[6:].strip() not in ("", "[DONE]"):
+                        if line.startswith("data: ") and line[6:].strip() == "[DONE]":
+                            held = tags.flush()
+                            if held:
+                                yield _chunk(held)
+                        elif line.startswith("data: ") and line[6:].strip():
                             try:
                                 chunk = json.loads(line[6:])
-                                usage = chunk.get("usage") or usage
                             except ValueError:
-                                pass
+                                chunk = None
+                            if chunk is not None:
+                                usage = chunk.get("usage") or usage
+                                for choice in chunk.get("choices") or []:
+                                    delta = choice.get("delta") or {}
+                                    if isinstance(delta.get("content"), str):
+                                        delta["content"] = tags.feed(delta["content"])
+                                line = "data: " + json.dumps(chunk)
                         yield (line + "\n").encode()
             finally:
                 record(usage, ok, "" if ok else "upstream error")
