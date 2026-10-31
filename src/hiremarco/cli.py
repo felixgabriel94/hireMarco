@@ -22,6 +22,7 @@
     uv run marco film record             the booth on one clock until Ctrl+C, in 15-minute segments
     uv run marco drums train             teach Marco's drum ear on beats built from the Maschine library (once)
     uv run marco drums read FILE --bpm N  a drums stem's pattern: its main groove as a grid and a MIDI file
+    uv run marco samples scan             catalog My Packs: each sound's kind, its pack's genre, loop tempo and key
     uv run marco export-dialog FOLDER    Muse Wonder fills Logic's export dialog (--dry-run: looks, clicks nothing)
     uv run marco booth                   the session by voice: mic, commands, Logic, talkback (--dry-run: plans only)
     uv run marco routing                 tone and mic test of the interface's virtual channels and inputs
@@ -354,6 +355,15 @@ def cmd_drums(args) -> int:
     print(drums.grid(loop, bars=args.bars))
     target = Path(args.out).expanduser() if args.out else audio.with_name(f"{audio.stem} groove {args.bpm:g} bpm.mid")
     print(drums.to_midi(loop, target, args.bpm, length_steps=args.bars * 16))
+    return 0
+
+
+def cmd_samples(args) -> int:
+    """The catalog of his packs, rebuilt after he corrects a genre in packs.tsv."""
+    from hiremarco.studio import samples
+
+    counts = samples.scan(ear=samples.drum_ear())
+    print(", ".join(f"{kind} {n}" for kind, n in sorted(counts.items(), key=lambda kv: -kv[1])))
     return 0
 
 
@@ -1077,6 +1087,10 @@ def main(argv: list[str] | None = None) -> int:
     dr.add_argument("--beats", type=int, default=1500, help="how many built beats to train on")
     dr.add_argument("--out")
     dr.set_defaults(func=cmd_drums)
+
+    sm = sub.add_parser("samples", help="catalog My Packs by genre and kind (nothing moves)")
+    sm.add_argument("action", choices=["scan"])
+    sm.set_defaults(func=cmd_samples)
 
     lk = sub.add_parser("look", help="study the mood board's pictures and keep Felix's look as facts")
     lk.add_argument("folder")
