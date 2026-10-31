@@ -188,3 +188,19 @@ def test_take_me_back_to_a_bookmark_is_not_taken_for_a_lyric():
     logic = FakeLogic(bookmarks=[("the high note", 14, 0)])
     b, said, did = booth_with(logic)
     assert b.handle(Command("play_from_lyric", text="high note")) == "go to bar 14 (the high note)"
+
+
+def test_go_to_a_bar_moves_the_playhead_without_typing_a_position(tmp_path):
+    # live 2026-10-31: "/" was Go to Marker Number in the Owner's Logic, and the typed spaces started playback
+    from hiremarco import gate
+    from hiremarco.studio.commands import Command
+    from hiremarco.studio.logic import Logic
+    from tests.test_beat_in import rules
+
+    scripts, moved = [], []
+    logic = Logic(conn=gate.connect(":memory:"), rules_path=rules(tmp_path), run_script=scripts.append,
+                  move=moved.append)
+    logic.do(Command("go_to_bar", bar=25))
+    logic.do(Command("play_from", text="9 1 1 1"))
+    assert moved == ["25", "9"]
+    assert not any('keystroke "/"' in s for s in scripts) and len(scripts) == 1   # only the play press

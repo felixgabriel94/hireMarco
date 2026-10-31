@@ -167,7 +167,7 @@ class Logic:
     def __init__(self, *, dry_run: bool = False, conn: sqlite3.Connection | None = None,
                  run_script: Callable[[str], None] | None = None, knobs: Knobs | None = None,
                  rules_path: Path | None = None, preset_dir: Path | None = None,
-                 load_preset: Callable[[str], str] | None = None):
+                 load_preset: Callable[[str], str] | None = None, move: Callable[[str], object] | None = None):
         self.dry_run = dry_run
         self.preset_dir = preset_dir
         self.load_preset = load_preset
@@ -176,6 +176,7 @@ class Logic:
         self.knobs = knobs
         self.rules_path = rules_path
         self.planned: list[str] = []
+        self.move = move
 
     def do(self, command: Command) -> str:
         if command.action == "preset":
@@ -189,7 +190,10 @@ class Logic:
 
         def run() -> str:
             for press in steps.presses:
-                self.run_script(_script(press))
+                if (press.key, press.modifiers) == KEYMAP["go_to_position"] and press.then_type:
+                    self.goto(press.then_type)
+                else:
+                    self.run_script(_script(press))
                 time.sleep(0.05)
             if steps.knob:
                 value = (self.knobs or Knobs()).move(*steps.knob)
@@ -197,6 +201,14 @@ class Logic:
             return command.describe()
 
         return self._gated(run, command.action, command.describe())
+
+    def goto(self, position: str) -> None:
+        """The playhead to "bar beat division tick" through the Control Bar, not the Go to Position key: in the
+        Owner's Logic "/" opened Go to Marker Number and the typed spaces started playback (live 2026-10-31)."""
+        from hiremarco.studio.arrange import _run
+
+        bar = position.split()[0]
+        (self.move or (lambda b: _run(["goto", b])))(bar)
 
     def _preset(self, command: Command) -> str:
         from hiremarco.studio import presets
