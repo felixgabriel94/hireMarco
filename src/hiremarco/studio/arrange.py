@@ -30,7 +30,8 @@ ORDINAL = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "last":
 KEYS = {
     "copy_arrangement_to_markers": ("a", ("control", "option", "command")),
     "convert_markers_to_arrangement": ("c", ("control", "option", "command")),
-    "select_inside_locators": ("i", ("control", "option", "command")),
+    "select_inside_locators": ("l", ("shift",)),  # Select All Inside Locators, Logic's default Shift-L
+    "create_arrangement_marker": ("a", ("control", "option", "command")),
     "copy": ("c", ("command",)),
     "paste": ("v", ("command",)),
 }
