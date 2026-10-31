@@ -314,6 +314,16 @@ def cmd_booth(args) -> int:
     return run_booth(dry_run=args.dry_run)
 
 
+def cmd_look(args) -> int:
+    """Marco studies the pictures of Felix's mood board once and keeps his look as facts."""
+    from pathlib import Path
+
+    from hiremarco.look import run
+
+    print(run(Path(args.folder).expanduser(), args.board))
+    return 0
+
+
 def cmd_routing(args) -> int:
     import sounddevice as sd
 
@@ -1025,6 +1035,10 @@ def main(argv: list[str] | None = None) -> int:
     ed.add_argument("--dry-run", action="store_true")
     ed.set_defaults(func=cmd_export_dialog)
 
+    lk = sub.add_parser("look", help="study the mood board's pictures and keep Felix's look as facts")
+    lk.add_argument("folder")
+    lk.add_argument("--board", required=True, help="the board's link, kept beside the look")
+    lk.set_defaults(func=cmd_look)
     bo = sub.add_parser("booth")
     bo.add_argument("--dry-run", action="store_true")
     bo.set_defaults(func=cmd_booth)
