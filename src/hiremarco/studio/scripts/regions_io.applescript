@@ -2,6 +2,8 @@
 --   osascript regions_io.applescript under "Beat"   select the region on the Beat lane under the playhead; its name
 --   osascript regions_io.applescript gain 3         the selected region's Gain in the Region inspector, in dB
 --   osascript regions_io.applescript deselect all|global   nothing selected, or no arrangement or marker selected
+--   osascript regions_io.applescript param "Fade-In" 5     a Region inspector row set to a number, read back
+--   osascript regions_io.applescript delete         the selected region deleted (Edit > Delete)
 -- Grounded in the live map of 2026-10-31: each track's lane in "Tracks contents" is a layout area described
 -- Track N “name”, its regions layout items whose AXSelected is settable; the playhead is the time ruler's
 -- "Playhead thumb"; the Region inspector is an outline whose "Gain:" row holds a slider that takes a value in dB in one
@@ -104,6 +106,63 @@ on run argv
 			if not (selected of hit) then set selected of hit to true
 			return description of hit
 		end tell
+	end if
+	if cmd is "param" then
+		-- one row of the Region inspector, by its label (a text field such as "Gain:" or "Delay:", or a pop-up such
+		-- as "Fade-In" and "Fade-Out"), set to a number and read back; "More" is opened if it is closed (mapped live
+		-- 2026-10-31: fades 10 and 30 read back as set)
+		tell application "System Events"
+			set insp to (first group of tw whose description is "Inspector")
+			set firstGroup to UI element 1 of UI element 1 of insp
+			try
+				set triEl to (first UI element of firstGroup whose role is "AXDisclosureTriangle")
+				if (value of triEl) is 0 then
+					click triEl
+					delay 0.5
+				end if
+			end try
+			set outl to UI element 1 of UI element 1 of firstGroup
+			repeat with r in (rows of outl)
+				try
+					set g to (first group of r)
+					set moreTri to (first UI element of g whose role is "AXDisclosureTriangle")
+					if (value of moreTri) is 0 then
+						click moreTri
+						delay 0.4
+					end if
+				end try
+			end repeat
+			set s to missing value
+			repeat with r in (rows of outl)
+				set lab to ""
+				try
+					set lab to value of text field 1 of r
+				end try
+				try
+					set lab to value of pop up button 1 of r
+				end try
+				if lab is (item 2 of argv) or lab is ((item 2 of argv) & ":") then
+					try
+						set s to slider 1 of r
+					end try
+				end if
+			end repeat
+			if s is missing value then error "no " & (item 2 of argv) & " row: is an audio region selected?"
+			set target to (item 3 of argv) as real
+			repeat 80 times
+				if ((value of s) as real) is target then exit repeat
+				set value of s to target
+				delay 0.04
+			end repeat
+			return (value of s) as text
+		end tell
+	end if
+	if cmd is "delete" then
+		-- the selected region removed through Logic's own Edit > Delete (a deleted region is undoable in one step)
+		tell application "System Events" to tell process "Logic Pro"
+			click menu item "Delete" of menu 1 of menu bar item "Edit" of menu bar 1
+		end tell
+		return "deleted"
 	end if
 	if cmd is "gain" then
 		tell application "System Events"

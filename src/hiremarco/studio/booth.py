@@ -834,6 +834,49 @@ class Booth:
         self._say("raised the gain of those words by themselves", {"words": command.text, "db": db}, "Brought it up.")
         return f"{done} ({command.text!r}, estimate of the edges)"
 
+    def _clean_breaths(self, command: Command) -> str:
+        """The last take's breaths cut out and the phrases faded (Owner 2026-10-31: clean, and still natural)."""
+        import re as _re
+
+        from hiremarco.studio import breaths
+        from hiremarco.studio.gain import Spot
+
+        if self.lifter is None:
+            return "no region control in this booth"
+        if self.rolling:
+            return "holding the clean-up until the take stops"
+        take = self.tape.last_take()
+        if self.take_start is None or take.size == 0:
+            self._say("no take to clean", {}, "I need a take to clean.")
+            return "no take to clean"
+        found = breaths.find(take, self.tape.rate)
+        if not found:
+            self._say("found no breaths in the take", {}, "That take's already clean.")
+            return "no breaths found"
+        start, tempo, beats_per_bar = self.take_start
+
+        def at(seconds: float):
+            return Spot(*(int(v) for v in start.later(max(0.0, seconds - COUNT_IN_SECONDS), tempo,
+                                                      beats_per_bar).typed().split()))
+
+        lift = self.lifter
+        from hiremarco.studio.gain import _osa
+
+        cleaner = breaths.Cleaner(at=at, go=lift.go, deselect=lift.deselect, select=lift.select, split=lift.split,
+                                  delete=lambda: _osa("regions_io.applescript", ["delete"]),
+                                  param=lambda name, v: _osa("regions_io.applescript", ["param", name, f"{v:g}"]),
+                                  sleep=time.sleep)
+        keep = {int(n) for n in _re.findall(r"\d+", command.text or "")}
+        try:
+            removed = cleaner.clean(command.track or lift.selected(), found, keep)
+        except Exception as exc:  # Logic did not do it; one undo per step puts it back
+            failed = f"{type(exc).__name__}: {str(exc)[-160:]}"
+            self._say("the breath clean-up stopped partway", {"what_failed": failed}, FAILED)
+            return f"breaths failed: {failed}"
+        self._say("removed the breaths from the take and faded the phrases", {"removed": len(removed),
+                  "kept": sorted(keep)}, f"Cleaned {len(removed)} breath{'s' if len(removed) != 1 else ''}.")
+        return f"breaths removed: {len(removed)} of {len(found)}" + (f", kept {sorted(keep)}" if keep else "")
+
     def _arrange(self, command: Command) -> str:
         """The structure (arrange, copy_section, list_sections) and his bookmarks (bookmark, go_to_bookmark)."""
         from hiremarco.studio.arrange import labelled, layout, parse_layout
@@ -988,6 +1031,8 @@ class Booth:
             return self._arrange(command)
         if a == "lift":
             return self._lift(command)
+        if a == "clean_breaths":
+            return self._clean_breaths(command)
         if a in ("go_to_section", "punch") and command.section and not command.bar and self.arranger is not None:
             where = self._section(command.section)
             if where is None:

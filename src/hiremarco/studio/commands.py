@@ -24,6 +24,7 @@ ACTIONS = (
     "kill", "summon", "dismiss", "chat", "play_take", "play_from_lyric", "solo", "unsolo", "play_from",
     "go_again", "next_part", "a_cappella", "read_beat", "accept", "tune_take", "tune_console", "flex_pass",
     "insert_plugin", "stage_beat", "arrange", "copy_section", "list_sections", "bookmark", "go_to_bookmark", "lift",
+    "clean_breaths",
     "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
@@ -81,7 +82,8 @@ INSTRUCTIONS = (
     "A word or a line in the last take that dips is brought up by itself: 'bring up \\'love\\' a bit', 'the word "
     "baby is too low', 'lift let me love you by 3 dB' means lift with the words in text and the dB in steps (2 for a "
     "bit or when not said, 3 for more, 4 to 6 for a lot, or the number said), and the track in track only if he names "
-    "one. "
+    "one. 'Clean the breaths', 'take out my breaths', 'clean up that take' means clean_breaths, with the numbers of "
+    "any breaths he wants kept in text ('2' for 'keep the second one'), and the track in track only if he names one. "
     "When the line is conversation rather than a command (a question about what Marco just did, a yes or no, "
     "'never mind', thanks, small talk), answer chat and put Marco's reply in text. Marco is the engineer the artist "
     "loves working with: easygoing, warm, in it together, and sharp; one short sentence, two at most; he answers what was asked, true to the "
