@@ -264,12 +264,16 @@ def test_a_cut_off_notice_is_said_again_first(setup):
     client, seen, _ = setup
     cut = [CALL_SYSTEM, {"role": "assistant", "content": "Hi, just so you..."},
            {"role": "user", "content": "This is Ava, the virtual assistant. For reservations, press one."}]
-    assert post(client, {"messages": cut}).json()["choices"][0]["message"]["content"].startswith(
-        "Hi, just so you know, this call is recorded. ok")
+    # the whole opening again, from the relay, with no model call (so no filler can come first)
+    assert post(client, {"messages": cut}).json()["choices"][0]["message"]["content"] == OPENING
     r = post(client, {"stream": True, "messages": cut})
     spoken = "".join(c["delta"].get("content", "") for line in r.text.splitlines() if line.startswith("data: {")
                      for c in json.loads(line[6:]).get("choices") or [])
-    assert spoken.startswith("Hi, just so you know, this call is recorded. ")
+    assert spoken == OPENING and seen == []
+    # cut off more than twice: the notice is put in front of the model's answer instead
+    cut_thrice = [CALL_SYSTEM] + [{"role": "assistant", "content": "Hi, just so you..."}] * 3 + cut[-1:]
+    assert post(client, {"messages": cut_thrice}).json()["choices"][0]["message"]["content"].startswith(
+        "Hi, just so you know, this call is recorded. ok")
     whole = [CALL_SYSTEM, {"role": "assistant", "content": OPENING}, {"role": "user", "content": "For when?"}]
     assert post(client, {"messages": whole}).json()["choices"][0]["message"]["content"] == "ok"
 

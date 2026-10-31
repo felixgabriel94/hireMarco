@@ -112,12 +112,19 @@ def unnarrate(text: str) -> str:
     return " ".join(p for p in re.split(r"(?<=[.!?,;])\s+", text) if not NARRATION.search(p))
 
 
-def opening_for(messages: list[dict]) -> str | None:
-    """The first reply of a call, when no assistant turn has happened yet and the prompt names one.
+RESAY_LIMIT = 2
 
-    The line must start with the recording notice; anything else is replaced by the bare notice.
+
+def opening_for(messages: list[dict]) -> str | None:
+    """The opening line, said by the relay with no model call: on the first turn of a call, and again (up to
+    RESAY_LIMIT times) when the callee cut it off before the notice was whole.
+
+    Dana test 3d (2026-10-31): after a talk-over, a model turn came late enough that the "One sec." filler went
+    first and the purpose was dropped; the relay's own line is instant. The line must start with the recording
+    notice; anything else is replaced by the bare notice.
     """
-    if any(m.get("role") == "assistant" for m in messages):
+    said = [str(m.get("content") or "") for m in messages if m.get("role") == "assistant"]
+    if said and not (notice_owed(messages) and sum(s.startswith("Hi, just so you") for s in said) <= RESAY_LIMIT):
         return None
     for m in messages:
         if m.get("role") in ("system", "developer"):
@@ -211,7 +218,9 @@ def make_relay(transport: httpx.AsyncBaseTransport | None = None, joblog: JobLog
 
         opening = opening_for(messages)
         if opening is not None:
-            log.append(JobRow(job="call-relay", model=CALL_MODEL, note="opening line, no model call"))
+            again = any(m.get("role") == "assistant" for m in messages)
+            log.append(JobRow(job="call-relay", model=CALL_MODEL,
+                              note=f"opening line{' again, it was cut off' if again else ''}, no model call"))
             if body.get("stream"):
                 async def say_opening() -> AsyncIterator[bytes]:
                     yield _chunk(opening)
