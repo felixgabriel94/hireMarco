@@ -89,7 +89,7 @@ VOICEMAIL_USE = ("Use only for a real voicemail: a recorded greeting that asks y
                  "Call it silently once the greeting has finished; it leaves the message and hangs up. An automated "
                  "assistant that talks with you, asks questions or offers a menu is not a voicemail.")
 SKIP_TURN_USE = "Stay silent and keep listening, for example while a recorded greeting is still playing."
-SKIP_WAIT_S = 8.0
+SKIP_WAIT_S = 10.0  # ElevenLabs refuses less than 10 s (live 2026-10-31)
 KEYPAD_USE = ("Press keypad digits when an automated menu asks you to, for example 2 for reservations. "
               "Pick the option that fits the purpose of the call.")
 # Twilio's machine check only hangs up on a fax. A bot voice can be labelled a machine (an AI receptionist answers
