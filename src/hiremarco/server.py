@@ -17,6 +17,14 @@ from hiremarco import config, gate
 from hiremarco.livelog import Trace
 from hiremarco.marco import Marco
 from hiremarco.whatsapp import Inbound, WhatsApp, make_app
+from hiremarco.whatsapp.brain import decide, history, studio
+from hiremarco.whatsapp.memory import remember
+
+
+def _inbox() -> Path:
+    from hiremarco.studio.beat_in import INBOX
+
+    return INBOX
 
 
 def listen_only(message: Inbound) -> str:
@@ -158,6 +166,45 @@ def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Pa
     return None
 
 
+def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None, booth=ensure_booth) -> str:
+    """The brain's choice carried out, then its text sent; when the studio says the choice cannot be done, the text
+    says what is true instead of what the brain hoped."""
+    from hiremarco.studio.beat_in import INBOX, cancel_pending, name_received, pending, rename_pending, \
+        requested_name, retry_pending, start_session, title
+
+    folder = inbox or INBOX
+    text, did = decision.reply, "replied"
+    name = title(decision.title) if decision.title else None
+    if decision.action == "start" or decision.action == "retry":
+        if decision.action == "retry" and pending(folder):
+            if name:
+                rename_pending(name, folder)
+            did = f"retrying {retry_pending(folder).name}; {booth()}"
+        elif (started := start_session(folder, name)) is not None:
+            named = requested_name(started)
+            did = f"session started for {started.name}" + (f" as {named!r}" if named else "") + f"; {booth()}"
+        elif pending(folder):
+            if name:
+                rename_pending(name, folder)
+            did = f"already waiting: {pending(folder)[-1].name}; {booth()}"
+        else:
+            text, did = "I don't have a beat waiting. Send me one and I'll set it up.", "no beat to start"
+    elif decision.action == "rename":
+        if not name:
+            text, did = "What should I call it?", "rename without a title"
+        elif (named := rename_pending(name, folder) or name_received(name, folder)) is not None:
+            did = f"named {named.name} {name!r}"
+        else:
+            text, did = "There's no beat waiting to name. Send me one first.", "no beat to name"
+    elif decision.action == "cancel":
+        back = cancel_pending(folder)
+        did = f"cancelled: {back.name} back in received" if back else "nothing waiting to cancel"
+        if back is None:
+            text = "Nothing's waiting to be set up."
+    wa.send_text(sender, text, idempotency_key=f"brain:{message_id}")
+    return f"brain: {decision.action}; {did}"
+
+
 def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None = None,
            inbox: Path | None = None, listen=None, booth=None, running=None) -> str:
     wa = wa or WhatsApp()
@@ -166,9 +213,11 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
     trace = Trace(f"heard: {heard[:60]}")
     try:
         wa.mark_read(message.id, typing=True)
+        turns = history(wa.conn)  # the conversation before this message
         beat = save_beat(message, wa, inbox)
         if beat is not None:
             path, started = beat
+            remember(wa.conn, "felix", f"[sent a beat: {path.name}] {message.caption or ''}")
             if started:
                 wa.send_text(message.sender, "Got the beat. Setting up the session.", idempotency_key=f"beat:{message.id}")
                 return trace.done(f"beat {path.name} received with its instruction; session started; {booth()}")
@@ -181,6 +230,17 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
             trace.add(f"voice note: {said[:60]}")
         elif message.kind != "text":
             return trace.done(f"{message.kind} noted, no handler yet")
+        remember(wa.conn, "felix", said or "[an empty voice note]")
+        if said:
+            try:
+                marco = marco or Marco()
+                decision = decide(marco, said, studio(inbox or _inbox(), running), turns, instructions=ENGLISH)
+            except gate.Refused:
+                raise
+            except Exception as exc:  # the brain is unreachable or answered off-schema: the fixed patterns answer
+                trace.add(f"brain unavailable: {type(exc).__name__}")
+            else:
+                return trace.done(act(decision, message.sender, message.id, wa, inbox, booth=booth))
         started = instruction(said, message.sender, message.id, wa, inbox, booth=booth, running=running)
         if started is not None:
             return trace.done(started)

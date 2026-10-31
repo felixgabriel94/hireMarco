@@ -31,6 +31,7 @@ to the front).
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -56,6 +57,7 @@ MIME_EXT = {"audio/wav": ".wav", "audio/x-wav": ".wav", "audio/wave": ".wav", "a
             "audio/x-flac": ".flac"}
 
 
+SETUP_RECORD = ".last-setup.json"  # in the inbox: the booth's last setup and its result
 SIDECAR = ".session"  # beside a beat in the inbox: the session name the artist asked for
 
 
@@ -172,13 +174,70 @@ def start_session(inbox: Path = INBOX, name: str | None = None) -> Path | None:
     beat = latest_received(inbox)
     if beat is None:
         return None
+    name = name or requested_name(beat)  # a title he gave before saying start
     target, n = inbox / beat.name, 2
     while target.exists():
         target, n = inbox / f"{beat.stem} {n}{beat.suffix}", n + 1
     if name:  # beside the beat before the beat appears, so the booth sees both at once
         sidecar(target).write_text(name)
+    sidecar(beat).unlink(missing_ok=True)
     shutil.move(str(beat), target)
     return target
+
+
+def name_received(name: str, inbox: Path = INBOX) -> Path | None:
+    """His title for the beat he sent but has not said to start: kept beside it until he does."""
+    beat = latest_received(inbox)
+    if beat is None:
+        return None
+    sidecar(beat).write_text(name)
+    return beat
+
+
+def retry_pending(inbox: Path = INBOX) -> Path | None:
+    """He asked to try again: the waiting beat is touched, so the booth takes it as new (a failed beat is tried once
+    per change). None when nothing is waiting."""
+    waiting = pending(inbox)
+    if not waiting:
+        return None
+    os.utime(waiting[-1])
+    return waiting[-1]
+
+
+def cancel_pending(inbox: Path = INBOX) -> Path | None:
+    """He does not want the waiting beat set up: it goes back to "received" with its title, never deleted."""
+    waiting = pending(inbox)
+    if not waiting:
+        return None
+    beat = waiting[-1]
+    folder = received_folder(inbox)
+    folder.mkdir(parents=True, exist_ok=True)
+    target, n = folder / beat.name, 2
+    while target.exists():
+        target, n = folder / f"{beat.stem} {n}{beat.suffix}", n + 1
+    if sidecar(beat).exists():
+        shutil.move(str(sidecar(beat)), sidecar(target))
+    shutil.move(str(beat), target)
+    return target
+
+
+def record_setup(beat: str, result: str, inbox: Path = INBOX) -> None:
+    """The booth's last setup and how it went, beside the inbox (a dot file the booth skips), for Marco's brain to
+    read when Felix texts."""
+    import json
+    from datetime import datetime, timezone
+
+    (inbox / SETUP_RECORD).write_text(json.dumps(
+        {"ts": datetime.now(timezone.utc).isoformat(), "beat": beat, "result": result}, ensure_ascii=False))
+
+
+def last_setup(inbox: Path = INBOX) -> dict:
+    import json
+
+    try:
+        return json.loads((inbox / SETUP_RECORD).read_text())
+    except (OSError, ValueError):
+        return {}
 
 
 def pending(inbox: Path = INBOX) -> list[Path]:
@@ -313,6 +372,28 @@ def dismiss_notices() -> str:
     return done.stdout.strip()
 
 
+def save_question(answer: str = "") -> str:
+    """The song Logic is asking about in "Do you want to save the document ...?", or "" when it is not asking.
+    With ``answer`` ("Save"), that button is pressed. Live 2026-10-30: an unsaved "Untitled 3" held the setup for
+    three minutes."""
+    press = f'click (first button of w whose title is "{answer}")\n' if answer else ""
+    script = (
+        'tell application "System Events" to tell process "Logic Pro"\n'
+        '  repeat with w in (every window whose subrole is "AXDialog")\n'
+        '    set names to title of every button of w\n'
+        '    if names contains "Don’t Save" or names contains "Don\'t Save" then\n'
+        '      set asked to value of static text 1 of w\n'
+        f'      {press}'
+        '      return asked\n'
+        '    end if\n'
+        '  end repeat\n'
+        '  return ""\n'
+        'end tell')
+    done = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=15)
+    m = re.search(r"[“\"](?P<n>[^”\"]+)[”\"]", done.stdout)
+    return m.group("n") if m else ("?" if done.stdout.strip() else "")
+
+
 def frontmost() -> str:
     return subprocess.run(["osascript", "-e", 'tell application "System Events" to get name of first process whose '
                            'frontmost is true'], capture_output=True, text=True, timeout=10).stdout.strip()
@@ -371,7 +452,7 @@ class BeatLoader:
                  sleep: Callable[[float], None] = time.sleep, template: Path = TEMPLATE, sessions: Path = SESSIONS,
                  conn=None, rules_path: Path | None = None, today: Callable[[], date] = date.today,
                  wait_s: float = 180.0, wake: Callable[[], None] = wake_display,
-                 notices: Callable[[], str] = dismiss_notices):
+                 notices: Callable[[], str] = dismiss_notices, asking: Callable[..., str] = save_question):
         self.run, self.front, self.click, self.scroll = run, front, click, scroll
         self.open_app = open_app or (lambda p: subprocess.run(["open", "-a", "Logic Pro", str(p)], check=True,
                                                               timeout=30))
@@ -379,7 +460,7 @@ class BeatLoader:
         self.tempo, self.align = tempo or beat_tempo, align or aligned_copy
         self.template, self.sessions, self.today = template, sessions, today
         self.conn, self.rules_path, self.wait_s = conn, rules_path, wait_s  # Logic opening cold takes over a minute
-        self.wake, self.notices = wake, notices
+        self.wake, self.notices, self.asking = wake, notices, asking
 
     def _in_front(self) -> None:
         if self.front() != "Logic Pro":
@@ -440,10 +521,28 @@ class BeatLoader:
                 self.sleep(1.0)
                 self.notices()
                 return target
+            asked = self._save_question()
+            if asked:
+                raise LoadError(f"Logic is asking whether to save {asked!r}, an unnamed song, before it opens "
+                                f"{target.stem}; I left that choice for you")
             self.sleep(1.0)
             waited += 1.0
         raise LoadError(f"Logic did not show {target.name} within {self.wait_s:g} s "
                         "(an unsaved song may be asking to be saved first)")
+
+    def _save_question(self) -> str:
+        """A save question in front of the session: a named song is saved (its work kept, nothing lost) and the wait
+        goes on; an unnamed one ("Untitled 3") is returned, since only his Don't Save would discard it."""
+        try:
+            asked = self.asking()
+        except Exception:
+            return ""
+        if not asked:
+            return ""
+        if asked == "?" or asked.lower().startswith("untitled"):
+            return asked
+        self.asking("Save")
+        return ""
 
     def load(self, beat: Path, name: str | None = None) -> str:
         """A new session from the template with the beat on its Beat track at bar 1, read back; named after the

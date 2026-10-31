@@ -96,7 +96,8 @@ def loader(tmp_path, logic, front="Logic Pro", started=None):
                       click=logic.click, scroll=lambda n: None, go_to_start=lambda: started.append("start") or "ok",
                       sleep=lambda s: None, template=template, sessions=tmp_path / "sessions",
                       conn=gate.connect(":memory:"), rules_path=rules(tmp_path), today=lambda: date(2026, 10, 29),
-                      wait_s=3, wake=lambda: logic.calls.append(["wake"]), notices=lambda: "")
+                      wait_s=3, wake=lambda: logic.calls.append(["wake"]), notices=lambda: "",
+                      asking=getattr(logic, "asking", lambda answer="": ""))
 
 
 def test_a_beat_lands_on_the_beat_track_of_a_new_session_from_the_template(tmp_path):
@@ -318,7 +319,7 @@ def test_live_2026_10_30_a_started_beat_is_not_asked_for_again_takes_its_title_a
     assert requested_name(inbox / "fairyrnb.mp3") == "ángel de cristal" and b"naming it" in sent[-1]
     line = handle(inbound(wa, "w4", kind="text", text="No I want you to set up the session for me and give it that "
                                                       "title. Go start the session on Logic"), wa=wa, inbox=inbox)
-    assert line.split(" > ")[1].startswith("already started") and b"already on it" in sent[-1]
+    assert " > already started" in line and b"already on it" in sent[-1]  # the patterns: no brain here
     line = handle(inbound(wa, "w5", kind="text", text="Did you start the session?"), wa=wa, inbox=inbox)
     assert "status: Setting up ángel de cristal now." in line
 

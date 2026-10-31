@@ -1143,17 +1143,18 @@ def watch_inbox(booth: "Booth", inbox=None, *, poll: float = 2.0, rounds: int | 
                 sleep: Callable[[float], None] = time.sleep) -> list[str]:
     """His beat inbox, every ``poll`` seconds: each new beat once. A beat held for a rolling take comes back on a
     later poll; a loaded one moves to the inbox's "loaded" folder; a failed one stays where it is, tried once."""
-    from hiremarco.studio.beat_in import Inbox, requested_name
+    from hiremarco.studio.beat_in import Inbox, record_setup, requested_name
 
     inbox = inbox or Inbox()
-    tried: set = set()
+    tried: dict = {}  # path -> its mtime when tried; "try again" touches the beat, so it is tried once more
     results: list[str] = []
     n = 0
     while rounds is None or n < rounds:
         n += 1
         try:
             for path in inbox.ready():
-                if path in tried:
+                stamp = path.stat().st_mtime_ns
+                if tried.get(path) == stamp:
                     continue
                 name = requested_name(path)
                 result = booth.beat_arrived(path, name) if name else booth.beat_arrived(path)
@@ -1161,7 +1162,11 @@ def watch_inbox(booth: "Booth", inbox=None, *, poll: float = 2.0, rounds: int | 
                 results.append(result)
                 if result.startswith("holding"):
                     continue
-                tried.add(path)
+                tried[path] = stamp
+                try:
+                    record_setup(name or path.stem, result, inbox.folder)
+                except Exception:  # a record that cannot be written never stops the beat
+                    pass
                 if not result.startswith(("beat not loaded", "no beat loader")):
                     inbox.done(path)
         except Exception as exc:  # the booth keeps running; the log says what broke

@@ -18,6 +18,7 @@ import httpx
 
 from hiremarco import config, gate
 from hiremarco.style import casual
+from hiremarco.whatsapp.memory import remember
 
 GRAPH_URL = "https://graph.facebook.com/v25.0"
 WINDOW = timedelta(hours=24)
@@ -109,8 +110,10 @@ class WhatsApp:
     def send_text(self, to: str, body: str, *, idempotency_key: str, critic=None,
                   now: datetime | None = None) -> str:
         body = casual(body)
-        return self._send(to, {"type": "text", "text": {"body": body}}, text_for_gate=body,
+        sent = self._send(to, {"type": "text", "text": {"body": body}}, text_for_gate=body,
                           idempotency_key=idempotency_key, capability="send_message", critic=critic, now=now)
+        remember(self.conn, "marco", body)
+        return sent
 
     def send_link(self, to: str, body: str, url: str, label: str, *, idempotency_key: str, critic=None,
                   now: datetime | None = None) -> str:
@@ -120,8 +123,10 @@ class WhatsApp:
         payload = {"type": "interactive", "interactive": {
             "type": "cta_url", "body": {"text": body},
             "action": {"name": "cta_url", "parameters": {"display_text": label[:20], "url": url}}}}
-        return self._send(to, payload, text_for_gate=f"{body} {url}", idempotency_key=idempotency_key,
+        sent = self._send(to, payload, text_for_gate=f"{body} {url}", idempotency_key=idempotency_key,
                           capability="send_message", critic=critic, now=now)
+        remember(self.conn, "marco", f"{body} [button: {label}]")
+        return sent
 
     def upload_media(self, data: bytes, mime_type: str, filename: str) -> str:
         """Upload a file to the phone number's media store. Returns the media id."""
@@ -160,6 +165,7 @@ class WhatsApp:
             channel="whatsapp", target=to, message=f"voice note: {spoken_text}", department="assistant",
             critic=critic, rules_path=self.rules_path,
         )
+        remember(self.conn, "marco", f"[voice note] {spoken_text}")
         return (data.get("messages") or [{}])[0].get("id", "")
 
     def send_image(self, to: str, png: bytes, caption: str, *, idempotency_key: str, critic=None,
@@ -179,6 +185,7 @@ class WhatsApp:
             channel="whatsapp", target=to, message=f"image: {caption}", department="assistant",
             critic=critic, rules_path=self.rules_path,
         )
+        remember(self.conn, "marco", f"[picture] {caption}")
         return (data.get("messages") or [{}])[0].get("id", "")
 
     def react(self, to: str, message_id: str, emoji: str, *, now: datetime | None = None) -> str:

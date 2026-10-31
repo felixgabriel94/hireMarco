@@ -58,3 +58,17 @@ class Marco:
         gate.check_model_call(TENANT, model=self.client.model, system=system, prompt=text, joblog=self.client.joblog)
         return self.client.ask(text, developer=system, job=job, max_completion_tokens=max_completion_tokens,
                                reasoning_effort=reasoning_effort)
+
+    def converse(self, history: list[dict], text: str, *, instructions: str = "", job: str = "converse",
+                 response_format: dict | None = None, max_completion_tokens: int = 1500,
+                 reasoning_effort: str = "low") -> Reply:
+        """Marco with the conversation so far (``history``: user and assistant turns, oldest first) before ``text``,
+        through the same gate and persona rule as ``answer``."""
+        if private_persona_on() and self.client.model.endswith("-contributor"):
+            raise gate.Refused("the private persona never goes to a contributor model")
+        system = persona() + (f"\n\n{instructions}" if instructions else "")
+        gate.check_model_call(TENANT, model=self.client.model, system=system,
+                              prompt="\n".join([*(h["content"] for h in history), text]), joblog=self.client.joblog)
+        messages = [{"role": "developer", "content": system}, *history, {"role": "user", "content": text}]
+        return self.client.chat(messages, job=job, max_completion_tokens=max_completion_tokens,
+                                response_format=response_format, reasoning_effort=reasoning_effort)
