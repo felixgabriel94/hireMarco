@@ -759,6 +759,27 @@ class Booth:
         self.rolling = True
         return f"playing from {lyric!r} at {at.typed()} (estimate): {result}"
 
+    def _timing(self, said: str) -> str:
+        """Where the last take's attacks land against the grid, in milliseconds, by bar and beat (Owner 2026-10-31:
+        the vocal is a drum part); measured only, nothing moved."""
+        from hiremarco.studio import timing
+        from hiremarco.studio.position import DIVISIONS_PER_BEAT, TICKS_PER_DIVISION
+
+        if self.rolling:
+            return "holding the timing check until the take stops"
+        take = self.tape.last_take()
+        if self.take_start is None or take.size == 0:
+            self._speak("I need a take to check.")
+            return "no take to check"
+        start, tempo, beats_per_bar = self.take_start
+        start_beats = start.ticks(beats_per_bar) / (DIVISIONS_PER_BEAT * TICKS_PER_DIVISION)
+        times = [t - COUNT_IN_SECONDS for t in timing.onsets(take, self.tape.rate) if t >= COUNT_IN_SECONDS]
+        per_beat = 8 if "32" in (said or "") else 4
+        hits = timing.place(times, start_beats, tempo, per_beat=per_beat, beats_per_bar=beats_per_bar)
+        line = timing.report(hits)
+        self._speak(line)
+        return f"timing ({'32nds' if per_beat == 8 else '16ths'}): {line}"
+
     def _harmony(self, said: str) -> str:
         """The next harmony voice over the line he just sang: played in his ears as a guide and named, built in the
         key's own steps (Owner 2026-10-31: music is math; a guide so a big stack never gets lost)."""
@@ -1093,6 +1114,8 @@ class Booth:
             return self._clean_breaths(command)
         if a == "harmony":
             return self._harmony(command.text)
+        if a == "timing":
+            return self._timing(command.text)
         if a in ("go_to_section", "punch") and command.section and not command.bar and self.arranger is not None:
             where = self._section(command.section)
             if where is None:
