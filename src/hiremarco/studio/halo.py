@@ -45,6 +45,8 @@ def level_of(rms: float, gain: float) -> float:
 
 def booth_state(booth, audio) -> tuple[str, float]:
     """What the halo shows for the booth right now: away for a take, and his voice, his thinking or yours otherwise."""
+    if getattr(booth, "operating", False):  # he is setting the session up: shown before Logic is even open
+        return "operating", 0.0
     if booth.rolling:  # the take belongs to the artist: the halo steps out of the way
         return "recording", 0.0
     if audio.speaking:

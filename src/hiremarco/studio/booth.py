@@ -137,6 +137,7 @@ class Booth:
     hearing: Callable[[], str] | None = None          # the full read, spoken, then the question
     reference: Callable[[str], str] | None = None     # "sound like X" -> the signature, spoken short
     busy: bool = False                                # a command is running: the halo shows him thinking
+    operating: bool = False                           # he is setting a session up: the halo shows before Logic does
     called_at: float = 0.0                            # when his name was last heard, before the sentence ended
     settle: float = 0.8                               # seconds between making a track and naming it
     awake_at: float = -100.0                          # the last exchange: he listens without his name for AWAKE s
@@ -178,15 +179,19 @@ class Booth:
             return "no beat loader in this booth"
         if self.rolling:
             return "holding the beat until the take stops"
+        self.operating = True  # the halo comes up first, then Logic opens (Owner 2026-10-31)
+        time.sleep(1.5)
         self._say("a beat arrived; opening a session from the template with it on the Beat track",
                   {"file": path.name, "song": name}, "Got the beat. Setting up the session.")
         try:
             loaded = self.load_beat(path, name) if name else self.load_beat(path)
         except Exception as exc:  # the file stays where it was; he hears why
+            self.operating = False
             self._say("could not put the beat in a session", {"file": path.name, "why": str(exc)[-160:]},
                       "I couldn't put the beat in the session. It's still in the inbox.")
             self._text(f"I couldn't put {path.name} in a session. It's still in the inbox.")
             return f"beat not loaded: {type(exc).__name__}: {str(exc)[-160:]}"
+        self.operating = False
         if self.tracks is not None:
             self.session = self.tracks.scan()
         self.last_setup = {}
@@ -1505,9 +1510,10 @@ def run_booth(*, dry_run: bool = False) -> int:
                   play_clip=(lambda pcm, label: print(f"   (guide, dry run: {label})")) if dry_run
                   else (lambda pcm, label: talkback.play_clip(pcm, label)))
 
+    halo_ready = threading.Event()  # a waiting beat is set up only once the halo is on screen (Owner 2026-10-31)
     if not dry_run:
         print(booth.console_check())
-        threading.Thread(target=watch_inbox, args=(booth,), daemon=True).start()
+        threading.Thread(target=lambda: (halo_ready.wait(20), watch_inbox(booth)), daemon=True).start()
 
     async def main() -> None:
         loop = asyncio.get_running_loop()
@@ -1581,13 +1587,16 @@ def run_booth(*, dry_run: bool = False) -> int:
             halo = Halo(lambda: booth_state(booth, rig["audio"]))
             try:
                 halo.start()
-                subprocess.run(["osascript", "-e", 'tell application "Logic Pro" to activate'], timeout=10)
-                print("halo: up; it shows over Logic while Logic is in front")
+                if subprocess.run(["pgrep", "-x", "Logic Pro"], capture_output=True).returncode == 0:
+                    # Logic already open: to the front; closed, it stays closed until he opens it for a beat
+                    subprocess.run(["osascript", "-e", 'tell application "Logic Pro" to activate'], timeout=10)
+                print("halo: up; it shows over Logic while Logic is in front, and on its own while he sets up")
             except Exception as exc:  # the halo is the look, not the work: the booth runs without it
                 print(f"   (halo off: {type(exc).__name__}: {str(exc)[-160:]})")
                 halo = None
         if halo is not None:
             _HALO.append(halo)
+        halo_ready.set()
         threading.Thread(target=_shortcut_listener, args=(booth, lock), daemon=True).start()
         if not dry_run:
             threading.Thread(target=_open_live_view, daemon=True).start()

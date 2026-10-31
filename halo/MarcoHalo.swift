@@ -53,10 +53,12 @@ struct Orb: View {
             halo.level += (halo.target - halo.level) * 0.18
             let dt = halo.lastFrame == 0 ? 0 : min(t - halo.lastFrame, 0.1)
             halo.lastFrame = t
-            if halo.mode == "speaking" || halo.mode == "thinking" { halo.lastActive = t }
+            if halo.mode == "speaking" || halo.mode == "thinking" || halo.mode == "operating" { halo.lastActive = t }
             if halo.mode == "listening" && halo.shown > 0.5 && halo.target > voiced { halo.lastActive = t }
             if halo.mode == "recording" || halo.mode == "asleep" { halo.lastActive = -100 }
-            let wanted = t - halo.lastActive < hold && halo.inLogic ? 1.0 : 0.0
+            // "operating": he is setting the session up himself, so he shows before Logic is even open
+            // (Owner 2026-10-31: the halo appears, then Logic opens)
+            let wanted = t - halo.lastActive < hold && (halo.inLogic || halo.mode == "operating") ? 1.0 : 0.0
             let step = dt / (wanted > halo.shown ? fadeIn : fadeOut)
             halo.shown = wanted > halo.shown ? min(wanted, halo.shown + step) : max(wanted, halo.shown - step)
         }
@@ -263,8 +265,14 @@ func logicCenter() -> CGPoint? {
     return CGPoint(x: frame.midX, y: screen.frame.height - frame.midY)
 }
 
+func screenCenter() -> CGPoint? {
+    guard let screen = NSScreen.main ?? NSScreen.screens.first else { return nil }
+    return CGPoint(x: screen.frame.midX, y: screen.frame.midY)
+}
+
 func place() {
-    guard !dragging, let center = logicCenter() else { return }
+    // over Logic when Logic is showing; in the middle of the screen while he opens it
+    guard !dragging, let center = logicCenter() ?? (state.mode == "operating" ? screenCenter() : nil) else { return }
     panel.setFrameOrigin(CGPoint(x: center.x + offset.x - size.width / 2, y: center.y + offset.y - size.height / 2))
 }
 
