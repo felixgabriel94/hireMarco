@@ -60,9 +60,10 @@ class Lifter:
                  split: Callable[[], None] = _split,
                  set_gain: Callable[[float], str] = lambda db: _osa("regions_io.applescript", ["gain", f"{db:g}"]),
                  selected: Callable[[], str] = lambda: _osa("regions_io.applescript", ["selected"]),
+                 deselect: Callable[[str], str] = lambda which: _osa("regions_io.applescript", ["deselect", which]),
                  sleep: Callable[[float], None] = time.sleep):
         self.go, self.select, self.split, self.set_gain, self.sleep = go, select, split, set_gain, sleep
-        self.selected = selected
+        self.selected, self.deselect = selected, deselect
 
     def lift(self, track: str, start: Spot, end: Spot, db: float) -> str:
         """The region on ``track`` cut at ``start`` and ``end`` and the piece between them raised by ``db``."""
@@ -71,7 +72,12 @@ class Lifter:
         if not -30 <= db <= 30:
             raise ValueError(f"{db:g} dB is outside what a word's lift should be")
         for edge in (start, end):
+            # only the one region is selected when it is cut: an arrangement marker cut with it would move the
+            # song's structure (Owner 2026-10-31)
+            # Deselect All clears the arrangement and markers too; "Deselect Global Tracks" after the region was picked
+            # cleared the region as well and the split did nothing (live 2026-10-31)
             self.go(edge)
+            self.deselect("all")
             self.select(track)
             self.split()
             self.sleep(0.4)

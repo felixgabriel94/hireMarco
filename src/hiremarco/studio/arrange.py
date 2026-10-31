@@ -203,9 +203,10 @@ class Arranger:
 
     def __init__(self, *, run: Callable[[list[str]], str] = _run, menu: Callable[[str], None],
                  press: Callable[[str], None], go: Callable[..., None], locators: Callable[[int, int], None],
-                 sleep: Callable[[float], None] = time.sleep, focus: Callable[[], object] = lambda: None):
+                 sleep: Callable[[float], None] = time.sleep, focus: Callable[[], object] = lambda: None,
+                 deselect_global: Callable[[], object] = lambda: None):
         self.run, self.menu, self.press, self.go, self.locators, self.sleep = run, menu, press, go, locators, sleep
-        self.focus = focus
+        self.focus, self.deselect_global = focus, deselect_global
         self.last = ""  # the bookmark made last: what "go back to that" means
 
     def _rows(self) -> list[tuple[Mark, int]]:
@@ -264,7 +265,7 @@ class Arranger:
         # arrangement and made a new section at the right locator (live 2026-10-31); a region that runs past the
         # section is copied whole
         self.focus()  # the keys go to the Tracks area, on the top track that holds regions, so a paste keeps tracks
-        self.press("select_inside_locators")
+        self.press("select_inside_locators")  # copying cuts nothing; live the sections were untouched by the paste
         self.press("copy")
         self.go(dst.bar)
         self.press("paste")
@@ -368,4 +369,8 @@ def live_arranger(conn=None, rules_path: Path | None = None) -> Arranger:
                 BeatLoader().select(name)
                 return
 
-    return Arranger(menu=menu, press=press, go=go, locators=locators, focus=focus)
+    def deselect_global() -> None:
+        subprocess.run(["osascript", str(SCRIPT.parent / "regions_io.applescript"), "deselect", "global"],
+                       check=True, capture_output=True, timeout=30)
+
+    return Arranger(menu=menu, press=press, go=go, locators=locators, focus=focus, deselect_global=deselect_global)

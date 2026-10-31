@@ -229,10 +229,13 @@ def test_a_word_is_lifted_by_cutting_at_its_edges_and_raising_that_piece():
     calls = []
     lifter = Lifter(go=lambda s: calls.append(("go", s)), select=lambda t: calls.append(("select", t)) or "take.2",
                     split=lambda: calls.append(("split",)), set_gain=lambda db: calls.append(("gain", db)) or f"{db:g}",
-                    sleep=lambda s: None)
+                    deselect=lambda which: calls.append(("deselect", which)), sleep=lambda s: None)
     assert lifter.lift("Lead Vox", Spot(15), Spot(17), 3) == "take.2 on Lead Vox: gain 3 dB"
-    assert [c[0] for c in calls] == ["go", "select", "split", "go", "select", "split", "go", "select", "gain"]
-    assert calls[6] == ("go", Spot(16))                                   # the middle, never an edge
+    # every cut: nothing selected (the arrangement and markers included), then the one region, then the split
+    one_cut = [("deselect", "all"), "select", ("split",)]
+    shape = [c if c[0] in ("deselect", "split") else c[0] for c in calls]
+    assert shape == ["go", *one_cut, "go", *one_cut, "go", "select", "gain"]
+    assert calls[8] == ("go", Spot(16))                                   # the middle, never an edge
     with pytest.raises(ValueError):
         lifter.lift("Lead Vox", Spot(17), Spot(15), 3)
     with pytest.raises(ValueError):

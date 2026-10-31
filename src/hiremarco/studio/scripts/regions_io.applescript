@@ -1,6 +1,7 @@
 -- Regions on one track: select the one under the playhead, and set the selected region's gain.
 --   osascript regions_io.applescript under "Beat"   select the region on the Beat lane under the playhead; its name
 --   osascript regions_io.applescript gain 3         the selected region's Gain in the Region inspector, in dB
+--   osascript regions_io.applescript deselect all|global   nothing selected, or no arrangement or marker selected
 -- Grounded in the live map of 2026-10-31: each track's lane in "Tracks contents" is a layout area described
 -- Track N “name”, its regions layout items whose AXSelected is settable; the playhead is the time ruler's
 -- "Playhead thumb"; the Region inspector is an outline whose "Gain:" row holds a slider that takes a value in dB in one
@@ -20,6 +21,20 @@ on findDesc(el, d, depth)
 	return missing value
 end findDesc
 
+on findMB(el, d, depth)
+	if depth > 6 then return missing value
+	tell application "System Events"
+		repeat with c in (UI elements of el)
+			try
+				if role of c is "AXMenuButton" and description of c is d then return c
+			end try
+			set f to my findMB(c, d, depth + 1)
+			if f is not missing value then return f
+		end repeat
+	end tell
+	return missing value
+end findMB
+
 on tracksWindow()
 	tell application "System Events" to tell process "Logic Pro"
 		repeat with w in (every window)
@@ -32,6 +47,20 @@ end tracksWindow
 on run argv
 	set cmd to item 1 of argv
 	set tw to tracksWindow()
+	if cmd is "deselect" then
+		-- the Tracks area's own Edit > Select > "Deselect All" or "Deselect Global Tracks": before any cut, so an
+		-- arrangement marker is never cut with a region (Owner 2026-10-31: the structure stays where it is)
+		set which to "Deselect All"
+		if (item 2 of argv) is "global" then set which to "Deselect Global Tracks"
+		set b to findMB(tw, "Edit", 0)
+		if b is missing value then error "the Tracks area's Edit menu is not showing"
+		tell application "System Events"
+			click b
+			delay 0.4
+			click menu item which of menu 1 of menu item "Select" of menu 1 of b
+		end tell
+		return which
+	end if
 	if cmd is "selected" then
 		-- the selected track's name: the header whose "Has Focus" radio button is on
 		set header to findDesc(tw, "Tracks header", 0)
@@ -70,12 +99,9 @@ on run argv
 				if px > x0 and px < x1 then set hit to contents of r
 			end repeat
 			if hit is missing value then error "no region on " & wanted & " under the playhead"
-			repeat with r in (every UI element of lane whose role is "AXLayoutItem")
-				try
-					set selected of r to false
-				end try
-			end repeat
-			set selected of hit to true
+			-- only the hit region is touched: setting another region's AXSelected to false selected it as well
+			-- (live 2026-10-31: "3 selected"); the caller clears the selection first with Deselect All
+			if not (selected of hit) then set selected of hit to true
 			return description of hit
 		end tell
 	end if
