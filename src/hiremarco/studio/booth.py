@@ -153,6 +153,7 @@ class Booth:
     a_cappella: bool = False                          # this take is recorded with the vocal soloed, on purpose
     take_start: object | None = None                  # (Position, tempo, beats per bar) read when the take began
     voice_takes: dict = field(default_factory=dict)   # track name -> (its last take's audio, its take_start)
+    harmony: object | None = None                     # studio.harmony.Stack over the last take's line
     auto_note: bool = False                           # a note after every take of AUTO_NOTE_SECONDS or more
     fillers: bool = True                              # "Hmm." while he thinks; off in tests that count lines
     _filled: bool = False
@@ -758,6 +759,38 @@ class Booth:
         self.rolling = True
         return f"playing from {lyric!r} at {at.typed()} (estimate): {result}"
 
+    def _harmony(self, said: str) -> str:
+        """The next harmony voice over the line he just sang: played in his ears as a guide and named, built in the
+        key's own steps (Owner 2026-10-31: music is math; a guide so a big stack never gets lost)."""
+        from hiremarco.studio import harmony, pitch
+
+        if self.rolling:
+            return "holding the harmony until the take stops"
+        if not self.key:
+            self._speak("What key are we in?")
+            return "asked for the key"
+        take = self.tape.last_take()
+        if take.size == 0:
+            self._speak("Sing me the line first.")
+            return "no take to harmonize"
+        stamp = (take.size, float(take[: min(64, take.size)].sum()))
+        if self.harmony is None or getattr(self.harmony, "stamp", None) != stamp:
+            line = pitch.notes(take, self.tape.rate, self.key)
+            if not line:
+                self._speak("I couldn't hear notes in that take.")
+                return "no notes in the take"
+            self.harmony = harmony.Stack(line, self.key)
+            self.harmony.stamp = stamp
+        voice = self.harmony.add(said)
+        named = harmony.names(voice)
+        self._speak(f"{named}.")
+        if self.play_clip is not None:
+            try:
+                self.play_clip(pitch.guide(voice), f"harmony: {named}")
+            except gate.Refused as held:
+                self.log(f"   (held guide: {held.reason})")
+        return f"harmony ({said}): {named} over {harmony.names(self.harmony.voices[0])}"
+
     def _run_check(self, lyric: str) -> str:
         from hiremarco.studio import pitch
 
@@ -1058,6 +1091,8 @@ class Booth:
             return self._lift(command)
         if a == "clean_breaths":
             return self._clean_breaths(command)
+        if a == "harmony":
+            return self._harmony(command.text)
         if a in ("go_to_section", "punch") and command.section and not command.bar and self.arranger is not None:
             where = self._section(command.section)
             if where is None:
