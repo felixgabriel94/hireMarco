@@ -112,7 +112,10 @@ class Talkback:
     def _cache_path(self, text: str) -> Path:
         voice = config.get("ELEVENLABS_VOICE_ID") or "default"
         delivery = ",".join(f"{v:.2f}" for v in voice_settings().values())
-        key = hashlib.sha256(f"{voice}|{MODEL}|{delivery}|{text}".encode()).hexdigest()[:24]
+        from hiremarco.voice.tts import speakable
+
+        # keyed on the words as said: a line whose spelling for the voice changed is made again, the rest are kept
+        key = hashlib.sha256(f"{voice}|{MODEL}|{delivery}|{speakable(text)}".encode()).hexdigest()[:24]
         return self.cache_dir / f"{key}.wav"
 
     def _ready(self, text: str) -> Speech:

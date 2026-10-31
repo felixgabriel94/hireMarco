@@ -57,6 +57,21 @@ class Speech:
         return self.pcm.size / RATE
 
 
+def speakable(text: str) -> str:
+    """Music written the way it is said: "A major" is "Ay major" (live 2026-10-31 the voice said "uh major"), "F#" is
+    "F sharp", "Bb" is "B flat", "Am" is "Ay minor". A capital A that is a word ("A beat arrived") stays as it is."""
+    import re
+
+    t = re.sub(r"\b([A-G])(?:#|♯)", r"\1 sharp", text)
+    t = re.sub(r"\b([A-G])(?:b|♭)(?=m\b|\s|[.,;:!?]|$)", r"\1 flat", t)
+    t = re.sub(r"\b([A-G])m\b", r"\1 minor", t)
+    note = r"A(?=\s+(?:sharp|flat|major|minor|natural)\b)"
+    t = re.sub(rf"\b{note}", "Ay", t)
+    t = re.sub(r"\b(key of) A\b", r"\1 Ay", t)
+    t = re.sub(r"(?<=\b[A-G] )A\b|\bA(?= [A-G]\b)", "Ay", t)  # in a run of note names: "G A B"
+    return t
+
+
 def synthesize(text: str, *, voice_id: str | None = None, api_key: str | None = None,
                joblog: JobLog | None = None, transport: httpx.BaseTransport | None = None,
                timeout: float = 30.0) -> Speech:
@@ -77,7 +92,7 @@ def synthesize(text: str, *, voice_id: str | None = None, api_key: str | None = 
                 f"/text-to-speech/{voice_id}",
                 params={"output_format": f"pcm_{RATE}"},
                 headers={"xi-api-key": api_key, "accept": "audio/pcm"},
-                json={"text": text, "model_id": MODEL, "voice_settings": voice_settings()},
+                json={"text": speakable(text), "model_id": MODEL, "voice_settings": voice_settings()},
             )
         if response.status_code >= 400:
             note = f"HTTP {response.status_code}"

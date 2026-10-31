@@ -106,7 +106,7 @@ def ensure_booth(running=booth_running) -> str:
         return "booth not running, and no booth.command to start it"
     # opened behind the front app, then Terminal hidden: the booth runs in it (its microphone and screen grants are
     # Terminal's), but nothing of it shows (Owner 2026-10-31: the halo and Logic are what the film sees)
-    subprocess.run(["open", "-g", "-a", "Terminal", str(script)], check=False, timeout=15)
+    subprocess.run(["open", "-g", "-j", "-a", "Terminal", str(script)], check=False, timeout=15)  # behind, hidden
     hide_terminal()
     return "booth started"
 
