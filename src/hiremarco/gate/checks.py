@@ -115,8 +115,13 @@ def check_outbound(
     workflow_name: str | None = None,
     today: date | None = None,
     rules_path: Path | None = None,
+    owner_request: str | None = None,
 ) -> None:
-    """Raise ``Refused`` unless this action may happen now."""
+    """Raise ``Refused`` unless this action may happen now.
+
+    ``owner_request`` is the Owner's own words asking for this action. A ``named`` send switch lets a call through
+    only when the target's full number (E.164 digits) is in those words.
+    """
     if kill_switch_on():
         raise Refused("kill switch is on")
     tool = CHANNEL_TOOLS.get(channel)
@@ -134,7 +139,8 @@ def check_outbound(
     elif target != "*":
         raise Refused(f"{channel} reaches no person; its target is '*'")
 
-    if not rules.allowed(tool, target, today, rules_path):
+    named = channel == "voice" and bool(owner_request) and target in re.sub(r"\D", "", owner_request or "")
+    if not rules.allowed(tool, target, today, rules_path, named_by_owner=named):
         raise Refused(f"no send switch for {tool} -> {target}")
 
     try:
@@ -202,6 +208,7 @@ def execute_effect(
     critic: Callable[[str], tuple[bool, str]] | None = None,
     today: date | None = None,
     rules_path: Path | None = None,
+    owner_request: str | None = None,
 ) -> T:
     """Check, ask the critic if one is given, run, record.
 
@@ -212,13 +219,15 @@ def execute_effect(
         tenant_id=tenant_id, idempotency_key=idempotency_key, capability=capability, channel=channel,
         target=target, message=message, department=department, workflow_name=workflow_name,
     )
-    check_outbound(conn, **fields, today=today, rules_path=rules_path)
+    check_outbound(conn, **fields, today=today, rules_path=rules_path, owner_request=owner_request)
     if critic is not None:
         # The Owner's number is private (RULES.md keeps it in the env file), so the critic is told whose it is
         # instead of seeing it; without that it held the first call to the Owner as having no switch.
         owner = (config.get("OWNER_WHATSAPP") or "").lstrip("+")
         shown = "the Owner's own number" if owner and target.lstrip("+") == owner else target
         description = f"{capability} via {channel} to {shown}: {message}"
+        if owner_request:
+            description += f" (the Owner asked: {owner_request})"
         try:
             approved, reason = critic(description)
         except Exception as exc:

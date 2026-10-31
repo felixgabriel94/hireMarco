@@ -173,7 +173,9 @@ class Calls:
 
     # one call
 
-    def place(self, to: str, purpose: str, details: str = "", *, critic=None, today: date | None = None) -> dict:
+    def place(self, to: str, purpose: str, details: str = "", *, critic=None, today: date | None = None,
+              owner_request: str | None = None) -> dict:
+        """One call. ``owner_request`` is the Owner's own words naming this number, for the ``named`` switch."""
         to = to.strip()
         if not to.startswith("+") or not to[1:].isdigit():
             raise CallError("the number must be E.164 with the plus, such as +15551234567")
@@ -206,6 +208,7 @@ class Calls:
                 self.conn or gate.connect(), run, tenant_id=TENANT, idempotency_key=call_key(to, purpose, details, today),
                 capability="call", channel="voice", target=to, message=f"{opening} Details: {details or 'none'}",
                 department="assistant", critic=critic, today=today, rules_path=self.rules_path,
+                owner_request=owner_request,
             )
         except CallError as err:
             self.joblog.append(JobRow(job="call", model="elevenlabs-agent", ok=False, note=str(err)[:200]))

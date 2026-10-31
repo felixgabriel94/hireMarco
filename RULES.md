@@ -25,7 +25,9 @@ Grammar, one line each, under the heading that follows:
 removed. `<tool>` is the package that acts (`whatsapp`, `calls`, `logic`, `export`);
 `<destination>` is a phone number in E.164 without the plus, `owner` for the
 Owner's own number (kept in the private env file, not in this repository),
-or `*` for a tool that reaches no person. A new destination is a new line.
+`named` for the number the Owner names in that one request (the gate lets a
+call through only when the full number is in his own words), or `*` for a
+tool that reaches no person. A new destination is a new line.
 
 ## Send switches
 
@@ -33,6 +35,7 @@ or `*` for a tool that reaches no person. A new destination is a new line.
     send: talkback -> * ; Marco's voice in the Owner's headphones, between takes ; until revoked
     send: logic -> * ; key commands, knobs and the export dialog in the Owner's Logic ; until revoked
     send: calls -> owner ; calls from Marco's line to the Owner's own phone ; until revoked
+    send: calls -> named ; calls to the number the Owner names in that request ; until revoked
 
 ## Read grants
 

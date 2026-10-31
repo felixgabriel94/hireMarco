@@ -10,8 +10,10 @@ grammar, one per line under the "Send switches" heading::
 (Owner ruling 2026-10-29 for WhatsApp to the Owner). ``<tool>`` is a package name such as ``whatsapp`` or ``calls``;
 ``<destination>`` is a phone number in E.164 without the plus, ``owner`` for
 the Owner's own number (read from OWNER_WHATSAPP in the private env file, so
-it stays out of this public repository), or ``*`` for a tool that reaches no
-person (not used for messages or calls).
+it stays out of this public repository), ``named`` for the number the Owner
+names in that one request (the caller says so with ``named_by_owner``; the gate
+checks the number is in his words), or ``*`` for a tool that reaches no person
+(not used for messages or calls).
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from pathlib import Path
 from hiremarco import config
 
 RULES_PATH = Path(__file__).resolve().parents[2] / "RULES.md"
-LINE = re.compile(r"^\s*send:\s*(?P<tool>[\w-]+)\s*->\s*(?P<dest>\*|owner|\d{7,15})\s*;\s*(?P<purpose>[^;]+?)\s*;\s*until\s+(?P<until>\d{4}-\d{2}-\d{2}|revoked)\s*$")
+LINE = re.compile(r"^\s*send:\s*(?P<tool>[\w-]+)\s*->\s*(?P<dest>\*|owner|named|\d{7,15})\s*;\s*(?P<purpose>[^;]+?)\s*;\s*until\s+(?P<until>\d{4}-\d{2}-\d{2}|revoked)\s*$")
 
 
 @dataclass(frozen=True)
@@ -48,8 +50,12 @@ def switches(path: Path | None = None) -> list[Switch]:
     return found
 
 
-def allowed(tool: str, destination: str, today: date | None = None, path: Path | None = None) -> bool:
-    """True only when a live switch line names this tool and this destination."""
+def allowed(tool: str, destination: str, today: date | None = None, path: Path | None = None,
+            named_by_owner: bool = False) -> bool:
+    """True only when a live switch line names this tool and this destination.
+
+    A ``named`` line matches only when the caller has checked that the Owner named this number in the request.
+    """
     today = today or date.today()
     destination = destination.lstrip("+")
     owner = (config.get("OWNER_WHATSAPP") or "").lstrip("+")
@@ -57,6 +63,8 @@ def allowed(tool: str, destination: str, today: date | None = None, path: Path |
     def names(s: Switch) -> bool:
         if s.destination == "owner":
             return owner != "" and destination == owner
+        if s.destination == "named":
+            return named_by_owner and destination.isdigit()
         return s.destination == destination
 
     return any(s.tool == tool and names(s) and s.until >= today for s in switches(path))
@@ -66,8 +74,9 @@ class SendNotAllowed(PermissionError):
     pass
 
 
-def require(tool: str, destination: str, today: date | None = None, path: Path | None = None) -> None:
-    if not allowed(tool, destination, today, path):
+def require(tool: str, destination: str, today: date | None = None, path: Path | None = None,
+            named_by_owner: bool = False) -> None:
+    if not allowed(tool, destination, today, path, named_by_owner):
         raise SendNotAllowed(
             f"no live send switch for {tool} -> {destination}; add a line to RULES.md (absent means off)"
         )

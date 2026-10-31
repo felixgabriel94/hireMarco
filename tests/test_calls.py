@@ -175,6 +175,30 @@ def test_critic_is_told_it_is_the_owners_number_and_never_sees_it(placing, env):
     assert OWNER not in descriptions[0] and len(seen) == 1
 
 
+def test_named_switch_calls_only_the_number_in_the_owners_words(placing, env):
+    calls, seen = placing
+    env["rules"].write_text("## Send switches\n\n    send: calls -> named ; whom the Owner names ; until revoked\n")
+    with pytest.raises(gate.Refused, match="no send switch"):
+        calls.place("+15557770000", "book a table", today=TODAY)
+    with pytest.raises(gate.Refused, match="no send switch"):
+        calls.place("+15557770000", "book a table", owner_request="call the bistro at +1 555 777 0001", today=TODAY)
+    descriptions = []
+    placed = calls.place("+15557770000", "book a table", owner_request="Marco, call +1 (555) 777-0000 for a table",
+                         critic=lambda d: (descriptions.append(d) or True, "ok"), today=TODAY)
+    assert placed["conversation_id"] == "conv_1" and len(seen) == 1
+    assert "the Owner asked: Marco, call +1 (555) 777-0000" in descriptions[0]
+    assert "5557770000" not in json.dumps(env["log"].rows())
+
+
+def test_named_switch_never_opens_whatsapp_to_anyone_else(env):
+    env["rules"].write_text("## Send switches\n\n    send: calls -> named ; whom the Owner names ; until revoked\n")
+    conn = gate.connect(":memory:")
+    with pytest.raises(gate.Refused):
+        gate.check_outbound(conn, tenant_id="owner", idempotency_key="w", capability="send_message", channel="whatsapp",
+                            target="15557770000", message="hi", department="assistant", today=TODAY,
+                            rules_path=env["rules"], owner_request="text +15557770000")
+
+
 def test_place_needs_plus_number(placing):
     calls, seen = placing
     with pytest.raises(CallError, match="E.164"):

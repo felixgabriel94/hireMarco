@@ -15,6 +15,7 @@
     uv run marco relay token             make the call relay's token, copy it to the clipboard for ElevenLabs
     uv run marco call setup [--relay-url URL]  the "Marco (calls)" agent on ElevenLabs, made or brought up to date
     uv run marco call place --to +1... --purpose "book a table" [--details "..."]   one call, through the gate
+                                         (anyone but the Owner: --owner-said "his words, with the full number")
     uv run marco call transcript ID      the call's transcript and cost, into the state folder
     uv run marco twilio check            read only: the verified caller IDs and the last calls' status
     uv run marco say "text"              one talkback line in the headphones, kept as a WAV
@@ -234,7 +235,8 @@ def cmd_call(args) -> int:
         if args.action == "place":
             trace = Trace(f"call: {args.purpose}")
             try:
-                placed = calls.place(args.to, args.purpose, args.details, critic=None if args.no_critic else Critic())
+                placed = calls.place(args.to, args.purpose, args.details, critic=None if args.no_critic else Critic(),
+                                     owner_request=args.owner_said or None)
             except gate.Refused as refused:
                 trace.done(f"held: {refused.reason}")
                 return 1
@@ -1125,6 +1127,7 @@ def main(argv: list[str] | None = None) -> int:
     ca.add_argument("--purpose", default="")
     ca.add_argument("--details", default="")
     ca.add_argument("--no-critic", action="store_true", help="skip the critic's second look")
+    ca.add_argument("--owner-said", default="", help="the Owner's own words naming the number, for anyone but him")
     ca.set_defaults(func=cmd_call)
 
     tw = sub.add_parser("twilio")

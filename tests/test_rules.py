@@ -66,11 +66,19 @@ def test_owner_destination_is_off_while_owner_unset(tmp_path, monkeypatch):
     assert rules.allowed("whatsapp", "15551234567", date(2026, 10, 28), p) is False
 
 
-def test_repo_rules_file_reaches_only_the_owner():
-    # RULES.md in this repository turns on WhatsApp and calls to the Owner, talkback and Logic; nothing reaches
-    # anyone else (Owner 2026-10-31: the calls line to his own phone).
+def test_repo_rules_file_reaches_the_owner_and_whom_he_names():
+    # RULES.md in this repository turns on WhatsApp and calls to the Owner, talkback and Logic, and calls to a
+    # number the Owner names in that request (Owner 2026-10-31); nothing else reaches anyone.
     assert [(s.tool, s.destination) for s in rules.switches()] == [
-        ("whatsapp", "owner"), ("talkback", "*"), ("logic", "*"), ("calls", "owner")]
+        ("whatsapp", "owner"), ("talkback", "*"), ("logic", "*"), ("calls", "owner"), ("calls", "named")]
+
+
+def test_named_line_needs_the_owner_to_have_named_the_number(tmp_path):
+    p = write(tmp_path, "send: calls -> named ; whom the Owner names ; until revoked\n")
+    today = date(2026, 10, 31)
+    assert rules.allowed("calls", "15557770000", today, p, named_by_owner=True)
+    assert not rules.allowed("calls", "15557770000", today, p)
+    assert not rules.allowed("whatsapp", "15557770000", today, p, named_by_owner=True)
 
 
 def test_read_grants_exact_address_and_domain(tmp_path):
