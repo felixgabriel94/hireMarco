@@ -16,6 +16,7 @@ import numpy as np
 
 KINDS = ("kick", "snare", "hat")
 NOTES = {"kick": 36, "snare": 38, "hat": 42}  # General MIDI's drum notes; a kit maps its pads to them
+BANDS = {"kick": (30.0, 150.0), "snare": (180.0, 4000.0), "hat": (6000.0, 16000.0)}  # where each is loudest, in Hz
 LIBRARY = Path("/Users/Shared/Maschine 2 Library/Samples/Drums")
 MODEL = Path.home() / ".local" / "share" / "hiremarco" / "drums.joblib"
 RATE = 48000
@@ -72,17 +73,23 @@ def transcribe(audio: np.ndarray, rate: int, bpm: float, one: float = 0.0, *, pe
     if not frames:
         return []
     chances = np.asarray(model.predict_proba(np.stack([features(mel, f) for f in frames])))
-    loud = np.array([float(mel[:, f:f + 3].mean()) for f in frames])
-    loud = (loud - loud.min()) / max(1e-9, float(loud.max() - loud.min()))
+    # each drum's loudness in its own part of the spectrum: measured across the whole attack, a kick under a snare
+    # read 120 and a kick alone 68 (live 2026-10-31, the Owner heard the 2 and 4 kicks drop out of the preview)
+    import librosa
+
+    centres = librosa.mel_frequencies(n_mels=MELS, fmin=30, fmax=16000)
+    rows = {kind: (centres >= lo) & (centres < hi) for kind, (lo, hi) in BANDS.items()}
+    loud = {kind: np.array([float(mel[rows[kind], f:f + 3].mean()) for f in frames]) for kind in KINDS}
+    loud = {kind: (v - v.min()) / max(1e-9, float(v.max() - v.min())) for kind, v in loud.items()}
     step_s = 60.0 / bpm / per_beat
     hits: dict[tuple[str, int], float] = {}
-    for f, chance, level in zip(frames, chances, loud):
+    for i, (f, chance) in enumerate(zip(frames, chances)):
         step = round((f * HOP / rate - one) / step_s)
         if step < 0:
             continue
         for kind, c in zip(KINDS, chance):
             if c >= threshold:
-                hits[(kind, step)] = max(hits.get((kind, step), 0.0), float(level))
+                hits[(kind, step)] = max(hits.get((kind, step), 0.0), float(loud[kind][i]))
     return sorted((Hit(kind, step, max(1, min(127, round(50 + 77 * v)))) for (kind, step), v in hits.items()),
                   key=lambda h: (h.step, KINDS.index(h.kind)))
 
