@@ -12,6 +12,7 @@ minute long.
 from __future__ import annotations
 
 import io
+import re
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -40,11 +41,20 @@ class Made:
     seconds: float
 
 
+VOCAL = re.compile(r"\b(?:vocals?|voices?|choirs?|sing(?:s|ing|er)?|sung|chops?|hooks?|ad[- ]?libs?|harmon(?:y|ies)|"
+                   r"a ?cappella|acapella|hum(?:s|ming)?|chant(?:s|ing)?|ooh|aah?)\b", re.IGNORECASE)
+
+
 def prompt(described: str, key: str, bpm: float, seconds: float) -> str:
-    """His words plus what the session already knows, written the way the music model reads best."""
-    return (f"{described.strip().rstrip('.')}. Key of {key}, {bpm:g} BPM, 4/4, about {seconds:.0f} seconds. "
-            "A single instrument part for a song that is already playing: instrumental only, no vocals; no drums "
-            "unless asked; it starts and ends cleanly so it can sit on a section of the song.")
+    """His words plus what the session already knows, written the way the music model reads best. A vocal comes
+    dry, a cappella, with no effects, so Marco's own chain in Logic does the processing (Owner 2026-10-31, after a
+    dry take measured 26 dB of fall in 300 ms where the same hook unprompted fell 13 dB)."""
+    head = f"{described.strip().rstrip('.')}. Key of {key}, {bpm:g} BPM, 4/4, about {seconds:.0f} seconds. "
+    if VOCAL.search(described):
+        return head + ("A cappella only, no instruments, no drums. Completely dry vocal: no reverb, no delay, no echo, "
+                       "no effects, close-mic'd in a dead vocal booth, like a raw unprocessed studio take.")
+    return head + ("A single instrument part for a song that is already playing: instrumental only, no vocals; no "
+                   "drums unless asked; it starts and ends cleanly so it can sit on a section of the song.")
 
 
 def shift_to(heard: str, wanted: str) -> int:

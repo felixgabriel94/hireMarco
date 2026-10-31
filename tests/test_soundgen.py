@@ -54,3 +54,11 @@ def test_raw_pcm_from_the_api_becomes_a_48k_stereo_wav(tmp_path):
     assert (info.samplerate, info.channels, info.subtype) == (48000, 2, "PCM_24") and made.shift == 0
     data, _ = sf.read(str(made.path))
     assert data[0, 0] > 0 > data[0, 1]                                    # left and right kept apart
+
+
+def test_a_vocal_comes_dry_and_a_cappella_and_an_instrument_stays_instrumental():
+    choir = soundgen.prompt("a gospel choir singing ooh", "A major", 99, 20)
+    assert "A cappella only" in choir and "no reverb" in choir and "instrumental only" not in choir
+    assert "dry" in soundgen.prompt("female vocal chops", "A minor", 99, 14)
+    pad = soundgen.prompt("moody spacey pad", "A major", 99, 19)
+    assert "instrumental only" in pad and "A cappella" not in pad
