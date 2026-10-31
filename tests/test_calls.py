@@ -108,7 +108,9 @@ def test_setup_creates_agent_secret_and_stores_ids(env):
                  "Don't accept a time outside the window", "You may join a waitlist for a time inside the window",
                  "ask once whether there's a waitlist or cancellation list", "Those don't work for us",
                  "Thanks for adding us. Bye.", "Don't say \"see you\" unless it's booked",
-                 "Give the email from the brief only when they ask for an email"):
+                 "Give the email from the brief only when they ask for an email",
+                 "Never waste a call: before you say goodbye, get a concrete result or a next step",
+                 "Only a result inside the\nbrief; never invent one, and never push past a clear no."):
         assert rule in prompt["prompt"]
     assert body["platform_settings"]["data_collection"]["off_brief"]["type"] == "string"
     assert prompt["backup_llm_config"] == {"preference": "disabled"}
