@@ -103,8 +103,8 @@ def _tool_call(name: str, stream: bool) -> Response:
     return StreamingResponse(chunks(), media_type="text/event-stream")
 
 
-# Owner 2026-10-31: his "mm-hm" sounded weird on a call, so it is never spoken.
-HUM = re.compile(r"\b(m+-?h+m+|uh-huh)\b[.,!]?\s*", re.I)
+# Owner 2026-10-31: his "mm-hm" sounded weird on a call, and "One sec." too, so neither is ever spoken.
+HUM = re.compile(r"\b(m+-?h+m+|uh-huh|one sec(ond)?)\b[.,!]?\s*", re.I)
 
 
 def unnarrate(text: str) -> str:

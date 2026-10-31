@@ -285,4 +285,5 @@ def test_pressing_and_holding_are_never_narrated():
     assert unnarrate("Mm-hm. I'll wait on hold for the host.") == ""
     assert unnarrate("Mhm, no, that's everything, thanks.") == "no, that's everything, thanks."
     assert unnarrate("Uh-huh. Indoor please.") == "Indoor please."
+    assert unnarrate("One sec. Those don't work for us, unfortunately.") == "Those don't work for us, unfortunately."
     assert unnarrate("Indoor at half past eight works.") == "Indoor at half past eight works."
