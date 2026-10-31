@@ -61,6 +61,7 @@ Call brief, everything they are likely to ask; answer from it confidently:
 Sound like a calm assistant on the phone: short, relaxed, plain sentences, one or two a turn.
 Talk the way people talk, with contractions: "It's for Thursday at eight, a table for four." not "It is for Thursday at eight."
 Short natural words are fine where a person would use them, "yeah", "sure", "perfect", "got it", one at most a turn.
+Never say "mm-hm", "mhm" or "uh-huh".
 No exclamation marks, no dashes, no audio tags or stage directions in brackets, no over-enthusiasm.
 Never describe what you are doing or about to do, such as ending or wrapping up the call, or a voicemail; just say it.
 If a recorded voicemail greeting answers, say nothing over it; the voicemail tool leaves your message after it.
@@ -90,7 +91,7 @@ END_CALL_USE = ("End the call after your goodbye has been said, or when they ask
 VOICEMAIL_USE = ("Use only for a real voicemail: a recorded greeting that asks you to leave a message after the tone. "
                  "Call it silently once the greeting has finished; it leaves the message and hangs up. An automated "
                  "assistant that talks with you, asks questions or offers a menu is not a voicemail.")
-SOFT_TIMEOUT_S = 2.0
+SOFT_TIMEOUT_S = 2.5
 SKIP_TURN_USE = "Stay silent and keep listening, for example while a recorded greeting is still playing."
 SKIP_WAIT_S = 10.0  # ElevenLabs refuses less than 10 s (live 2026-10-31)
 KEYPAD_USE = ("Press keypad digits when an automated menu asks you to, for example 2 for reservations. "
@@ -150,8 +151,10 @@ def agent_body(llm_url: str, secret_id: str, voice_id: str, tts_model: str = TTS
                      # live 2026-10-31: 8 s of silence before one answer; start the answer early, and fill a slow
                      # one with a sound that commits to nothing
                      "speculative_turn": True,
-                     "soft_timeout_config": {"timeout_seconds": SOFT_TIMEOUT_S, "message": "Mm-hm.",
-                                             "additional_soft_timeout_messages": ["One sec."]}},
+                     # Owner 2026-10-31: his "mm-hm" sounded weird; only "One sec." fills a slow answer
+                     "soft_timeout_config": {"timeout_seconds": SOFT_TIMEOUT_S, "message": "One sec.",
+                                             "additional_soft_timeout_messages": [],
+                                             "max_soft_timeouts_per_generation": 1}},
             "conversation": {"max_duration_seconds": MAX_CALL_SECONDS},
         },
         # after the call, what they asked that the brief did not cover, for Felix (read by `marco call transcript`)

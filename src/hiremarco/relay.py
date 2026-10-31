@@ -103,8 +103,12 @@ def _tool_call(name: str, stream: bool) -> Response:
     return StreamingResponse(chunks(), media_type="text/event-stream")
 
 
+# Owner 2026-10-31: his "mm-hm" sounded weird on a call, so it is never spoken.
+HUM = re.compile(r"\b(m+-?h+m+|uh-huh)\b[.,!]?\s*", re.I)
+
+
 def unnarrate(text: str) -> str:
-    text = re.sub(r"\s*[\u2014\u2013]\s*", ", ", text)
+    text = HUM.sub("", re.sub(r"\s*[\u2014\u2013]\s*", ", ", text))
     return " ".join(p for p in re.split(r"(?<=[.!?,;])\s+", text) if not NARRATION.search(p))
 
 

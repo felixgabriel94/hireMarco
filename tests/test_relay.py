@@ -278,5 +278,7 @@ def test_pressing_and_holding_are_never_narrated():
     from hiremarco.relay import unnarrate
 
     assert unnarrate("I'll press one to reach reservations.") == ""
-    assert unnarrate("Mm-hm. I'll wait on hold for the host.") == "Mm-hm."
+    assert unnarrate("Mm-hm. I'll wait on hold for the host.") == ""
+    assert unnarrate("Mhm, no, that's everything, thanks.") == "no, that's everything, thanks."
+    assert unnarrate("Uh-huh. Indoor please.") == "Indoor please."
     assert unnarrate("Indoor at half past eight works.") == "Indoor at half past eight works."
