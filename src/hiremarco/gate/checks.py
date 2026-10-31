@@ -39,10 +39,10 @@ CHANNEL_TOOLS = {
 }
 PERSON_CHANNELS = {"whatsapp", "voice"}
 
-# Every call opens with this line, word for word; it is also the film's caption.
-RECORDING_NOTICE = "Hi, this call is recorded. I'm an AI assistant calling to book a table for Felix."
-# Any call's opening, whatever it is calling about; the notice above is the booking call's, word for word.
-RECORDING_OPENING = "Hi, this call is recorded. I'm an AI assistant calling to "
+# Every call opens with the recording notice, word for word (ElevenLabs records every call; Florida needs every
+# party's consent). The booking call's whole first line is also the film's caption.
+RECORDING_OPENING = "Hi, just so you know, this call is recorded."
+RECORDING_NOTICE = RECORDING_OPENING + " I'm calling to book a table for Felix."
 
 DAILY_LIMITS = {"voice": 30, "whatsapp": 100}
 DUPLICATE_WINDOW_S = 600

@@ -16,7 +16,7 @@ LLM_URL = "https://marco.example.ngrok.app/llm/v1"
 
 def test_book_a_table_opening_is_word_for_word():
     assert first_message("book a table") == (
-        "Hi, this call is recorded. I'm an AI assistant calling to book a table for Felix."
+        "Hi, just so you know, this call is recorded. I'm calling to book a table for Felix."
     )
     assert first_message("book a table") == gate.RECORDING_NOTICE
     with pytest.raises(CallError):
@@ -73,7 +73,8 @@ def test_setup_creates_agent_secret_and_stores_ids(env):
     assert prompt["custom_llm"] == {"url": LLM_URL, "model_id": "muse-spark", "api_key": {"secret_id": "sec-1"}}
     assert set(prompt["built_in_tools"]) == {"end_call", "voicemail_detection"}
     assert prompt["built_in_tools"]["end_call"]["params"] == {"system_tool_type": "end_call"}
-    assert "never say or suggest you are human" in prompt["prompt"].lower()
+    assert "never claim or imply that you are human" in prompt["prompt"].lower()
+    assert "say truthfully that you are an ai assistant" in prompt["prompt"].lower()
     assert "payment" in prompt["prompt"]
     assert body["conversation_config"]["tts"] == {"model_id": TTS_MODEL, "voice_id": "voice-1"}
     assert body["conversation_config"]["conversation"]["max_duration_seconds"] == 300
@@ -140,7 +141,7 @@ def test_place_sends_opening_details_and_machine_hangup(placing, env):
     assert body["to_number"] == "+" + OWNER
     client = body["conversation_initiation_client_data"]
     assert client["conversation_config_override"]["agent"]["first_message"] == (
-        "Hi, this call is recorded. I'm an AI assistant calling to book a table for Felix."
+        "Hi, just so you know, this call is recorded. I'm calling to book a table for Felix."
     )
     assert client["dynamic_variables"] == {"purpose": "book a table", "details": "test call, no booking"}
     amd = body["telephony_call_config"]["twilio_machine_detection"]
@@ -179,11 +180,14 @@ def test_gate_takes_any_purpose_but_only_with_the_opening(env):
     gate.check_outbound(conn, idempotency_key="a", message=first_message("ask the opening hours"), **fields)
     with pytest.raises(gate.Refused, match="recording notice"):
         gate.check_outbound(conn, idempotency_key="b", message="Hello, ask the opening hours.", **fields)
+    with pytest.raises(gate.Refused, match="recording notice"):
+        gate.check_outbound(conn, idempotency_key="c", message="Hi, I'm calling to ask the opening hours for Felix.",
+                            **fields)
 
 
 def test_transcript_saved_outside_repo_with_cost(env):
     conv = {"status": "done", "conversation_id": "conv_1", "agent_id": "agent-1",
-            "transcript": [{"role": "agent", "time_in_call_secs": 0, "message": "Hi, this call is recorded."},
+            "transcript": [{"role": "agent", "time_in_call_secs": 0, "message": "Hi, just so you know, this call is recorded."},
                            {"role": "user", "time_in_call_secs": 4, "message": "Hello"}],
             "metadata": {"call_duration_secs": 42, "cost_fiat": 0.07, "cost": 350}}
     transport, _ = fake({("GET", "/v1/convai/conversations/conv_1"): conv})
