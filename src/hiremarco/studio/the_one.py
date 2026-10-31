@@ -52,6 +52,32 @@ def downbeats(path: Path, timeout: float = 120.0) -> list[float] | None:
         return None
 
 
+BEATS = """
+import json, sys
+from beat_this.inference import File2Beats
+beats, downbeats = File2Beats(checkpoint_path="final0", device="cpu", dbn=False)(sys.argv[1])
+print(json.dumps([float(b) for b in beats]))
+"""
+
+
+def beats(path: Path, timeout: float = 120.0) -> list[float] | None:
+    """Every beat Beat This! hears, in seconds, or None when the model cannot run here (a tempo is read from these)."""
+    python = Path(config.get("HIREMARCO_BEAT_THIS_PYTHON") or MODEL_PYTHON)
+    if not python.exists() or not Path(path).is_file():
+        return None
+    try:
+        done = subprocess.run([str(python), "-I", "-c", BEATS, str(path)], capture_output=True, text=True,
+                              timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if done.returncode != 0:
+        return None
+    try:
+        return [float(x) for x in json.loads(done.stdout.strip().splitlines()[-1])]
+    except (ValueError, IndexError):
+        return None
+
+
 def find(mono, rate: int, found: list[float] | None, bpm: float = 0.0) -> One:
     """The 1: the model's first downbeat at or after the first sound, moved onto the attack there when one is near.
     Sure when the model's next two downbeats come a bar apart at the beat's tempo (live 2026-10-31: on a riser and a

@@ -62,3 +62,25 @@ def test_a_vocal_comes_dry_and_a_cappella_and_an_instrument_stays_instrumental()
     assert "dry" in soundgen.prompt("female vocal chops", "A minor", 99, 14)
     pad = soundgen.prompt("moody spacey pad", "A major", 99, 19)
     assert "instrumental only" in pad and "A cappella" not in pad
+
+
+def test_a_near_miss_on_tempo_is_stretched_and_a_far_one_is_left_alone():
+    assert soundgen.stretch_ratio(96.0, 99.0) == pytest.approx(96 / 99)
+    assert soundgen.stretch_ratio(99.1, 99.0) == 1.0            # already in time
+    assert soundgen.stretch_ratio(0.0, 99.0) == 1.0             # tempo not read: nothing guessed
+    assert soundgen.stretch_ratio(80.0, 99.0) == 1.0            # 19% off is not a near miss
+
+
+def test_the_fitter_stretches_and_shifts_in_one_pass_with_formants_kept_on_a_voice(tmp_path):
+    pcm = (np.sin(np.linspace(0, 2000, 48000 * 2)) * 8000).astype("<i2")
+    calls = []
+
+    def move(source, target, *, time_ratio, semitones, voice):
+        calls.append((round(time_ratio, 4), semitones, voice))
+        import shutil
+        shutil.copy(source, target)
+
+    made = soundgen.fit(np.stack([pcm, pcm], axis=1).tobytes(), "A major", tmp_path, "choir", wanted_bpm=99,
+                        voice=True, read_key=lambda d, r: "A# major", tempo=lambda path, wanted: 96.0, move=move)
+    assert calls == [(round(96 / 99, 4), -1, True)]
+    assert (made.heard_bpm, made.wanted_bpm, made.shift) == (96.0, 99, -1)

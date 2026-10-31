@@ -799,7 +799,8 @@ class Booth:
         self._speak("On it. Making it now.")
         try:
             made = soundgen.fit(soundgen.generate(soundgen.prompt(described, key, bpm, seconds), seconds), key,
-                                config.STATE_DIR / "sounds", f"{described[:40].strip()} {time.strftime('%H%M%S')}")
+                                config.STATE_DIR / "sounds", f"{described[:40].strip()} {time.strftime('%H%M%S')}",
+                                wanted_bpm=bpm, voice=bool(soundgen.VOCAL.search(described)))
             loader = BeatLoader()
             loader.select_last()  # the new track after the last one, outside every stack
             self.logic(Command("new_sound_track"))
@@ -818,6 +819,8 @@ class Booth:
             self._say("the sound did not get made or placed", {"what_failed": failed}, FAILED)
             return f"sound failed: {failed}"
         moved = f", moved {made.shift:+d} semitones from {made.heard_key}" if made.shift else ""
+        if made.heard_bpm and abs(made.heard_bpm - bpm) >= 0.3:
+            moved += f", stretched from {made.heard_bpm:.1f} to {bpm:g} BPM"
         self._say("made the sound and put it on its own track", {"what": described, "where": where or "here",
                   "key": key, "moved": moved}, f"It's on {where or 'the track'}.")
         return f"sound: {made.path.name} ({made.seconds:.0f} s, {key}{moved}) at bar {bar or 'here'} on '{name}'"

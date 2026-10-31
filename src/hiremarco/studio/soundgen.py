@@ -39,6 +39,8 @@ class Made:
     heard_key: str
     shift: int          # semitones the clip was moved to land in the song's key
     seconds: float
+    heard_bpm: float = 0.0   # the clip's own tempo as Marco read it; 0 when it could not be read
+    wanted_bpm: float = 0.0
 
 
 VOCAL = re.compile(r"\b(?:vocals?|voices?|choirs?|sing(?:s|ing|er)?|sung|chops?|hooks?|ad[- ]?libs?|harmon(?:y|ies)|"
@@ -96,9 +98,61 @@ def generate(text: str, seconds: float, *, api_key: str | None = None, joblog: J
     return r.content
 
 
-def fit(audio_bytes: bytes, wanted_key: str, folder: Path, name: str, *, read_key=None) -> Made:
-    """The clip in the song's key, written as a 24-bit WAV the session can import."""
-    import librosa
+STRETCH_MAX = 0.12      # a clip more than 12% off the song's tempo is not a near miss: it is left alone and said so
+TEMPO_STEADY = 0.06     # beats whose spacing wanders more than this are not a tempo worth stretching to
+
+
+def read_tempo(path: Path, wanted: float) -> float:
+    """The clip's tempo from the beat model's beats (Day 4's Beat This!), folded to the octave nearest the song's
+    (half or double time reads as the same tempo). 0 when the beats are too few or too uneven to trust: a held choir
+    or a pad often has no beat to read, and a guess there would stretch a clip that was right."""
+    from hiremarco.studio.the_one import beats
+
+    found = beats(path)
+    if not found or len(found) < 8:
+        return 0.0
+    times = np.asarray(found, dtype=float)
+    gaps = np.diff(times)
+    middle = float(np.median(gaps))
+    if middle <= 0 or float(np.percentile(np.abs(gaps - middle), 75)) > TEMPO_STEADY * middle:
+        return 0.0
+    # the beat period is the slope of beat time against beat count, not the median gap: the model reports beats on
+    # a 20 ms grid, so every gap of a 99 BPM clip reads 600 or 620 ms and the median says 100 (live 2026-10-31)
+    count = np.concatenate([[0.0], np.cumsum(np.round(gaps / middle))])
+    bpm = 60.0 / float(np.polyfit(count, times, 1)[0])
+    if wanted > 0:
+        bpm = min((bpm * f for f in (0.5, 1.0, 2.0)), key=lambda b: abs(b - wanted))
+    return bpm
+
+
+def stretch_ratio(heard: float, wanted: float) -> float:
+    """How much longer the clip gets (rubberband's --time): 1.0 when it is already in time, unread, or too far off
+    to be a near miss."""
+    if heard <= 0 or wanted <= 0 or abs(heard - wanted) < 0.3:
+        return 1.0
+    ratio = heard / wanted
+    return ratio if abs(ratio - 1.0) <= STRETCH_MAX else 1.0
+
+
+def rubberband(source: Path, target: Path, *, time_ratio: float, semitones: int, voice: bool) -> None:
+    """Rubber Band's finer engine for both moves at once, one pass; formants kept on a voice so a shifted vocal does
+    not turn small and bright (librosa's shift, the fallback, does not keep them)."""
+    import shutil
+    import subprocess
+
+    tool = shutil.which("rubberband")
+    if tool is None:
+        raise FileNotFoundError("rubberband")
+    args = [tool, "-q", "--fine", "-t", f"{time_ratio:.6f}", "-p", str(semitones)]
+    if voice:
+        args.append("-F")
+    subprocess.run(args + [str(source), str(target)], check=True, capture_output=True, timeout=300)
+
+
+def fit(audio_bytes: bytes, wanted_key: str, folder: Path, name: str, *, wanted_bpm: float = 0.0,
+        voice: bool = False, read_key=None, tempo=read_tempo, move=rubberband) -> Made:
+    """The clip in the song's key and at its tempo, written as a 24-bit WAV the session can import. A near miss on
+    tempo (Owner 2026-10-31: "a couple of BPMs faster or slower") is stretched to the song's; the key the short way."""
     import soundfile as sf
 
     if audio_bytes[:4] in (b"RIFF", b"ID3\x03") or audio_bytes[:2] == b"\xff\xfb":
@@ -116,10 +170,24 @@ def fit(audio_bytes: bytes, wanted_key: str, folder: Path, name: str, *, read_ke
     else:
         heard = read_key(data, rate)
     shift = shift_to(heard, wanted_key) if heard and wanted_key else 0
-    if shift:
-        data = np.stack([librosa.effects.pitch_shift(data[:, c], sr=rate, n_steps=shift)
-                         for c in range(data.shape[1])], axis=1).astype("float32")
+    heard_bpm = tempo(raw, wanted_bpm) if wanted_bpm > 0 else 0.0
+    ratio = stretch_ratio(heard_bpm, wanted_bpm)
     target = folder / f"{name}.wav"
-    sf.write(str(target), data, rate, subtype="PCM_24")
+    if shift or ratio != 1.0:
+        try:
+            move(raw, target, time_ratio=ratio, semitones=shift, voice=voice)
+        except (FileNotFoundError, OSError):
+            import librosa
+
+            if ratio != 1.0:
+                data = np.stack([librosa.effects.time_stretch(data[:, c], rate=1.0 / ratio)
+                                 for c in range(data.shape[1])], axis=1)
+            if shift:
+                data = np.stack([librosa.effects.pitch_shift(data[:, c], sr=rate, n_steps=shift)
+                                 for c in range(data.shape[1])], axis=1)
+            sf.write(str(target), data.astype("float32"), rate, subtype="PCM_24")
+    else:
+        sf.write(str(target), data, rate, subtype="PCM_24")
     raw.unlink(missing_ok=True)
-    return Made(target, wanted_key, heard, shift, len(data) / rate)
+    seconds = sf.info(str(target)).duration
+    return Made(target, wanted_key, heard, shift, seconds, heard_bpm, wanted_bpm)
