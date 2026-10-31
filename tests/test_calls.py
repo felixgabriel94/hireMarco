@@ -78,6 +78,8 @@ def test_setup_creates_agent_secret_and_stores_ids(env):
     # Owner 2026-10-31: he is Felix's assistant in his own words; asked directly, he confirms being an AI once
     assert "never deny being an ai" in prompt["prompt"].lower()
     assert "\"Yes, I am. I'm Felix's assistant.\"" in prompt["prompt"]
+    # asked if he is a person, the answer is no: "yes" there would claim to be human
+    assert "\"Are you a real person?\" or \"human?\": \"No, I'm an AI. I'm Felix's assistant.\"" in prompt["prompt"]
     assert "never use the words \"AI assistant\"" in prompt["prompt"] and "never answer \"both\"" in prompt["prompt"]
     assert "don't repeat it" in prompt["prompt"]
     assert "payment" in prompt["prompt"]
