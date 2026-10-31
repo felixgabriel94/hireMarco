@@ -50,8 +50,11 @@ class FakeLogic:
             self.markers.append((args[1], self.playhead, 0))
             return "marked"
         if cmd == "length":
-            self.markers = [(n, b, int(args[2]) if b == int(args[1]) else ln) for n, b, ln in self.markers]
+            self.markers = [(n, b, int(args[2]) if b == int(args[1]) and (len(args) < 4 or n == args[3]) else ln)
+                            for n, b, ln in self.markers]
             return "length set"
+        if cmd == "where":
+            return str(self.playhead)
         if cmd == "rows":
             return "\n".join(f"{bar} 1 1 1 \t{name}\t{bars} 0 0 0" for name, bar, bars in self.markers)
         if cmd == "undo":
@@ -123,9 +126,12 @@ def test_bookmarks_go_in_his_set_and_are_found_by_their_words():
     logic = FakeLogic(bookmarks=[("the high note", 7, 0), ("second harmony idea", 19, 0)])
     a = arranger(logic)
     logic.playhead = 23
-    assert a.bookmark("fix the breath") == "marked fix the breath"
+    assert a.bookmark("fix the breath") == "marked fix the breath, 1 bar"
+    assert ("fix the breath", 23, 1) in logic.markers                                # a cue, never infinite
+    assert a.bookmark("the hook idea", bars=2, at=41) == "marked the hook idea, 2 bars"
+    assert ("the hook idea", 41, 2) in logic.markers
     assert a.find_bookmark("take me back to the harmony idea").bar == 19
-    assert a.find_bookmark("go back to that").name == "fix the breath"
+    assert a.find_bookmark("go back to that").name == "the hook idea"   # the one made last
     assert a.find_bookmark("the bridge thing") is None
 
 
@@ -180,7 +186,7 @@ def test_a_bookmark_is_dropped_and_found_again():
     logic = FakeLogic()
     b, said, did = booth_with(logic)
     logic.playhead = 14
-    assert b.handle(Command("bookmark", text="the high note")) == "marked the high note"
+    assert b.handle(Command("bookmark", text="the high note")) == "marked the high note, 1 bar"
     assert b.handle(Command("go_to_bookmark", text="back to the high note")) == "go to bar 14 (the high note)"
     assert b.handle(Command("go_to_bookmark", text="the ad lib")) == "no bookmark for 'the ad lib'"
 
@@ -207,3 +213,10 @@ def test_go_to_a_bar_moves_the_playhead_without_typing_a_position(tmp_path):
     logic.do(Command("play_from", text="9 1 1 1"))
     assert moved == ["25", "9"]
     assert not any('keystroke "/"' in s for s in scripts) and len(scripts) == 1   # only the play press
+
+
+def test_a_marker_is_never_taken_for_a_plug_in():
+    from hiremarco.studio.commands import insert_said
+
+    assert insert_said("drop a marker on these two bars, hook idea") is None
+    assert insert_said("put an LA-2A on the vocal").action == "insert_plugin"

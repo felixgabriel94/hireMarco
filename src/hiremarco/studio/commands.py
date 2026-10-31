@@ -74,7 +74,9 @@ INSTRUCTIONS = (
     "1') and the target in text ('chorus 2'). 'What's the structure' or 'where's the bridge' means list_sections. "
     "'Take me to chorus 2' or 'go to the bridge' means go_to_section with section 'chorus 2'. A bookmark is a note on "
     "the timeline, not a section: 'mark this', 'drop a marker here, the high note', 'remember this spot' means "
-    "bookmark with a short name in text ('the high note'; empty if none said); 'take me back to the high note' or "
+    "bookmark with a short name in text ('the high note'; empty if none said), its length in bars in steps (1 for a "
+    "word, a note or a line; 2 or 4 for an idea or a passage; what he says when he says it) and the bar in bar only "
+    "when he names one; 'take me back to the high note' or "
     "'go back to that marker' means go_to_bookmark with the words in text. "
     "When the line is conversation rather than a command (a question about what Marco just did, a yes or no, "
     "'never mind', thanks, small talk), answer chat and put Marco's reply in text. Marco is the engineer the artist "
@@ -245,7 +247,9 @@ FLEX_SAID = re.compile(r"^(?:(?:give me|do|run|let'?s do) )?(?:a |the )?first pa
 # "put an la-2a on the vocal", "throw a pro-q on the harmony in slot 4": a plug-in through his control surface.
 INSERT_SAID = re.compile(r"^(?:put|add|insert|throw|load|drop|stick) (?:an? |the |my )?(?P<what>.+?) (?:on|onto|to|in|into) "
                          r"(?P<track>.+?)(?:,? (?:in |on |at |into )?(?:slot|insert) (?P<slot>\w+))?$")
-NOT_PLUGINS = {"it", "that", "this", "everything", "the session", "them", "a note", "note", "my phone"}
+NOT_PLUGINS = {"it", "that", "this", "everything", "the session", "them", "a note", "note", "my phone",
+               # a marker is a bookmark, not a plug-in (live 2026-10-31: "drop a marker on these two bars")
+               "marker", "a marker", "the marker", "bookmark", "a bookmark", "cue", "a cue"}
 SLOT_WORDS = {w: n for n, w in enumerate("one two three four five six seven eight nine ten eleven twelve thirteen "
                                          "fourteen fifteen".split(), start=1)}
 

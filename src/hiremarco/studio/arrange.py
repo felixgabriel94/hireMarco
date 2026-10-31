@@ -161,10 +161,10 @@ def _double_click(x: float, y: float) -> None:
         time.sleep(0.05)
 
 
-def _length(bar: str, bars: str) -> str:
+def _length(bar: str, bars: str, name: str = "") -> str:
     """A marker's length in bars: its ∞ in the Marker List double-clicked and the bars typed (the Owner's tip,
     2026-10-31; live the same night: 6 typed read back "6 0 0 0")."""
-    x, y = (float(v) for v in _osa(["lencell", bar]).split(","))
+    x, y = (float(v) for v in _osa(["lencell", bar, *([name] if name else [])]).split(","))
     subprocess.run(["osascript", "-e", 'tell application "Logic Pro" to activate'], check=False, timeout=10)
     time.sleep(0.3)
     if _front() != "Logic Pro":
@@ -182,7 +182,7 @@ def _run(args: list[str]) -> str:
     """The marker script; "mark" is two steps, the field opened there and the name pasted from here, and "length"
     is a double-click and typed bars."""
     if args[0] == "length":
-        return _length(args[1], args[2])
+        return _length(*args[1:4])
     if args[0] != "mark":
         return _osa(args)
     subprocess.run(["pbcopy"], input=args[1].encode(), check=True, timeout=10)  # before the field opens
@@ -206,6 +206,7 @@ class Arranger:
                  sleep: Callable[[float], None] = time.sleep, focus: Callable[[], object] = lambda: None):
         self.run, self.menu, self.press, self.go, self.locators, self.sleep = run, menu, press, go, locators, sleep
         self.focus = focus
+        self.last = ""  # the bookmark made last: what "go back to that" means
 
     def _rows(self) -> list[tuple[Mark, int]]:
         return parse_rows(self.run(["rows"]))
@@ -269,22 +270,29 @@ class Arranger:
         self.press("paste")
         return f"copied {source} (bars {src.bar} to {src.end - 1}) to bar {dst.bar}"
 
-    def bookmark(self, name: str) -> str:
-        """A regular marker at the playhead, named: a note on the timeline, never a section."""
+    def bookmark(self, name: str, bars: int = 1, at: int = 0) -> str:
+        """A regular marker, named: a cue on the timeline as long as what it marks (the Owner, 2026-10-31: never
+        infinite; one or two bars, shorter or longer by what is bookmarked), at the playhead or at bar ``at``."""
+        if at:
+            self.go(at)
+        bar = at or int(self.run(["where"]) or 0)
         self.run(["mark", name])
-        return f"marked {name}"
+        self.last = name
+        if bar:
+            self.run(["length", str(bar), str(max(1, bars)), name])
+        return f"marked {name}, {max(1, bars)} bar{'s' if max(1, bars) != 1 else ''}"
 
     def bookmarks(self) -> list[Mark]:
         return [m for m, _ in self._rows()]
 
     def find_bookmark(self, said: str) -> Mark | None:
-        """The bookmark whose name shares the most words with what he said; the newest one when he names none."""
+        """The bookmark whose name shares the most words with what he said; the one made last when he names none."""
         marks = self.bookmarks()
         if not marks:
             return None
         words = set(re.findall(r"\w+", said.lower())) - {"the", "a", "that", "to", "back", "go", "take", "me", "marker"}
         if not words:
-            return marks[-1]
+            return next((m for m in marks if m.name == self.last), marks[-1])
         scored = max(marks, key=lambda m: len(words & set(re.findall(r"\w+", m.name.lower()))))
         return scored if words & set(re.findall(r"\w+", scored.name.lower())) else None
 

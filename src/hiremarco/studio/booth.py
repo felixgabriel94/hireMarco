@@ -833,7 +833,7 @@ class Booth:
                 return f"sections: {'; '.join(said) or 'none'}"
             if a == "bookmark":
                 name = command.text or f"mark {len(self.arranger.bookmarks()) + 1}"
-                done = self.arranger.bookmark(name)
+                done = self.arranger.bookmark(name, bars=command.steps or 1, at=command.bar)
                 self._say("dropped a bookmark marker at the playhead", {"name": name}, "Marked.")
                 return done
             mark = self.arranger.find_bookmark(command.text)

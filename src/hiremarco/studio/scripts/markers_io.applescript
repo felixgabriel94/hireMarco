@@ -116,6 +116,16 @@ on run argv
 		return (((item 1 of p) + (item 1 of s) / 2) as integer as text) & "," & (((item 2 of p) + (item 2 of s) / 2) as integer as text)
 	end if
 	if cmd is "goto" then return gotoBar((item 2 of argv) as integer)
+	if cmd is "where" then
+		set tw to namedWindow(" - Tracks")
+		tell application "System Events" to tell process "Logic Pro"
+			set cb to (first group of (first group of tw whose description is "Control Bar") whose description is "Control Bar")
+			repeat with g in (groups of cb whose description is "Playhead Position")
+				if (count of sliders of g) is 4 then return ((value of (first slider of g whose description is "bar")) as integer) as text
+			end repeat
+		end tell
+		error "the playhead position is not showing in the Control Bar"
+	end if
 	if cmd is "hide" then
 		set w to namedWindow(" - Marker List")
 		if w is missing value then return "not open"
@@ -175,7 +185,9 @@ on run argv
 				set cs to UI elements of r
 				set d to (description of (UI element 1 of item 2 of cs)) as text
 				set pos to words of d
-				if (item 1 of pos) is (item 2 of argv) and (item 2 of pos) is "1" then
+				set nm to (description of (UI element 1 of item 3 of cs)) as text
+				set wanted to ((count of argv) < 3) or (nm is (item 3 of argv))
+				if (item 1 of pos) is (item 2 of argv) and wanted and ((count of argv) > 2 or (item 2 of pos) is "1") then
 					set g to UI element 1 of item 4 of cs
 					set p to position of g
 					set z to size of g
