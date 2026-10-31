@@ -149,3 +149,26 @@ def test_a_profile_respelling_is_said_and_spelling_out_is_left_alone(tmp_path, m
     spoken = "".join(json.loads(line[6:])["choices"][0]["delta"].get("content", "")
                      for line in r.text.splitlines() if line.startswith("data: {"))
     assert spoken == "Under Felix Zor-illa. That's Z O R R I L L A, Zor-illa"
+
+
+def test_a_narrating_sentence_is_never_spoken_and_dashes_become_commas(tmp_path, monkeypatch):
+    from hiremarco.relay import unnarrate
+
+    assert unnarrate("Voicemail detected \u2014 I'll leave the message.") == ""
+    assert unnarrate("Thanks so much, see you Thursday. Bye. I'll end the call now.") == "Thanks so much, see you Thursday. Bye."
+    assert unnarrate("Booking confirmed \u2014 thanks.") == "Booking confirmed, thanks."
+    monkeypatch.setenv("RELAY_TOKEN", "relay-secret")
+    monkeypatch.setenv("MODEL_API_KEY", "meta-key")
+
+    def upstream(request):
+        parts = ["Voicemail det", "ected \u2014 I'll leave", " the message."]
+        lines = [f'data: {{"choices":[{{"delta":{{"content":{json.dumps(p)}}}}}]}}' for p in parts] + ["data: [DONE]"]
+        return httpx.Response(200, text="\n".join(lines) + "\n", headers={"content-type": "text/event-stream"})
+
+    app = Starlette(routes=[Route("/llm/v1/chat/completions", make_relay(
+        transport=httpx.MockTransport(upstream), joblog=JobLog(tmp_path / "j.jsonl")), methods=["POST"])])
+    r = post(TestClient(app), {"stream": True, "messages": [{"role": "assistant", "content": OPENING},
+                                                            {"role": "user", "content": "At the tone, record."}]})
+    spoken = "".join(json.loads(line[6:])["choices"][0]["delta"].get("content", "")
+                     for line in r.text.splitlines() if line.startswith("data: {"))
+    assert spoken == ""

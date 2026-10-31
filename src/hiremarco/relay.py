@@ -46,6 +46,16 @@ CALL_MAX_TOKENS = 300
 OPENING_MARK = "Your first words, exactly:"
 OPENING_LINE = re.compile(re.escape(OPENING_MARK) + r"\s*(.+)")
 TAG = re.compile(r"\s?\[[A-Za-z][A-Za-z ,'-]{0,24}\]")
+# A sentence narrating what he is doing is never spoken (live 2026-10-31: "Voicemail detected, I'll leave the
+# message." went into a third party's voicemail). Dashes are spoken as commas.
+NARRATION = re.compile(r"voicemail detected|leave (a|the|your) message|wrap(ping)? up the call|(end|ending|hang|hanging) "
+                       r"(up )?the call|i'?ll (end|hang up)|call (has )?ended", re.I)
+SENTENCE_END = re.compile(r"[.!?](\s|$)")
+
+
+def unnarrate(text: str) -> str:
+    text = re.sub(r"\s*[\u2014\u2013]\s*", ", ", text)
+    return " ".join(p for p in re.split(r"(?<=[.!?])\s+", text) if not NARRATION.search(p))
 
 
 def opening_for(messages: list[dict]) -> str | None:
@@ -80,7 +90,7 @@ class TagFilter:
         self.pairs = pairs or {}
 
     def _out(self, text: str) -> str:
-        text = respell(TAG.sub("", text), self.pairs)
+        text = unnarrate(respell(TAG.sub("", text), self.pairs))
         if not self.started:
             text = text.lstrip()
             self.started = bool(text)
@@ -88,13 +98,10 @@ class TagFilter:
 
     def feed(self, text: str) -> str:
         text, self.held = self.held + text, ""
-        i = text.rfind("[")
-        if i != -1 and "]" not in text[i:] and len(text) - i <= 26:
-            text, self.held = text[:i], text[i:]
-        elif self.pairs:
-            cut = re.search(r"[A-Za-z'-]+$", text)
-            if cut:
-                text, self.held = text[:cut.start()], text[cut.start():]
+        # speak whole sentences only, so a narrating sentence can be dropped before any of it is said
+        ends = list(SENTENCE_END.finditer(text))
+        cut = ends[-1].start() + 1 if ends else 0
+        text, self.held = text[:cut], text[cut:]
         return self._out(text)
 
     def flush(self) -> str:
@@ -178,7 +185,7 @@ def make_relay(transport: httpx.AsyncBaseTransport | None = None, joblog: JobLog
             for choice in data.get("choices") or []:
                 message = choice.get("message") or {}
                 if isinstance(message.get("content"), str):
-                    message["content"] = respell(TAG.sub("", message["content"]).strip(), pairs)
+                    message["content"] = unnarrate(respell(TAG.sub("", message["content"]).strip(), pairs)).strip()
             return JSONResponse(data)
 
         async def relay_stream() -> AsyncIterator[bytes]:

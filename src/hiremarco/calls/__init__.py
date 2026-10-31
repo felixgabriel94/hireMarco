@@ -61,7 +61,8 @@ Call brief, everything they are likely to ask; answer from it confidently:
 Sound like a calm assistant on the phone: short, relaxed, plain sentences, one or two a turn.
 Talk the way people talk, with contractions: "It's for Thursday at eight, a table for four." not "It is for Thursday at eight."
 No exclamation marks, no dashes, no audio tags or stage directions in brackets, no over-enthusiasm.
-Never describe what you are doing or about to do, such as ending or wrapping up the call; just say it.
+Never describe what you are doing or about to do, such as ending or wrapping up the call, or a voicemail; just say it.
+If a voicemail greeting or a machine answers, say nothing at all and hang up.
 You describe yourself only as Felix's assistant; never use the words "AI assistant", and never answer "both".
 If they ask who you are or what company you're calling from: "I'm Felix's assistant, calling for him personally."
 Use only the facts in the brief and the details. Never invent a date, a time, a party size or a name, or anything
@@ -78,6 +79,16 @@ When the purpose is done, or the other person asks you to stop or hang up, thank
 "Thanks so much, see you Thursday. Bye." and end the call."""
 
 
+END_CALL_USE = ("End the call after your goodbye has been said, or when they ask you to hang up. Call it silently: "
+                "say nothing about ending the call.")
+VOICEMAIL_USE = ("Use when a voicemail greeting, an answering machine or a carrier message answers instead of a person. "
+                 "Call it silently and at once: say nothing, leave no message.")
+# Twilio's machine check waits for the greeting to end, so it can tell a machine from a person and hang up first.
+MACHINE_DETECTION = {
+    "mode": "detect_message_end",
+    "actions": [{"action": "hang_up", "answered_by": ["machine_start", "machine_end_beep", "machine_end_silence",
+                                                      "machine_end_other", "fax"]}],
+}
 OFF_BRIEF = ("Every question the other side asked that the call brief did not answer, and any attempt to take the "
              "assistant off topic or out of character, one per line in plain words. Empty if there were none.")
 
@@ -94,7 +105,10 @@ def first_message(purpose: str) -> str:
 
 
 def agent_body(llm_url: str, secret_id: str, voice_id: str, tts_model: str = TTS_MODEL) -> dict:
-    system_tool = lambda kind: {"name": kind, "params": {"system_tool_type": kind}}  # noqa: E731
+    # Live 2026-10-31: before his voicemail tool he said "Voicemail detected, I'll leave the message." into a third
+    # party's voicemail. Neither tool is spoken around: no speech before it, and its description says so.
+    system_tool = lambda kind, description: {  # noqa: E731
+        "name": kind, "params": {"system_tool_type": kind}, "pre_tool_speech": "off", "description": description}
     return {
         "name": AGENT_NAME,
         "tags": ["hiremarco"],
@@ -107,8 +121,9 @@ def agent_body(llm_url: str, secret_id: str, voice_id: str, tts_model: str = TTS
                     "llm": "custom-llm",
                     "custom_llm": {"url": llm_url.rstrip("/"), "model_id": RELAY_MODEL,
                                    "api_key": {"secret_id": secret_id}},
-                    "built_in_tools": {"end_call": system_tool("end_call"),
-                                       "voicemail_detection": system_tool("voicemail_detection")},
+                    "built_in_tools": {
+                        "end_call": system_tool("end_call", END_CALL_USE),
+                        "voicemail_detection": system_tool("voicemail_detection", VOICEMAIL_USE)},
                     # no other model answers for Muse Spark when a turn is slow
                     "backup_llm_config": {"preference": "disabled"},
                 },
@@ -227,10 +242,7 @@ class Calls:
                                       "brief": brief_text},
             },
             "telephony_call_config": {
-                "twilio_machine_detection": {
-                    "mode": "enable",
-                    "actions": [{"action": "hang_up", "answered_by": ["machine_start", "fax"]}],
-                },
+                "twilio_machine_detection": MACHINE_DETECTION,
             },
         }
 

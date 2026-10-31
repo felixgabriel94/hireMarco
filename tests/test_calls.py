@@ -74,6 +74,8 @@ def test_setup_creates_agent_secret_and_stores_ids(env):
     assert prompt["custom_llm"] == {"url": LLM_URL, "model_id": "muse-spark", "api_key": {"secret_id": "sec-1"}}
     assert set(prompt["built_in_tools"]) == {"end_call", "voicemail_detection"}
     assert prompt["built_in_tools"]["end_call"]["params"] == {"system_tool_type": "end_call"}
+    for tool in prompt["built_in_tools"].values():  # live 2026-10-31: he narrated the voicemail tool
+        assert tool["pre_tool_speech"] == "off" and "silently" in tool["description"]
     assert "never claim or imply that you are human" in prompt["prompt"].lower()
     # Owner 2026-10-31: he is Felix's assistant in his own words; asked directly, he confirms being an AI once
     assert "never deny being an ai" in prompt["prompt"].lower()
@@ -174,7 +176,10 @@ def test_place_sends_opening_details_and_machine_hangup(placing, env):
     assert (variables["purpose"], variables["details"]) == ("book a table", "test call, no booking")
     assert "- party size: 4" in variables["brief"] and "never read out card details" in variables["brief"]
     amd = body["telephony_call_config"]["twilio_machine_detection"]
-    assert amd["actions"] == [{"action": "hang_up", "answered_by": ["machine_start", "fax"]}]
+    # it waits for the greeting to end, then hangs up on any machine verdict
+    assert amd["mode"] == "detect_message_end" and amd["actions"][0]["action"] == "hang_up"
+    assert {"machine_start", "machine_end_beep", "machine_end_silence", "machine_end_other", "fax"} == set(
+        amd["actions"][0]["answered_by"])
     row = env["log"].rows()[-1]
     assert row["job"] == "call" and "conv_1" in row["note"] and "CA123" in row["note"]
     assert OWNER not in json.dumps(env["log"].rows())
