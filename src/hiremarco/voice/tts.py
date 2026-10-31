@@ -62,7 +62,9 @@ def speakable(text: str) -> str:
     "F sharp", "Bb" is "B flat", "Am" is "Ay minor". A capital A that is a word ("A beat arrived") stays as it is."""
     import re
 
-    t = re.sub(r"\b([A-G])(?:#|♯)", r"\1 sharp", text)
+    # no "Hmm" or "Mm" to open a line (Owner 2026-10-31), whoever wrote it
+    t = re.sub(r"^\s*(?:h?m{2,}|uh+|um+)(?:[,.!?…]+|\s)\s*", "", text, flags=re.I) or text
+    t = re.sub(r"\b([A-G])(?:#|♯)", r"\1 sharp", t)
     t = re.sub(r"\b([A-G])(?:b|♭)(?=m\b|\s|[.,;:!?]|$)", r"\1 flat", t)
     t = re.sub(r"\b([A-G])m\b", r"\1 minor", t)
     note = r"A(?=\s+(?:sharp|flat|major|minor|natural)\b)"

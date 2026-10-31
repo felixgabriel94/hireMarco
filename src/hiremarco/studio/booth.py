@@ -39,7 +39,7 @@ LISTENING = "Let me listen."
 DIALING = "Let me dial that in."
 MISSED = "I missed that. Say it again?"
 FAILED = "That one didn't take. I'll note it."
-THINKING = ["Hmm.", "Okay.", "Let me see.", "One sec.", "Mm, okay."]
+THINKING = ["One sec.", "Let me see."]  # no "Hmm." (Owner 2026-10-31: it opened most sessions and sounded odd)
 STOP_ALONE = {"stop", "stop stop", "okay stop", "ok stop", "cut", "cut it", "stop recording", "stop the take",
               "hold on", "hold up", "stop there", "let's stop", "lets stop"}
 COUNT_IN_SECONDS = float(os.environ.get("HIREMARCO_COUNT_IN_SECONDS", "0"))  # Logic's count-in, if on

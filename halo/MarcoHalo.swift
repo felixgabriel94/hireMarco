@@ -271,9 +271,15 @@ func screenCenter() -> CGPoint? {
 }
 
 func place() {
-    // over Logic when Logic is showing; in the middle of the screen while he opens it
+    // over Logic when Logic is showing; in the middle of the screen while he opens it. He glides to a new spot
+    // rather than jumping, and floats a few points up and down (Owner 2026-10-31: the jumps looked abrupt).
     guard !dragging, let center = logicCenter() ?? (state.mode == "operating" ? screenCenter() : nil) else { return }
-    panel.setFrameOrigin(CGPoint(x: center.x + offset.x - size.width / 2, y: center.y + offset.y - size.height / 2))
+    let float = 3.0 * sin(Date().timeIntervalSinceReferenceDate * 0.6)
+    let target = CGPoint(x: center.x + offset.x - size.width / 2, y: center.y + offset.y - size.height / 2 + float)
+    let now = panel.frame.origin
+    let far = abs(target.x - now.x) > 400 || abs(target.y - now.y) > 400
+    let next = far ? target : CGPoint(x: now.x + (target.x - now.x) * 0.08, y: now.y + (target.y - now.y) * 0.08)
+    panel.setFrameOrigin(next)
 }
 
 func saveOffset() {
@@ -340,9 +346,9 @@ func watch() {
 place()
 // The booth sends 30 times a second; four seconds of silence means it has gone, so the halo goes too.
 let timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-    place()
     if Date().timeIntervalSince(lastHeard) > 4 { NSApp.terminate(nil) }
 }
+keep.append(Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { _ in place() })  // the glide
 keep.append(timer)
 keep.append(Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in watch() })
 registerShortcut()
