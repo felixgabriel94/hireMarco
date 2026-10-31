@@ -32,6 +32,7 @@ or `*` for a tool that reaches no person. A new destination is a new line.
     send: whatsapp -> owner ; Marco's replies and the first-whatsapp take ; until revoked
     send: talkback -> * ; Marco's voice in the Owner's headphones, between takes ; until revoked
     send: logic -> * ; key commands, knobs and the export dialog in the Owner's Logic ; until revoked
+    send: calls -> owner ; calls from Marco's line to the Owner's own phone ; until revoked
 
 ## Read grants
 
