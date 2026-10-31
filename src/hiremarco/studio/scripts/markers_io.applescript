@@ -1,15 +1,16 @@
--- Logic's Marker List: read its rows, pick or make a marker set, clear a set, make a named marker at the playhead.
+-- Logic's markers: read the Marker List, clear it, make a named marker at the playhead, find the Marker track's
+-- menu, undo the last step.
 --   osascript markers_io.applescript open
---   osascript markers_io.applescript rows          one line per marker: bar<TAB>beat<TAB>name<TAB>length in bars
---   osascript markers_io.applescript set           the marker set showing
---   osascript markers_io.applescript use "Name"    show that set; prints "missing" when it does not exist
---   osascript markers_io.applescript newset "Name" make the set and show it (types the name: Logic in front)
---   osascript markers_io.applescript clear         delete every marker in the set showing
+--   osascript markers_io.applescript rows          one line per marker: bar beat div tick<TAB>name<TAB>length
+--   osascript markers_io.applescript clear         delete every marker in the list (its own Edit menu)
 --   osascript markers_io.applescript mark "Name"   a marker at the playhead, renamed (pastes the name: Logic in front)
+--   osascript markers_io.applescript header        x,y of the Marker track's name, where its menu opens on a click
+--   osascript markers_io.applescript undo          Logic's Edit > Undo; prints the item's name before the click
 -- Grounded in the live map of 2026-10-31: the Marker List window holds a table whose rows have four cells; the
--- position and length are groups described "2 1 1 1" and "8 0 0 0" (bar beat division tick), the name a cell
--- described by the name itself. The set is a pop-up button beside "Marker Set:". Arrangement markers are not in
--- this list; Logic's own commands copy them in and convert markers back.
+-- position and length are groups described "2 1 1 1" and "8 0 0 0", the name a cell described by the name itself.
+-- Arrangement markers are not in this list; the Marker track's own menu ("Create from Arrangement Markers",
+-- "Convert to Arrangement Markers") opens only on a real click, so Python clicks at the header's x,y.
+-- Marker sets are never made or deleted here: deleting a set by Accessibility crashed Logic (live 2026-10-31).
 
 on findDesc(el, r, d)
 	tell application "System Events"
@@ -24,27 +25,27 @@ on findDesc(el, r, d)
 	return missing value
 end findDesc
 
-on listWindow()
+on namedWindow(suffix)
 	tell application "System Events" to tell process "Logic Pro"
 		repeat with w in (every window)
-			if (name of w) ends with " - Marker List" then return w
+			if (name of w) ends with suffix then return w
 		end repeat
 	end tell
 	return missing value
-end listWindow
+end namedWindow
 
 on openList()
-	if listWindow() is missing value then
+	if namedWindow(" - Marker List") is missing value then
 		tell application "System Events" to tell process "Logic Pro"
 			click menu item "Open Marker List" of menu 1 of menu bar item "Navigate" of menu bar 1
 		end tell
 		repeat 20 times
 			delay 0.2
-			if listWindow() is not missing value then exit repeat
+			if namedWindow(" - Marker List") is not missing value then exit repeat
 		end repeat
 	end if
-	if listWindow() is missing value then error "the Marker List did not open"
-	return listWindow()
+	if namedWindow(" - Marker List") is missing value then error "the Marker List did not open"
+	return namedWindow(" - Marker List")
 end openList
 
 on localMenu(w, d, itemName)
@@ -55,10 +56,6 @@ on localMenu(w, d, itemName)
 		click menu item itemName of menu 1 of b
 	end tell
 end localMenu
-
-on setButton(w)
-	return findDesc(w, "AXPopUpButton", "")
-end setButton
 
 on pasteName(theName)
 	set the clipboard to theName
@@ -75,6 +72,26 @@ end pasteName
 
 on run argv
 	set cmd to item 1 of argv
+	if cmd is "header" then
+		set tw to namedWindow(" - Tracks")
+		if tw is missing value then error "Logic's Tracks window is not open"
+		set pb to findDesc(tw, "AXPopUpButton", "Marker")
+		if pb is missing value then error "the Marker track is not showing"
+		tell application "System Events"
+			set p to position of pb
+			set s to size of pb
+		end tell
+		return (((item 1 of p) + (item 1 of s) / 2) as integer as text) & "," & (((item 2 of p) + (item 2 of s) / 2) as integer as text)
+	end if
+	if cmd is "undo" then
+		tell application "System Events" to tell process "Logic Pro"
+			set u to first menu item of menu 1 of menu bar item "Edit" of menu bar 1
+			set n to name of u
+			if not (enabled of u) then return "nothing to undo"
+			click u
+			return n
+		end tell
+	end if
 	set w to openList()
 	if cmd is "open" then return "open"
 	if cmd is "rows" then
@@ -91,40 +108,6 @@ on run argv
 		end tell
 		return out
 	end if
-	if cmd is "set" then
-		tell application "System Events" to return value of my setButton(w)
-	end if
-	if cmd is "use" then
-		set wanted to item 2 of argv
-		set b to setButton(w)
-		tell application "System Events"
-			if value of b is wanted then return "ok"
-			click b
-			delay 0.4
-			set names to name of every menu item of menu 1 of b
-			if names does not contain wanted then
-				try
-					perform action "AXCancel" of menu 1 of b
-				end try
-				return "missing"
-			end if
-			click menu item wanted of menu 1 of b
-			delay 0.3
-			return "ok"
-		end tell
-	end if
-	if cmd is "newset" then
-		set b to setButton(w)
-		tell application "System Events"
-			click b
-			delay 0.4
-			click menu item "New Set…" of menu 1 of b
-		end tell
-		delay 0.5
-		pasteName(item 2 of argv)
-		delay 0.3
-		tell application "System Events" to return value of my setButton(w)
-	end if
 	if cmd is "clear" then
 		set t to findDesc(w, "AXTable", "")
 		tell application "System Events" to set n to count of rows of t
@@ -133,7 +116,7 @@ on run argv
 		delay 0.2
 		localMenu(w, "Edit", "Delete")
 		delay 0.3
-		tell application "System Events" to return (n as text)
+		return (n as text)
 	end if
 	if cmd is "mark" then
 		tell application "System Events" to tell process "Logic Pro"

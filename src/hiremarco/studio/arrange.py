@@ -5,11 +5,12 @@ whole sections with them ("copy chorus 1 into chorus 2" brings every region unde
 and bookmarks ("mark this, I want to come back to it").
 
 Logic shows arrangement markers to no program: they are not in the Marker List, not in the accessibility tree
-(checked live 2026-10-31). Its own commands bridge them: "Copy Arrangement Markers to Markers" puts the structure in
-the marker set showing, where Marco reads it, and "Convert Markers to Arrangement Markers" turns markers he lays at
-exact bars into sections. Both run in a marker set of Marco's own, so Felix's bookmarks stay in his set. A section
-is copied by setting the locators around it, selecting everything inside them, copying, and pasting at the target
-section's first bar.
+(checked live 2026-10-31). The Marker track's own menu bridges them: "Create from Arrangement Markers" puts the
+structure in the Marker List, where Marco reads it and then takes those markers away again, and "Convert to
+Arrangement Markers" turns markers he lays at exact bars into sections. His bookmarks are set aside while a layout is
+built and put back after it. That menu opens only on a real click. A section is copied by setting the locators around
+it, selecting everything inside them, copying, and pasting at the target section's first bar. No marker set is made
+or deleted: deleting one by Accessibility crashed Logic (live 2026-10-31).
 """
 
 from __future__ import annotations
@@ -17,21 +18,19 @@ from __future__ import annotations
 import re
 import subprocess
 import time
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 SCRIPT = Path(__file__).parent / "scripts" / "markers_io.applescript"
-MARCO_SET = "Marco"  # the marker set Marco reads and builds the structure in; Felix's bookmarks live in his own
 NAMES = ("Intro", "Verse", "Pre-Chorus", "Chorus", "Post-Chorus", "Hook", "Bridge", "Breakdown", "Interlude",
          "Drop", "Solo", "Outro")
 ORDINAL = {"first": 1, "second": 2, "third": 3, "fourth": 4, "fifth": 5, "last": -1}
-# Logic key commands Felix assigns by hand (Logic Pro > Key Commands > Edit), as with the locators on 2026-10-28
+# the Marker track's menu, top to bottom after "Marker Sets": how many arrow presses reach each item (live 2026-10-31)
+MENU = {"from_arrangement": 3, "to_arrangement": 4}
 KEYS = {
-    "copy_arrangement_to_markers": ("a", ("control", "option", "command")),
-    "convert_markers_to_arrangement": ("c", ("control", "option", "command")),
     "select_inside_locators": ("l", ("shift",)),  # Select All Inside Locators, Logic's default Shift-L
-    "create_arrangement_marker": ("a", ("control", "option", "command")),
     "copy": ("c", ("command",)),
     "paste": ("v", ("command",)),
 }
@@ -141,51 +140,54 @@ def _run(args: list[str]) -> str:
 
 
 class Arranger:
-    """Reads and builds the structure, copies sections, drops and finds bookmarks. ``press(name)`` runs one of KEYS
-    in Logic; ``go(bar)`` moves the playhead; ``locators(start, end)`` sets the cycle; each is Marco's existing Logic
-    path in the booth."""
+    """Reads and builds the structure, copies sections, drops and finds bookmarks. ``run`` speaks to the marker
+    script; ``menu(item)`` picks an item of the Marker track's menu; ``press(name)`` runs one of KEYS in Logic;
+    ``go(bar, beat)`` moves the playhead; ``locators(start, end)`` sets the cycle."""
 
-    def __init__(self, *, run: Callable[[list[str]], str] = _run, press: Callable[[str], None],
-                 go: Callable[[int], None], locators: Callable[[int, int], None],
+    def __init__(self, *, run: Callable[[list[str]], str] = _run, menu: Callable[[str], None],
+                 press: Callable[[str], None], go: Callable[..., None], locators: Callable[[int, int], None],
                  sleep: Callable[[float], None] = time.sleep):
-        self.run, self.press, self.go, self.locators, self.sleep = run, press, go, locators, sleep
+        self.run, self.menu, self.press, self.go, self.locators, self.sleep = run, menu, press, go, locators, sleep
 
-    def _in_set(self, name: str) -> str:
-        """Show marker set ``name``, making it if it is missing; returns the set that was showing before."""
-        before = self.run(["set"])
-        if self.run(["use", name]) == "missing":
-            self.run(["newset", name])
-        return before
+    def _rows(self) -> list[tuple[Mark, int]]:
+        return parse_rows(self.run(["rows"]))
 
-    def _back(self, before: str) -> None:
-        if before and before != MARCO_SET:
-            self.run(["use", before])
+    def _restore(self, before: list[tuple[Mark, int]]) -> None:
+        """The Marker List back to ``before``: emptied when it was empty, else the last step undone; checked."""
+        if before:
+            self.run(["undo"])
+        else:
+            self.run(["clear"])
+        self.sleep(0.3)
+        if Counter(self._rows()) != Counter(before):
+            raise RuntimeError("the markers did not go back to how they were; check the Marker List")
 
     def structure(self) -> list[Section]:
-        """The arrangement as it is in Logic now, copied into Marco's set and read back."""
-        before = self._in_set(MARCO_SET)
-        try:
-            self.run(["clear"])
-            self.press("copy_arrangement_to_markers")
-            self.sleep(0.5)
-            rows = parse_rows(self.run(["rows"]))
-        finally:
-            self._back(before)
-        return sorted((Section(m.name, m.bar, bars) for m, bars in rows), key=lambda s: s.bar)
+        """The arrangement as it is in Logic now: copied into the markers, read, and taken back out."""
+        before = self._rows()
+        self.menu("from_arrangement")
+        self.sleep(0.6)
+        added = Counter(self._rows()) - Counter(before)
+        if added:
+            self._restore(before)
+        return sorted((Section(m.name, m.bar, bars) for m, bars in added.elements()), key=lambda s: s.bar)
 
     def build(self, sections: list[Section]) -> list[Section]:
-        """Markers at each section's first bar in Marco's set, converted into arrangement markers, then read back;
-        the read-back is the result, never the plan."""
-        before = self._in_set(MARCO_SET)
-        try:
+        """His bookmarks set aside, a marker at each section's first bar, converted into arrangement markers, the
+        bookmarks put back; the read-back is the result, never the plan."""
+        bookmarks = [m for m, _ in self._rows()]
+        if bookmarks:
             self.run(["clear"])
-            for s in sections:
-                self.go(s.bar)
-                self.run(["mark", s.name])
-            self.press("convert_markers_to_arrangement")
-            self.sleep(0.5)
-        finally:
-            self._back(before)
+        for s in sections:
+            self.go(s.bar)
+            self.run(["mark", s.name])
+        self.menu("to_arrangement")
+        self.sleep(0.6)
+        if self._rows():  # whatever the conversion left behind as plain markers
+            self.run(["clear"])
+        for m in bookmarks:
+            self.go(m.bar, m.beat)
+            self.run(["mark", m.name])
         return self.structure()
 
     def copy_section(self, sections: list[Section], source: str, target: str) -> str:
@@ -203,16 +205,12 @@ class Arranger:
         return f"copied {source} (bars {src.bar} to {src.end - 1}) to bar {dst.bar}"
 
     def bookmark(self, name: str) -> str:
-        """A regular marker at the playhead, named, in Felix's own set (never Marco's)."""
-        if self.run(["set"]) == MARCO_SET:
-            raise RuntimeError("the Marker List is showing Marco's set; a bookmark goes in Felix's own set")
+        """A regular marker at the playhead, named: a note on the timeline, never a section."""
         self.run(["mark", name])
         return f"marked {name}"
 
     def bookmarks(self) -> list[Mark]:
-        if self.run(["set"]) == MARCO_SET:
-            return []
-        return [m for m, _ in parse_rows(self.run(["rows"]))]
+        return [m for m, _ in self._rows()]
 
     def find_bookmark(self, said: str) -> Mark | None:
         """The bookmark whose name shares the most words with what he said; the newest one when he names none."""
@@ -227,8 +225,8 @@ class Arranger:
 
 
 def live_arranger(conn=None, rules_path: Path | None = None) -> Arranger:
-    """The booth's arranger: key presses go through Marco's Logic path (Logic brought to the front first), each one
-    through the gate as a Logic action."""
+    """The booth's arranger: key presses and clicks go to Logic with Logic in front, each through the gate as a Logic
+    action."""
     import uuid
 
     from hiremarco import gate
@@ -243,13 +241,38 @@ def live_arranger(conn=None, rules_path: Path | None = None) -> Arranger:
         _osascript(_script(press))
         time.sleep(0.15)
 
+    def front() -> None:
+        subprocess.run(["osascript", "-e", 'tell application "Logic Pro" to activate'], check=False, timeout=10)
+        time.sleep(0.3)
+        name = subprocess.run(["osascript", "-e", 'tell application "System Events" to get name of first process '
+                               'whose frontmost is true'], capture_output=True, text=True, timeout=10).stdout.strip()
+        if name != "Logic Pro":
+            raise RuntimeError(f"Logic is not in front ({name or 'nothing'}); nothing was clicked")
+
+    def menu(item: str) -> None:
+        def run() -> None:
+            import Quartz
+
+            front()
+            x, y = (float(v) for v in _run(["header"]).split(","))
+            for kind in (Quartz.kCGEventMouseMoved, Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp):
+                Quartz.CGEventPost(Quartz.kCGHIDEventTap,
+                                   Quartz.CGEventCreateMouseEvent(None, kind, (x, y), Quartz.kCGMouseButtonLeft))
+                time.sleep(0.08)
+            time.sleep(0.6)
+            front()
+            downs = "\n".join(["key code 125", "delay 0.15"] * MENU[item])
+            subprocess.run(["osascript", "-e", f'tell application "System Events"\n{downs}\nkey code 36\nend tell'],
+                           check=True, capture_output=True, timeout=15)
+        gated(run, item.replace("_", " "))
+
     def press(name: str) -> None:
         letter, mods = KEYS[name]
         gated(lambda: key(Press(letter, mods)), name.replace("_", " "))
 
-    def go(bar: int) -> None:
+    def go(bar: int, beat: int = 1) -> None:
         letter, mods = KEYMAP["go_to_position"]
-        gated(lambda: key(Press(letter, mods, f"{bar} 1 1 1")), f"go to bar {bar}")
+        gated(lambda: key(Press(letter, mods, f"{bar} {beat} 1 1")), f"go to bar {bar}")
 
     def locators(start: int, end: int) -> None:
         def run() -> None:
@@ -258,4 +281,4 @@ def live_arranger(conn=None, rules_path: Path | None = None) -> Arranger:
                 key(Press(*KEYMAP[which]))
         gated(run, f"locators {start} to {end}")
 
-    return Arranger(press=press, go=go, locators=locators)
+    return Arranger(menu=menu, press=press, go=go, locators=locators)

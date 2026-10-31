@@ -2,7 +2,7 @@
 
 import pytest
 
-from hiremarco.studio.arrange import MARCO_SET, Arranger, Section, find, labelled, layout, parse_layout, parse_rows
+from hiremarco.studio.arrange import Arranger, Section, find, labelled, layout, parse_layout, parse_rows
 
 
 def test_a_spoken_layout_becomes_sections_in_order_at_his_lengths():
@@ -29,50 +29,49 @@ def test_marker_list_rows_are_read_as_marks_and_lengths():
 
 
 class FakeLogic:
-    """The Marker List and Logic's commands, as the script and the key presses see them."""
+    """The Marker List, the Marker track's menu and Logic's keys, as the script and the presses see them."""
 
-    def __init__(self, arrangement=(), bookmarks=()):
-        self.sets = {"Untitled": list(bookmarks)}
-        self.showing = "Untitled"
+    def __init__(self, arrangement=(), bookmarks=(), convert_leaves_markers=False):
+        self.markers = list(bookmarks)  # (name, bar, bars)
         self.arrangement = list(arrangement)
         self.playhead = 1
         self.calls = []
+        self.leaves = convert_leaves_markers
+        self.undo_to = None
 
     def run(self, args):
         self.calls.append(args)
         cmd = args[0]
-        if cmd == "set":
-            return self.showing
-        if cmd == "use":
-            if args[1] not in self.sets:
-                return "missing"
-            self.showing = args[1]
-            return "ok"
-        if cmd == "newset":
-            self.sets[args[1]] = []
-            self.showing = args[1]
-            return args[1]
         if cmd == "clear":
-            n = len(self.sets[self.showing])
-            self.sets[self.showing] = []
+            n = len(self.markers)
+            self.markers = []
             return str(n)
         if cmd == "mark":
-            self.sets[self.showing].append((args[1], self.playhead, 0))
+            self.markers.append((args[1], self.playhead, 0))
             return "marked"
         if cmd == "rows":
-            return "\n".join(f"{bar} 1 1 1 \t{name}\t{bars} 0 0 0" for name, bar, bars in self.sets[self.showing])
+            return "\n".join(f"{bar} 1 1 1 \t{name}\t{bars} 0 0 0" for name, bar, bars in self.markers)
+        if cmd == "undo":
+            self.markers, self.undo_to = self.undo_to, None
+            return "Undo"
         raise AssertionError(args)
+
+    def menu(self, item):
+        self.calls.append(["menu", item])
+        if item == "from_arrangement":
+            self.undo_to = list(self.markers)
+            self.markers += [(s.name, s.bar, s.bars) for s in self.arrangement]
+        if item == "to_arrangement":
+            marks = sorted(self.markers, key=lambda m: m[1])
+            self.arrangement = [Section(n, b, (marks[i + 1][1] - b) if i + 1 < len(marks) else 8)
+                                for i, (n, b, _) in enumerate(marks)]
+            if not self.leaves:
+                self.markers = []
 
     def press(self, name):
         self.calls.append(["press", name])
-        if name == "copy_arrangement_to_markers":
-            self.sets[self.showing] += [(s.name, s.bar, s.bars) for s in self.arrangement]
-        if name == "convert_markers_to_arrangement":
-            marks = sorted(self.sets[self.showing], key=lambda m: m[1])
-            self.arrangement = [Section(n, b, (marks[i + 1][1] - b) if i + 1 < len(marks) else 8)
-                                for i, (n, b, _) in enumerate(marks)]
 
-    def go(self, bar):
+    def go(self, bar, beat=1):
         self.calls.append(["go", bar])
         self.playhead = bar
 
@@ -81,22 +80,30 @@ class FakeLogic:
 
 
 def arranger(logic):
-    return Arranger(run=logic.run, press=logic.press, go=logic.go, locators=logic.locators, sleep=lambda s: None)
+    return Arranger(run=logic.run, menu=logic.menu, press=logic.press, go=logic.go, locators=logic.locators,
+                    sleep=lambda s: None)
 
 
-def test_the_structure_is_read_in_marcos_own_set_and_his_bookmarks_stay_put():
+def test_the_structure_is_read_and_his_bookmarks_are_left_as_they_were():
     logic = FakeLogic([Section("Intro", 1, 4), Section("Chorus", 5, 8)], bookmarks=[("the high note", 7, 0)])
-    got = arranger(logic).structure()
-    assert got == [Section("Intro", 1, 4), Section("Chorus", 5, 8)]
-    assert logic.showing == "Untitled" and logic.sets["Untitled"] == [("the high note", 7, 0)]
-    assert MARCO_SET in logic.sets
+    assert arranger(logic).structure() == [Section("Intro", 1, 4), Section("Chorus", 5, 8)]
+    assert logic.markers == [("the high note", 7, 0)] and ["undo"] in logic.calls
+    empty = FakeLogic([Section("Intro", 1, 4)])
+    assert arranger(empty).structure() == [Section("Intro", 1, 4)] and empty.markers == [] and ["clear"] in empty.calls
 
 
-def test_a_built_layout_is_reported_from_what_logic_reads_back():
-    logic = FakeLogic()
+def test_a_restore_that_does_not_match_stops_loudly():
+    logic = FakeLogic([Section("Intro", 1, 4)], bookmarks=[("keep", 3, 0)])
+    logic.run = lambda args, real=logic.run: "Undo" if args[0] == "undo" else real(args)  # an undo that did nothing
+    with pytest.raises(RuntimeError, match="did not go back"):
+        arranger(logic).structure()
+
+
+def test_a_built_layout_is_reported_from_what_logic_reads_back_and_bookmarks_come_back():
+    logic = FakeLogic(bookmarks=[("fix the breath", 3, 0)], convert_leaves_markers=True)
     built = arranger(logic).build(layout([("Intro", 4), ("Verse", 8), ("Chorus", 8)]))
     assert [(s.name, s.bar, s.bars) for s in built] == [("Intro", 1, 4), ("Verse", 5, 8), ("Chorus", 13, 8)]
-    assert ["press", "convert_markers_to_arrangement"] in logic.calls
+    assert logic.markers == [("fix the breath", 3, 0)]
 
 
 def test_chorus_one_is_copied_into_chorus_two_by_its_bars():
@@ -117,9 +124,6 @@ def test_bookmarks_go_in_his_set_and_are_found_by_their_words():
     assert a.find_bookmark("take me back to the harmony idea").bar == 19
     assert a.find_bookmark("go back to that").name == "fix the breath"
     assert a.find_bookmark("the bridge thing") is None
-    logic.showing = MARCO_SET
-    with pytest.raises(RuntimeError):
-        a.bookmark("x")
 
 
 def booth_with(logic):
