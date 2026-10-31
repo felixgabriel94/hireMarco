@@ -275,3 +275,27 @@ def render(hits: list[Hit], bpm: float, kit: dict[str, Path], *, loops: int = 2,
             at = int(((loop * bars * 16) + h.step) * step_s * rate)
             out[at:at + len(sound)] += (h.velocity / 127.0) * sound[: len(out) - at]
     return out / (np.abs(out).max() + 1e-9) * 0.9
+
+
+KIT_WORDS = {"kick": ("kick", "bd", "bassdrum"), "snare": ("snare", "sd", "clap", "rim"),
+             "hat": ("closedhh", "closed hh", "hihat c", "hat c", "chh", "closed", "hh", "hat", "shaker")}
+PAD_ONE = 36  # Maschine's pad 1 answers C1 (note 36) and each pad after it the next note up, by default
+
+
+def kit_notes(group: Path) -> dict[str, int]:
+    """The notes that play a Maschine kit's kick, snare and hat, read from its group file: the sounds' sample paths
+    are stored in pad order, so the first kick sample is the kick pad, and so on. A drum the kit has no pad for keeps
+    the General MIDI note."""
+    import re
+
+    text = group.read_bytes().decode("latin-1")
+    pads = [m.group(1) for m in re.finditer(r"Samples/[^\x00]*?/([^/\x00]+?)\.(?:wav|aif|aiff)", text, re.I)]
+    notes = dict(NOTES)
+    for kind, words in KIT_WORDS.items():
+        for word in words:
+            hit = next((i for i, name in enumerate(pads) if word in name.lower() and not
+                        (kind == "hat" and "open" in name.lower())), None)
+            if hit is not None and hit < 16:
+                notes[kind] = PAD_ONE + hit
+                break
+    return notes

@@ -58,3 +58,10 @@ def test_each_attack_is_named_by_the_ear_and_placed_on_the_grid():
 
     hits = drums.transcribe(y, rate, bpm, one=0.25, model=Ear())
     assert [(h.kind, h.step) for h in hits] == [("kick", 0), ("kick", 4), ("kick", 8), ("kick", 12)]
+
+
+def test_a_kit_file_says_which_pad_holds_the_kick_the_snare_and_the_closed_hat(tmp_path):
+    group = tmp_path / "Kit.mxgrp"
+    group.write_bytes(b"\x00\x01Samples/Drums/Clap/Clap 808.wav\x00junk\x00Samples/Drums/Kick/Kick 808 1.wav\x00"
+                      b"Samples/Drums/Hihat/OpenHH 808.wav\x00Samples/Drums/Hihat/ClosedHH 808.wav\x00")
+    assert drums.kit_notes(group) == {"kick": 37, "snare": 36, "hat": 39}
