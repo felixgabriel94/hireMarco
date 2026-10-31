@@ -166,6 +166,33 @@ on run argv
 		end tell
 		return out
 	end if
+	if cmd is "lencell" then
+		-- the length cell (shown as ∞ until set) of the marker at this bar: where a double-click opens it for typing
+		-- the bars (the Owner's tip, 2026-10-31); the list stays open for that
+		set t to findDesc(w, "AXTable", "")
+		tell application "System Events"
+			repeat with r in (rows of t)
+				set cs to UI elements of r
+				set d to (description of (UI element 1 of item 2 of cs)) as text
+				set pos to words of d
+				if (item 1 of pos) is (item 2 of argv) and (item 2 of pos) is "1" then
+					set g to UI element 1 of item 4 of cs
+					set p to position of g
+					set z to size of g
+					return (((item 1 of p) + (item 1 of z) / 2) as integer as text) & "," & (((item 2 of p) + (item 2 of z) / 2) as integer as text)
+				end if
+			end repeat
+		end tell
+		error "no marker at bar " & (item 2 of argv)
+	end if
+	if cmd is "deleteat" then
+		my gotoPosition((item 2 of argv) as integer, 1)
+		delay 0.15
+		tell application "System Events" to tell process "Logic Pro"
+			click menu item "Delete Marker at Playhead Position" of menu 1 of menu bar item "Navigate" of menu bar 1
+		end tell
+		return "deleted"
+	end if
 	if cmd is "clear" then
 		-- the list's own Select All and Delete did nothing when it was not the key window, and Navigate > Next
 		-- Marker clicked from outside did not move the playhead (live 2026-10-31); so each marker is removed where it
@@ -174,7 +201,8 @@ on run argv
 		set spots to {}
 		tell application "System Events"
 			repeat with r in (rows of t)
-				set end of spots to (description of (UI element 1 of UI element 2 of r))
+				set cs to UI elements of r
+				set end of spots to ((description of (UI element 1 of item 2 of cs)) as text)
 			end repeat
 			click (first button of w whose description is "close button")
 		end tell

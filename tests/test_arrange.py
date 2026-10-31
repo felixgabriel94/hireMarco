@@ -49,6 +49,9 @@ class FakeLogic:
         if cmd == "mark":
             self.markers.append((args[1], self.playhead, 0))
             return "marked"
+        if cmd == "length":
+            self.markers = [(n, b, int(args[2]) if b == int(args[1]) else ln) for n, b, ln in self.markers]
+            return "length set"
         if cmd == "rows":
             return "\n".join(f"{bar} 1 1 1 \t{name}\t{bars} 0 0 0" for name, bar, bars in self.markers)
         if cmd == "undo":
@@ -63,8 +66,8 @@ class FakeLogic:
             self.markers += [(s.name, s.bar, s.bars) for s in self.arrangement]
         if item == "to_arrangement":
             marks = sorted(self.markers, key=lambda m: m[1])
-            self.arrangement = [Section(n, b, (marks[i + 1][1] - b) if i + 1 < len(marks) else 8)
-                                for i, (n, b, _) in enumerate(marks)]
+            self.arrangement = [Section(n, b, ln or ((marks[i + 1][1] - b) if i + 1 < len(marks) else 4))
+                                for i, (n, b, ln) in enumerate(marks)]
             if not self.leaves:
                 self.markers = []
 

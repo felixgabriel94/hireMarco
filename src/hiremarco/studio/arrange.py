@@ -139,15 +139,56 @@ def _osa(args: list[str]) -> str:
     return done.stdout.strip()
 
 
+def _front() -> str:
+    return subprocess.run(["osascript", "-e", 'tell application "System Events" to get name of first process whose '
+                           'frontmost is true'], capture_output=True, text=True, timeout=10).stdout.strip()
+
+
+def _double_click(x: float, y: float) -> None:
+    import Quartz
+
+    def post(kind, clicks=1):
+        e = Quartz.CGEventCreateMouseEvent(None, kind, (x, y), Quartz.kCGMouseButtonLeft)
+        Quartz.CGEventSetIntegerValueField(e, Quartz.kCGMouseEventClickState, clicks)
+        Quartz.CGEventPost(Quartz.kCGHIDEventTap, e)
+
+    post(Quartz.kCGEventMouseMoved)
+    time.sleep(0.05)
+    for clicks in (1, 2):
+        post(Quartz.kCGEventLeftMouseDown, clicks)
+        time.sleep(0.03)
+        post(Quartz.kCGEventLeftMouseUp, clicks)
+        time.sleep(0.05)
+
+
+def _length(bar: str, bars: str) -> str:
+    """A marker's length in bars: its ∞ in the Marker List double-clicked and the bars typed (the Owner's tip,
+    2026-10-31; live the same night: 6 typed read back "6 0 0 0")."""
+    x, y = (float(v) for v in _osa(["lencell", bar]).split(","))
+    subprocess.run(["osascript", "-e", 'tell application "Logic Pro" to activate'], check=False, timeout=10)
+    time.sleep(0.3)
+    if _front() != "Logic Pro":
+        raise RuntimeError("Logic is not in front; the length was not typed")
+    _double_click(x, y)
+    time.sleep(0.8)
+    subprocess.run(["osascript", "-e", f'tell application "System Events"\nkeystroke "{int(bars)}"\ndelay 0.1\n'
+                    'key code 36\nend tell'], check=True, capture_output=True, timeout=10)
+    time.sleep(0.3)
+    _osa(["hide"])
+    return "length set"
+
+
 def _run(args: list[str]) -> str:
-    """The marker script; "mark" is two steps, the field opened there and the name pasted from here."""
+    """The marker script; "mark" is two steps, the field opened there and the name pasted from here, and "length"
+    is a double-click and typed bars."""
+    if args[0] == "length":
+        return _length(args[1], args[2])
     if args[0] != "mark":
         return _osa(args)
     subprocess.run(["pbcopy"], input=args[1].encode(), check=True, timeout=10)  # before the field opens
     _osa(["markstart"])
     time.sleep(1.5)  # the rename field takes the keys only after this long (live 2026-10-31)
-    front = subprocess.run(["osascript", "-e", 'tell application "System Events" to get name of first process whose '
-                            'frontmost is true'], capture_output=True, text=True, timeout=10).stdout.strip()
+    front = _front()
     if front != "Logic Pro":
         raise RuntimeError(f"Logic is not in front ({front or 'nothing'}); the marker keeps its default name")
     subprocess.run(["osascript", "-e", 'tell application "System Events"\nkeystroke "v" using {command down}\n'
@@ -197,6 +238,9 @@ class Arranger:
         for s in sections:
             self.go(s.bar)
             self.run(["mark", s.name])
+        for s in sections:  # each marker's own length, or the last section takes Logic's default
+            if s.bars:
+                self.run(["length", str(s.bar), str(s.bars)])
         self.menu("to_arrangement")
         self.sleep(0.6)
         if self._rows():  # whatever the conversion left behind as plain markers
