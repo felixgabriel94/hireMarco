@@ -203,8 +203,9 @@ class Arranger:
 
     def __init__(self, *, run: Callable[[list[str]], str] = _run, menu: Callable[[str], None],
                  press: Callable[[str], None], go: Callable[..., None], locators: Callable[[int, int], None],
-                 sleep: Callable[[float], None] = time.sleep):
+                 sleep: Callable[[float], None] = time.sleep, focus: Callable[[], object] = lambda: None):
         self.run, self.menu, self.press, self.go, self.locators, self.sleep = run, menu, press, go, locators, sleep
+        self.focus = focus
 
     def _rows(self) -> list[tuple[Mark, int]]:
         return parse_rows(self.run(["rows"]))
@@ -258,6 +259,10 @@ class Arranger:
         if not src.bars:
             return f"{source} has no end, so there is nothing to measure the copy by"
         self.locators(src.bar, src.end)
+        # no Split Regions at Locators first: with the section's arrangement marker selected too, it split the
+        # arrangement and made a new section at the right locator (live 2026-10-31); a region that runs past the
+        # section is copied whole
+        self.focus()  # the keys go to the Tracks area, on the top track that holds regions, so a paste keeps tracks
         self.press("select_inside_locators")
         self.press("copy")
         self.go(dst.bar)
@@ -342,4 +347,17 @@ def live_arranger(conn=None, rules_path: Path | None = None) -> Arranger:
                 key(Press(*KEYMAP[which]))
         gated(run, f"locators {start} to {end}")
 
-    return Arranger(menu=menu, press=press, go=go, locators=locators)
+    def focus() -> None:
+        """The top track that holds regions, selected by its header: Shift-L then selects in the Tracks area, and a
+        paste lays the regions back on the same tracks (live 2026-10-31: tested on one track)."""
+        from hiremarco.studio.beat_in import BeatLoader
+
+        for line in subprocess.run(["osascript", str(SCRIPT.parent / "tracks_io.applescript"), "list"],
+                                   capture_output=True, text=True, timeout=30).stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) == 3 and parts[2].strip().isdigit() and int(parts[2]) > 0:
+                name = parts[1].split("\u201c", 1)[-1].rstrip("\u201d")
+                BeatLoader().select(name)
+                return
+
+    return Arranger(menu=menu, press=press, go=go, locators=locators, focus=focus)
