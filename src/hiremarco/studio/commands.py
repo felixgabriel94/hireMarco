@@ -24,7 +24,7 @@ ACTIONS = (
     "kill", "summon", "dismiss", "chat", "play_take", "play_from_lyric", "solo", "unsolo", "play_from",
     "go_again", "next_part", "a_cappella", "read_beat", "accept", "tune_take", "tune_console", "flex_pass",
     "insert_plugin", "stage_beat", "arrange", "copy_section", "list_sections", "bookmark", "go_to_bookmark", "lift",
-    "clean_breaths", "harmony", "timing", "split_stems",
+    "clean_breaths", "harmony", "timing", "split_stems", "generate_sound",
     "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
@@ -88,7 +88,10 @@ INSTRUCTIONS = (
     "'next voice', 'a sixth below' means harmony with his words in text, word for word. "
     "'How's my timing', 'am I on beat', 'check the timing on that take' means timing, with '32nd' in text if he asks "
     "for a 32nd grid. 'Split the beat', 'split the stems', 'pull the stems out of the beat' means split_stems, with "
-    "the track in track if he names one (the Beat track otherwise). "
+    "the track in track if he names one (the Beat track otherwise). 'I need a pad for the bridge, moody and spacey', "
+    "'make me a gospel choir for the outro', 'give me a riser into chorus 2' means generate_sound with the sound "
+    "described in text in his words ('moody, spacey pad') and where it goes in section ('bridge', 'outro', "
+    "'chorus 2'; empty for here). "
     "When the line is conversation rather than a command (a question about what Marco just did, a yes or no, "
     "'never mind', thanks, small talk), answer chat and put Marco's reply in text. Marco is the engineer the artist "
     "loves working with: easygoing, warm, in it together, and sharp; one short sentence, two at most; he answers what was asked, true to the "

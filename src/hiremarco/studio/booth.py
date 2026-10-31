@@ -767,6 +767,59 @@ class Booth:
         self.rolling = True
         return f"playing from {lyric!r} at {at.typed()} (estimate): {result}"
 
+    def _generate_sound(self, described: str, where: str) -> str:
+        """A sound made from his words, in the song's key, on its own track where it goes (Owner 2026-10-31)."""
+        from hiremarco import config
+        from hiremarco.studio import soundgen
+        from hiremarco.studio.beat_in import BeatLoader
+        from hiremarco.studio.gain import Spot
+
+        if self.rolling:
+            return "holding the sound until the take stops"
+        key = self.last_setup.get("key") or self.key
+        bpm = float(self.last_setup.get("bpm") or 0)
+        if not bpm and self.tracks is not None:
+            try:
+                bpm = float(self.tracks.where()[1])
+            except Exception:
+                bpm = 0.0
+        if not key or not bpm:
+            self._speak("What key and tempo are we in?")
+            return "no key or tempo known for the sound"
+        bar, bars = 0, 8
+        if where and self.arranger is not None:
+            from hiremarco.studio.arrange import find
+
+            section = find(self.arranger.structure(), where)
+            if section is None:
+                self._say("no section by that name for the sound", {"asked": where}, "I don't see that section.")
+                return f"no section {where!r} for the sound"
+            bar, bars = section.bar, section.bars or 8
+        seconds = bars * 4 * 60.0 / bpm
+        self._speak("On it. Making it now.")
+        try:
+            made = soundgen.fit(soundgen.generate(soundgen.prompt(described, key, bpm, seconds), seconds), key,
+                                config.STATE_DIR / "sounds", f"{described[:40].strip()} {time.strftime('%H%M%S')}")
+            self.logic(Command("new_track"))
+            time.sleep(self.settle)
+            name = f"{described[:24].strip().title()} (Marco)"
+            if self.tracks is not None:
+                self.tracks.rename(name)
+            if bar and self.lifter is not None:
+                self.lifter.go(Spot(bar))
+            BeatLoader().run(["import", str(made.path)])
+        except gate.Refused as held:
+            self._say("could not make the sound", {"why": held.reason}, "I can't make sounds yet; that's off.")
+            return f"held: {held.reason}"
+        except Exception as exc:
+            failed = f"{type(exc).__name__}: {str(exc)[-160:]}"
+            self._say("the sound did not get made or placed", {"what_failed": failed}, FAILED)
+            return f"sound failed: {failed}"
+        moved = f", moved {made.shift:+d} semitones from {made.heard_key}" if made.shift else ""
+        self._say("made the sound and put it on its own track", {"what": described, "where": where or "here",
+                  "key": key, "moved": moved}, f"It's on {where or 'the track'}.")
+        return f"sound: {made.path.name} ({made.seconds:.0f} s, {key}{moved}) at bar {bar or 'here'} on '{name}'"
+
     def _split_stems(self, track: str) -> str:
         """Logic's own Stem Splitter on the track's region (Owner 2026-10-31): the region alone selected, then the
         splitter; the stems land in their own stack under it."""
@@ -1156,6 +1209,8 @@ class Booth:
             return self._timing(command.text)
         if a == "split_stems":
             return self._split_stems(command.track or "Beat")
+        if a == "generate_sound":
+            return self._generate_sound(command.text, command.section)
         if a in ("go_to_section", "punch") and command.section and not command.bar and self.arranger is not None:
             where = self._section(command.section)
             if where is None:

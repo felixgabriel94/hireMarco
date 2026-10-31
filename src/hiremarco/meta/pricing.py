@@ -33,6 +33,9 @@ def cost_usd(model: str, prompt_tokens: int, completion_tokens: int, cached_toke
 # Speech to text is priced by audio time, USD per hour (read 2026-10-26).
 PRICES_PER_HOUR: dict[str, float] = {
     "muse-voice-transcribe-1.0": 0.18,
+    # ElevenLabs Music, priced by the music made: 0.30 USD a minute on elevenlabs.io/pricing/api (search result,
+    # 2026-10-31, an undated snapshot; third-party pages differ); an estimate until the Owner's plan is read
+    "music_v1": 0.30 * 60,
 }
 
 
