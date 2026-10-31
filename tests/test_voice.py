@@ -177,7 +177,7 @@ def test_send_voice_uploads_then_sends_a_voice_message(tmp_path):
     judged = []
     assert wa.send_voice(OWNER, note.ogg.read_bytes(), note.text, idempotency_key="vn",
                          critic=lambda d: (judged.append(d) or True, "ok")) == "wamid.voice"
-    assert judged == [f"send_voice_note via whatsapp to {OWNER}: voice note: That's a wrap."]
+    assert judged == ["send_voice_note via whatsapp to the Owner's own number: voice note: That's a wrap."]
     (upload_path, upload_type, upload_body), (send_path, _, send_body) = calls
     assert upload_path == "/v25.0/111/media" and upload_type.startswith("multipart/form-data")
     assert b"audio/ogg" in upload_body

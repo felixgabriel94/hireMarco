@@ -44,6 +44,26 @@ def test_critic_sends_rules_and_action(tmp_path, monkeypatch):
     assert client.joblog.rows()[-1]["model"] == "muse-wonder-1.0"
 
 
+def test_critic_holds_when_reasoning_eats_the_answer_and_gives_room(tmp_path, monkeypatch):
+    # The live reply of 2026-10-31 at 40 tokens: all reasoning, no content, cut off by length.
+    monkeypatch.setenv("HIREMARCO_STATE", str(tmp_path))
+    bodies = []
+
+    def handler(request):
+        bodies.append(json.loads(request.content))
+        return httpx.Response(200, json={
+            "model": "muse-wonder-1.0",
+            "choices": [{"message": {"role": "assistant", "content": ""}, "finish_reason": "length"}],
+            "usage": {"prompt_tokens": 1588, "completion_tokens": 40,
+                      "completion_tokens_details": {"reasoning_tokens": 38}},
+        })
+
+    client = MuseSpark(api_key="k", joblog=JobLog(tmp_path / "j.jsonl"), transport=httpx.MockTransport(handler))
+    assert Critic(client)("call via voice to the Owner's own number: hi") == (
+        False, "the critic ran out of room before answering")
+    assert bodies[0]["max_completion_tokens"] >= 600 and bodies[0]["reasoning_effort"] == "low"
+
+
 def test_critic_refuses_when_kill_switch_on(tmp_path, monkeypatch):
     monkeypatch.setenv("HIREMARCO_STATE", str(tmp_path))
     gate.set_kill_switch(True)

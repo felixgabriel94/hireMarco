@@ -214,7 +214,11 @@ def execute_effect(
     )
     check_outbound(conn, **fields, today=today, rules_path=rules_path)
     if critic is not None:
-        description = f"{capability} via {channel} to {target}: {message}"
+        # The Owner's number is private (RULES.md keeps it in the env file), so the critic is told whose it is
+        # instead of seeing it; without that it held the first call to the Owner as having no switch.
+        owner = (config.get("OWNER_WHATSAPP") or "").lstrip("+")
+        shown = "the Owner's own number" if owner and target.lstrip("+") == owner else target
+        description = f"{capability} via {channel} to {shown}: {message}"
         try:
             approved, reason = critic(description)
         except Exception as exc:

@@ -166,6 +166,15 @@ def test_place_is_refused_without_switch_twice_or_by_critic(placing, env):
         calls.place("+" + OWNER, "say hello", today=TODAY)
 
 
+def test_critic_is_told_it_is_the_owners_number_and_never_sees_it(placing, env):
+    calls, seen = placing
+    descriptions = []
+    calls.place("+" + OWNER, "book a table", "test call, no booking",
+                critic=lambda d: (descriptions.append(d) or True, "ok"), today=TODAY)
+    assert descriptions[0].startswith("call via voice to the Owner's own number: Hi, just so you know")
+    assert OWNER not in descriptions[0] and len(seen) == 1
+
+
 def test_place_needs_plus_number(placing):
     calls, seen = placing
     with pytest.raises(CallError, match="E.164"):

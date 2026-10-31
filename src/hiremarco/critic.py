@@ -48,5 +48,10 @@ class Critic:
         system = INSTRUCTIONS + self.rules_path.read_text()
         client = self.client or MuseSpark()
         gate.check_model_call(TENANT, model=self.model, system=system, prompt=description, joblog=client.joblog)
-        reply = client.ask(description, developer=system, job="critic", model=self.model, max_completion_tokens=40)
+        # Muse Wonder reasons before it answers: at 40 tokens (live 2026-10-31) 38 went to reasoning, the answer was
+        # empty and the first call was held as unreadable. Room for both, and still a hold on anything unreadable.
+        reply = client.ask(description, developer=system, job="critic", model=self.model, max_completion_tokens=600,
+                           reasoning_effort="low")
+        if not reply.text.strip() and reply.finish_reason == "length":
+            return False, "the critic ran out of room before answering"
         return parse(reply.text)
