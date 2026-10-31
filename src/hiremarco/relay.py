@@ -51,6 +51,51 @@ TAG = re.compile(r"\s?\[[A-Za-z][A-Za-z ,'-]{0,24}\]")
 NARRATION = re.compile(r"voicemail detected|leave (a|the|your) message|wrap(ping)? up the call|(end|ending|hang|hanging) "
                        r"(up )?the call|i'?ll (end|hang up)|call (has )?ended", re.I)
 SENTENCE_END = re.compile(r"[.!?](\s|$)")
+# A recorded voicemail greeting, as opposed to an automated assistant that talks back (live 2026-10-31: a carrier
+# voicemail answered; an AI receptionist answers some restaurants and must be talked to, not left a message).
+VOICEMAIL = re.compile(r"voice ?mail|mailbox|(leave|record) (a |your )?message|(after|at) the (tone|beep)|"
+                       r"(is|are) not available|isn'?t available|unavailable|finished recording", re.I)
+GREETING_END = re.compile(r"(after|at) the (tone|beep)|record your message|finished recording|leave (a |your )?message",
+                          re.I)
+INTERACTIVE = re.compile(r"press \d|how (can|may) i help|what can i do for you|how can i assist|"
+                         r"\?|reservation|this is .{0,30}(assistant|virtual|ai)\b", re.I)
+
+
+def voicemail_action(messages: list[dict], tools: list[dict] | None) -> str | None:
+    """The tool the relay calls itself on a voicemail, or None for anything that may be a person or an assistant.
+
+    While the greeting plays: skip_turn, so nothing is said over it. At its end ("after the tone"), or when the
+    greeting was already waited out once: voicemail_detection, which leaves the message and hangs up.
+    """
+    names = {((t or {}).get("function") or {}).get("name") for t in tools or []}
+    heard = [str(m.get("content") or "") for m in messages if m.get("role") == "user"]
+    if not heard or not VOICEMAIL.search(heard[-1]) or any(INTERACTIVE.search(h) for h in heard):
+        return None
+    waited = any(m.get("role") == "tool" or any(((c.get("function") or {}).get("name") == "skip_turn")
+                                                 for c in (m.get("tool_calls") or []))
+                 for m in messages)
+    if (GREETING_END.search(heard[-1]) or waited) and "voicemail_detection" in names:
+        return "voicemail_detection"
+    return "skip_turn" if "skip_turn" in names else None
+
+
+def _tool_call(name: str, stream: bool) -> Response:
+    args = json.dumps({"reason": "recorded voicemail greeting"} if name == "voicemail_detection" else {})
+    call = {"id": f"call_{name}", "type": "function", "function": {"name": name, "arguments": args}}
+    if not stream:
+        return JSONResponse({"object": "chat.completion", "model": CALL_MODEL, "choices": [
+            {"index": 0, "message": {"role": "assistant", "content": None, "tool_calls": [call]},
+             "finish_reason": "tool_calls"}]})
+
+    async def chunks() -> AsyncIterator[bytes]:
+        body = {"object": "chat.completion.chunk", "model": CALL_MODEL, "choices": [
+            {"index": 0, "delta": {"role": "assistant", "tool_calls": [{"index": 0, **call}]}, "finish_reason": None}]}
+        yield f"data: {json.dumps(body)}\n\n".encode()
+        done = {"object": "chat.completion.chunk", "model": CALL_MODEL,
+                "choices": [{"index": 0, "delta": {}, "finish_reason": "tool_calls"}]}
+        yield f"data: {json.dumps(done)}\n\n".encode()
+        yield b"data: [DONE]\n\n"
+    return StreamingResponse(chunks(), media_type="text/event-stream")
 
 
 def unnarrate(text: str) -> str:
@@ -139,6 +184,11 @@ def make_relay(transport: httpx.AsyncBaseTransport | None = None, joblog: JobLog
             gate.check_model_call(TENANT, model=CALL_MODEL, system=system, prompt=prompt, joblog=log)
         except gate.Refused as refused:
             return JSONResponse({"error": refused.reason}, status_code=403)
+
+        on_voicemail = voicemail_action(messages, body.get("tools"))
+        if on_voicemail is not None:
+            log.append(JobRow(job="call-relay", model=CALL_MODEL, note=f"voicemail: {on_voicemail}, no model call"))
+            return _tool_call(on_voicemail, bool(body.get("stream")))
 
         opening = opening_for(messages)
         if opening is not None:

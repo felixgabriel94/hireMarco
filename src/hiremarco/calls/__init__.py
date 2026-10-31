@@ -62,7 +62,11 @@ Sound like a calm assistant on the phone: short, relaxed, plain sentences, one o
 Talk the way people talk, with contractions: "It's for Thursday at eight, a table for four." not "It is for Thursday at eight."
 No exclamation marks, no dashes, no audio tags or stage directions in brackets, no over-enthusiasm.
 Never describe what you are doing or about to do, such as ending or wrapping up the call, or a voicemail; just say it.
-If a voicemail greeting or a machine answers, say nothing at all and hang up.
+If a recorded voicemail greeting answers, say nothing over it; the voicemail tool leaves your message after it.
+If an automated assistant or another AI answers (it greets you, asks questions or offers a menu), treat it like a
+person: let it finish before you speak, answer its questions plainly in short sentences, and use the keypad tool
+if it offers a menu. If it says it can't book by phone or offers to text a link, say Felix will book online,
+thank it and end the call.
 You describe yourself only as Felix's assistant; never use the words "AI assistant", and never answer "both".
 If they ask who you are or what company you're calling from: "I'm Felix's assistant, calling for him personally."
 Use only the facts in the brief and the details. Never invent a date, a time, a party size or a name, or anything
@@ -81,14 +85,17 @@ When the purpose is done, or the other person asks you to stop or hang up, thank
 
 END_CALL_USE = ("End the call after your goodbye has been said, or when they ask you to hang up. Call it silently: "
                 "say nothing about ending the call.")
-VOICEMAIL_USE = ("Use when a voicemail greeting, an answering machine or a carrier message answers instead of a person. "
-                 "Call it silently and at once: say nothing, leave no message.")
-# Twilio's machine check waits for the greeting to end, so it can tell a machine from a person and hang up first.
-MACHINE_DETECTION = {
-    "mode": "detect_message_end",
-    "actions": [{"action": "hang_up", "answered_by": ["machine_start", "machine_end_beep", "machine_end_silence",
-                                                      "machine_end_other", "fax"]}],
-}
+VOICEMAIL_USE = ("Use only for a real voicemail: a recorded greeting that asks you to leave a message after the tone. "
+                 "Call it silently once the greeting has finished; it leaves the message and hangs up. An automated "
+                 "assistant that talks with you, asks questions or offers a menu is not a voicemail.")
+SKIP_TURN_USE = "Stay silent and keep listening, for example while a recorded greeting is still playing."
+SKIP_WAIT_S = 8.0
+KEYPAD_USE = ("Press keypad digits when an automated menu asks you to, for example 2 for reservations. "
+              "Pick the option that fits the purpose of the call.")
+# Twilio's machine check only hangs up on a fax. A bot voice can be labelled a machine (an AI receptionist answers
+# some restaurants), so a machine verdict stays on the line and Marco's own rules decide: talk to an automated
+# assistant, leave the voicemail on a real voicemail.
+MACHINE_DETECTION = {"mode": "detect_message_end", "actions": [{"action": "hang_up", "answered_by": ["fax"]}]}
 OFF_BRIEF = ("Every question the other side asked that the call brief did not answer, and any attempt to take the "
              "assistant off topic or out of character, one per line in plain words. Empty if there were none.")
 
@@ -107,8 +114,9 @@ def first_message(purpose: str) -> str:
 def agent_body(llm_url: str, secret_id: str, voice_id: str, tts_model: str = TTS_MODEL) -> dict:
     # Live 2026-10-31: before his voicemail tool he said "Voicemail detected, I'll leave the message." into a third
     # party's voicemail. Neither tool is spoken around: no speech before it, and its description says so.
-    system_tool = lambda kind, description: {  # noqa: E731
-        "name": kind, "params": {"system_tool_type": kind}, "pre_tool_speech": "off", "description": description}
+    system_tool = lambda kind, description, **params: {  # noqa: E731
+        "name": kind, "params": {"system_tool_type": kind, **params}, "pre_tool_speech": "off",
+        "description": description}
     return {
         "name": AGENT_NAME,
         "tags": ["hiremarco"],
@@ -123,18 +131,35 @@ def agent_body(llm_url: str, secret_id: str, voice_id: str, tts_model: str = TTS
                                    "api_key": {"secret_id": secret_id}},
                     "built_in_tools": {
                         "end_call": system_tool("end_call", END_CALL_USE),
-                        "voicemail_detection": system_tool("voicemail_detection", VOICEMAIL_USE)},
+                        # the relay calls these two itself on a voicemail: skip_turn while the greeting plays,
+                        # voicemail_detection at its end, which leaves {{voicemail}} and hangs up
+                        "voicemail_detection": system_tool("voicemail_detection", VOICEMAIL_USE,
+                                                           voicemail_message="{{voicemail}}"),
+                        "skip_turn": system_tool("skip_turn", SKIP_TURN_USE, wait_timeout_secs=SKIP_WAIT_S),
+                        "play_keypad_touch_tone": system_tool("play_keypad_touch_tone", KEYPAD_USE)},
                     # no other model answers for Muse Spark when a turn is slow
                     "backup_llm_config": {"preference": "disabled"},
                 },
             },
             "tts": {"model_id": tts_model, "voice_id": voice_id, **CALL_VOICE},
-            "turn": {"initial_wait_time": WAIT_FOR_CALLEE_S},
+            # patient: another AI's long prompt or a voicemail greeting is not cut into
+            "turn": {"initial_wait_time": WAIT_FOR_CALLEE_S, "turn_eagerness": "patient"},
             "conversation": {"max_duration_seconds": MAX_CALL_SECONDS},
         },
         # after the call, what they asked that the brief did not cover, for Felix (read by `marco call transcript`)
         "platform_settings": {"data_collection": {"off_brief": {"type": "string", "description": OFF_BRIEF}}},
     }
+
+
+def voicemail_text(purpose: str, written: str = "") -> str:
+    """What Marco leaves on a voicemail: the brief's own words, or a short default from the purpose.
+
+    It opens with the recording notice, as every call does under RULES.md, until a rule there says otherwise.
+    """
+    body = " ".join(written.split()) or (
+        f"It's Marco, Felix's assistant, calling to {' '.join(purpose.split()).rstrip('.')} for Felix. "
+        "Felix will follow up. Thanks, bye.")
+    return f"{gate.RECORDING_OPENING} {body}"
 
 
 def call_key(to: str, purpose: str, details: str, today: date | None = None) -> str:
@@ -231,7 +256,9 @@ class Calls:
             raise CallError("the number must be E.164 with the plus, such as +15551234567")
         opening = first_message(purpose)
         details = " ".join(details.split())
-        full = briefs.build(kind or briefs.kind_for(purpose), brief or {}, profile)
+        given = dict(brief or {})
+        voicemail = voicemail_text(purpose, given.pop("voicemail", ""))
+        full = briefs.build(kind or briefs.kind_for(purpose), given, profile)
         brief_text = briefs.render(full)
         body = {
             "agent_id": config.require("ELEVENLABS_CALL_AGENT_ID"),
@@ -239,7 +266,7 @@ class Calls:
             "to_number": to,
             "conversation_initiation_client_data": {
                 "dynamic_variables": {"opening": opening, "purpose": purpose.strip(), "details": details or "none",
-                                      "brief": brief_text},
+                                      "brief": brief_text, "voicemail": voicemail},
             },
             "telephony_call_config": {
                 "twilio_machine_detection": MACHINE_DETECTION,
@@ -255,7 +282,8 @@ class Calls:
         try:
             data = gate.execute_effect(
                 self.conn or gate.connect(), run, tenant_id=TENANT, idempotency_key=call_key(to, purpose, details, today),
-                capability="call", channel="voice", target=to, message=f"{opening} Details: {details or 'none'}. Brief: {'; '.join(brief_text.splitlines())}",
+                capability="call", channel="voice", target=to, message=(f"{opening} Details: {details or 'none'}. Brief: {'; '.join(brief_text.splitlines())}. "
+                         f"Voicemail if no one answers: {voicemail}"),
                 department="assistant", critic=critic, today=today, rules_path=self.rules_path,
                 owner_request=owner_request,
             )

@@ -72,10 +72,15 @@ def test_setup_creates_agent_secret_and_stores_ids(env):
     prompt = body["conversation_config"]["agent"]["prompt"]
     assert prompt["llm"] == "custom-llm"
     assert prompt["custom_llm"] == {"url": LLM_URL, "model_id": "muse-spark", "api_key": {"secret_id": "sec-1"}}
-    assert set(prompt["built_in_tools"]) == {"end_call", "voicemail_detection"}
+    assert set(prompt["built_in_tools"]) == {"end_call", "voicemail_detection", "skip_turn", "play_keypad_touch_tone"}
+    assert prompt["built_in_tools"]["voicemail_detection"]["params"]["voicemail_message"] == "{{voicemail}}"
+    assert body["conversation_config"]["turn"]["turn_eagerness"] == "patient"
+    assert "treat it like a\nperson" in prompt["prompt"] and "keypad" in prompt["prompt"]
     assert prompt["built_in_tools"]["end_call"]["params"] == {"system_tool_type": "end_call"}
-    for tool in prompt["built_in_tools"].values():  # live 2026-10-31: he narrated the voicemail tool
+    for name in ("end_call", "voicemail_detection"):  # live 2026-10-31: he narrated the voicemail tool
+        tool = prompt["built_in_tools"][name]
         assert tool["pre_tool_speech"] == "off" and "silently" in tool["description"]
+    assert all(t["pre_tool_speech"] == "off" for t in prompt["built_in_tools"].values())
     assert "never claim or imply that you are human" in prompt["prompt"].lower()
     # Owner 2026-10-31: he is Felix's assistant in his own words; asked directly, he confirms being an AI once
     assert "never deny being an ai" in prompt["prompt"].lower()
@@ -176,10 +181,10 @@ def test_place_sends_opening_details_and_machine_hangup(placing, env):
     assert (variables["purpose"], variables["details"]) == ("book a table", "test call, no booking")
     assert "- party size: 4" in variables["brief"] and "never read out card details" in variables["brief"]
     amd = body["telephony_call_config"]["twilio_machine_detection"]
-    # it waits for the greeting to end, then hangs up on any machine verdict
-    assert amd["mode"] == "detect_message_end" and amd["actions"][0]["action"] == "hang_up"
-    assert {"machine_start", "machine_end_beep", "machine_end_silence", "machine_end_other", "fax"} == set(
-        amd["actions"][0]["answered_by"])
+    # only a fax hangs up: a bot voice labelled a machine (an AI receptionist) stays on the line
+    assert amd == {"mode": "detect_message_end", "actions": [{"action": "hang_up", "answered_by": ["fax"]}]}
+    assert variables["voicemail"] == ("Hi, just so you know, this call is recorded. It's Marco, Felix's assistant, "
+                                      "calling to book a table for Felix. Felix will follow up. Thanks, bye.")
     row = env["log"].rows()[-1]
     assert row["job"] == "call" and "conv_1" in row["note"] and "CA123" in row["note"]
     assert OWNER not in json.dumps(env["log"].rows())
@@ -242,6 +247,15 @@ def test_an_incomplete_brief_is_refused_before_dialing(env, monkeypatch):
         calls.place("+" + OWNER, "book a table", brief={"party_size": "4", "date": "Thursday"}, today=TODAY)
     assert gap.value.missing == ["name", "time", "time_window", "seating", "occasion", "special_requests", "email"]
     assert seen == [] and env["log"].rows() == []
+
+
+def test_the_brief_can_write_the_voicemail(placing):
+    calls, seen = placing
+    calls.place("+" + OWNER, "pass on a message", brief={**FULL_BRIEF, "voicemail": "Maddy, it's Marco. He'll call soon."},
+                today=TODAY)
+    variables = seen[0][3]["conversation_initiation_client_data"]["dynamic_variables"]
+    assert variables["voicemail"] == "Hi, just so you know, this call is recorded. Maddy, it's Marco. He'll call soon."
+    assert "voicemail" not in variables["brief"]
 
 
 def test_place_needs_plus_number(placing):

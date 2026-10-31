@@ -172,3 +172,47 @@ def test_a_narrating_sentence_is_never_spoken_and_dashes_become_commas(tmp_path,
     spoken = "".join(json.loads(line[6:])["choices"][0]["delta"].get("content", "")
                      for line in r.text.splitlines() if line.startswith("data: {"))
     assert spoken == ""
+
+
+CALL_TOOLS = [{"type": "function", "function": {"name": n}} for n in
+              ("end_call", "voicemail_detection", "skip_turn", "play_keypad_touch_tone")]
+
+
+def tool_called(r) -> str | None:
+    if r.headers["content-type"].startswith("application/json"):
+        calls = r.json()["choices"][0]["message"].get("tool_calls") or []
+    else:
+        calls = [c for line in r.text.splitlines() if line.startswith("data: {")
+                 for c in (json.loads(line[6:])["choices"][0]["delta"].get("tool_calls") or [])]
+    return calls[0]["function"]["name"] if calls else None
+
+
+def test_a_voicemail_greeting_is_waited_out_then_the_message_is_left(setup):
+    client, seen, log = setup
+    start = "Your call has been forwarded to voicemail. The person you're trying to reach is not available."
+    r = post(client, {"stream": True, "tools": CALL_TOOLS, "messages": [CALL_SYSTEM, {"role": "user", "content": start}]})
+    assert tool_called(r) == "skip_turn" and '"content"' not in r.text  # silent over the greeting, no opening
+    end = start + " At the tone, please record your message."
+    r = post(client, {"stream": True, "tools": CALL_TOOLS, "messages": [CALL_SYSTEM, {"role": "user", "content": end}]})
+    assert tool_called(r) == "voicemail_detection"
+    waited = [CALL_SYSTEM, {"role": "user", "content": start},
+              {"role": "assistant", "tool_calls": [{"function": {"name": "skip_turn"}}]},
+              {"role": "user", "content": "The mailbox is not available."}]
+    assert tool_called(post(client, {"tools": CALL_TOOLS, "messages": waited})) == "voicemail_detection"
+    assert seen == [] and log.rows()[-1]["note"] == "voicemail: voicemail_detection, no model call"
+
+
+def test_an_ai_receptionist_is_talked_to_not_left_a_message(setup):
+    client, seen, _ = setup
+    for greeting in ("Thanks for calling American Social, this is the virtual assistant. How can I help you today?",
+                     "To leave a message for the manager, press 2. For reservations, press 1.",
+                     "Hi, I'm the AI assistant for the restaurant. Are you calling about a reservation?"):
+        r = post(client, {"tools": CALL_TOOLS, "messages": [CALL_SYSTEM, {"role": "user", "content": greeting}]})
+        assert tool_called(r) is None and r.json()["choices"][0]["message"]["content"] == OPENING
+    assert seen == []
+
+
+def test_without_the_tools_the_relay_does_not_act_on_a_voicemail(setup):
+    client, _, _ = setup
+    r = post(client, {"messages": [CALL_SYSTEM, {"role": "user", "content": "At the tone, record your message."}]})
+    assert tool_called(r) is None and r.json()["choices"][0]["message"]["content"] == OPENING
