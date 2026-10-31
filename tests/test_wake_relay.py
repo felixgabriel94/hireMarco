@@ -77,7 +77,42 @@ def test_a_macbook_that_never_answers_gets_503_at_the_ceiling():
     reply = call(app, "POST", "/webhook", content=b"{}")
     assert reply.status_code == 503 and 30.0 <= clock() < 31.0
     assert len(woke) == 15                                    # every 2 s for 30 s
-    assert "503" in lines[0]
+    assert "503" in lines[0] and "upstream macbook:8787" in lines[0] and "last connect error" in lines[0]
+
+
+def test_the_log_names_the_os_error_under_a_failed_connect():
+    from hiremarco.wake_relay import _why
+
+    try:
+        try:
+            raise OSError(65, "No route to host")
+        except OSError as inner:
+            raise httpx.ConnectError("connect failed") from inner
+    except httpx.ConnectError as outer:
+        assert _why(outer) == "OSError errno 65 No route to host"
+
+
+def test_a_wake_packet_that_cannot_leave_is_recorded(monkeypatch):
+    import socket
+
+    from hiremarco import wake_relay
+
+    class Sock:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def setsockopt(self, *a):
+            pass
+
+        def sendto(self, data, addr):
+            raise OSError(65, "No route to host")
+
+    monkeypatch.setattr(socket, "socket", lambda *a: Sock())
+    assert wake_relay.send_wake("5c:e9:1e:6b:7d:79", ["192.168.7.255:9"]) == 0
+    assert wake_relay.LAST_WAKE_ERROR["192.168.7.255:9"] == "errno 65 No route to host"
 
 
 def test_the_macbook_admits_only_the_named_addresses():
