@@ -767,6 +767,28 @@ class Booth:
         self.rolling = True
         return f"playing from {lyric!r} at {at.typed()} (estimate): {result}"
 
+    def _split_stems(self, track: str) -> str:
+        """Logic's own Stem Splitter on the track's region (Owner 2026-10-31): the region alone selected, then the
+        splitter; the stems land in their own stack under it."""
+        from hiremarco.studio.gain import _osa
+
+        if self.lifter is None:
+            return "no region control in this booth"
+        if self.rolling:
+            return "holding the split until the take stops"
+        self._speak("Splitting it.")
+        try:
+            self.lifter.go(__import__("hiremarco.studio.gain", fromlist=["Spot"]).Spot(3))
+            self.lifter.deselect("all")
+            region = self.lifter.select(track)
+            _osa("regions_io.applescript", ["stems"])
+        except Exception as exc:
+            failed = f"{type(exc).__name__}: {str(exc)[-160:]}"
+            self._say("the stem split did not run", {"what_failed": failed}, FAILED)
+            return f"stems failed: {failed}"
+        self._say("split the beat into stems with Logic's Stem Splitter", {"region": region}, "Stems are in.")
+        return f"stems split from {region} on {track}"
+
     def _timing(self, said: str) -> str:
         """Where the last take's attacks land against the grid, in milliseconds, by bar and beat (Owner 2026-10-31:
         the vocal is a drum part); measured only, nothing moved."""
@@ -1124,6 +1146,8 @@ class Booth:
             return self._harmony(command.text)
         if a == "timing":
             return self._timing(command.text)
+        if a == "split_stems":
+            return self._split_stems(command.track or "Beat")
         if a in ("go_to_section", "punch") and command.section and not command.bar and self.arranger is not None:
             where = self._section(command.section)
             if where is None:

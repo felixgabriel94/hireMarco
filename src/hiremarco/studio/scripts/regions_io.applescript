@@ -63,6 +63,33 @@ on run argv
 		end tell
 		return which
 	end if
+	if cmd is "stems" then
+		-- Logic's Stem Splitter on the selected region: the Tracks area's Functions > "Stem Splitter…", then the
+		-- dialog's default button (Apply) with Return, its preset as last used (mapped live 2026-10-31: "Separate
+		-- All Stems" gave Vocals, Drums, Bass, Guitar, Piano and Other in a "(Stems)" stack in about 20 s)
+		set b to findMB(tw, "Functions", 0)
+		if b is missing value then error "the Tracks area's Functions menu is not showing"
+		tell application "System Events"
+			click b
+			delay 0.5
+			click (first menu item of menu 1 of b whose name contains "Stem Splitter")
+		end tell
+		delay 1.2
+		tell application "System Events"
+			tell process "Logic Pro"
+				if (count of sheets of tw) is 0 then error "the Stem Splitter dialog did not open"
+			end tell
+			if name of (first process whose frontmost is true) is not "Logic Pro" then error "Logic is not in front"
+			key code 36
+		end tell
+		repeat 120 times
+			delay 1
+			tell application "System Events" to tell process "Logic Pro"
+				if (count of windows) is 1 and (count of sheets of tw) is 0 then exit repeat
+			end tell
+		end repeat
+		return "split"
+	end if
 	if cmd is "selected" then
 		-- the selected track's name: the header whose "Has Focus" radio button is on
 		set header to findDesc(tw, "Tracks header", 0)
