@@ -89,3 +89,14 @@ def test_repo_rules_file_grants_only_vendor_receipts():
     grants = rules.read_grants()
     assert grants and all(g.sender.startswith("@") and "license receipts" in g.purpose for g in grants)
     assert not rules.may_read("someone@gmail.com")
+
+
+def test_nothing_in_the_repo_rules_ends_on_a_date():
+    # Owner 2026-10-30: the hackathon work carries on as the product; no switch or grant ends on Nov 4
+    assert all(s.until == date.max for s in rules.switches())
+    assert rules.read_grants(today=date(2031, 1, 1)) and all(g.until == date.max for g in rules.read_grants())
+
+
+def test_a_read_grant_until_revoked_has_no_end_date(tmp_path):
+    p = write(tmp_path, "read: mail <- @fabfilter.com ; license receipts ; until revoked\n")
+    assert rules.may_read("orders@fabfilter.com", p, date(2031, 1, 1))

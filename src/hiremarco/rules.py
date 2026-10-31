@@ -74,11 +74,11 @@ def require(tool: str, destination: str, today: date | None = None, path: Path |
 
 
 # Read grants: which senders' mail Marco may open. One line each:
-#     read: mail <- <address or @domain> ; <purpose> ; until <YYYY-MM-DD>
+#     read: mail <- <address or @domain> ; <purpose> ; until <YYYY-MM-DD | revoked>
 # Absent means Marco reads no mail at all.
 READ_LINE = re.compile(
     r"^\s*read:\s*mail\s*<-\s*(?P<sender>@[\w.-]+\.\w+|[\w.+-]+@[\w.-]+\.\w+)\s*;\s*(?P<purpose>[^;]+?)\s*;"
-    r"\s*until\s+(?P<until>\d{4}-\d{2}-\d{2})\s*$"
+    r"\s*until\s+(?P<until>\d{4}-\d{2}-\d{2}|revoked)\s*$"
 )
 
 
@@ -97,8 +97,9 @@ def read_grants(path: Path | None = None, today: date | None = None) -> list[Rea
     found = []
     for raw in path.read_text().splitlines():
         m = READ_LINE.match(raw)
-        if m and date.fromisoformat(m["until"]) >= today:
-            found.append(ReadGrant(m["sender"].lower(), m["purpose"].strip(), date.fromisoformat(m["until"])))
+        until = date.max if m and m["until"] == "revoked" else (date.fromisoformat(m["until"]) if m else None)
+        if m and until >= today:
+            found.append(ReadGrant(m["sender"].lower(), m["purpose"].strip(), until))
     return found
 
 

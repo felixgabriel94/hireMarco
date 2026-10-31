@@ -30,33 +30,33 @@ or `*` for a tool that reaches no person. A new destination is a new line.
 ## Send switches
 
     send: whatsapp -> owner ; Marco's replies and the first-whatsapp take ; until revoked
-    send: talkback -> * ; Marco's voice in the Owner's headphones, between takes ; until 2026-11-04
-    send: logic -> * ; key commands, knobs and the export dialog in the Owner's Logic ; until 2026-11-04
+    send: talkback -> * ; Marco's voice in the Owner's headphones, between takes ; until revoked
+    send: logic -> * ; key commands, knobs and the export dialog in the Owner's Logic ; until revoked
 
 ## Read grants
 
 Marco opens mail only from a sender named here; absent means he reads none.
 One line each:
 
-    read: mail <- <address or @domain> ; <purpose> ; until <YYYY-MM-DD>
+    read: mail <- <address or @domain> ; <purpose> ; until <YYYY-MM-DD | revoked>
 
 Owner's yes to receipts and serials, 2026-10-29:
 
-    read: mail <- @native-instruments.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
-    read: mail <- @order.native-instruments.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
-    read: mail <- @izotope.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
-    read: mail <- @fabfilter.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
-    read: mail <- @waves.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
-    read: mail <- @slatedigital.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
-    read: mail <- @uaudio.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
-    read: mail <- @ilok.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
-    read: mail <- @celemony.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
-    read: mail <- @pluginalliance.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
-    read: mail <- @soundtoys.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
-    read: mail <- @valhalladsp.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
-    read: mail <- @arturia.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
-    read: mail <- @antarestech.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
-    read: mail <- @splice.com ; license receipts: products, renewals and serials into the Keychain ; until 2026-11-04
+    read: mail <- @native-instruments.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
+    read: mail <- @order.native-instruments.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
+    read: mail <- @izotope.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
+    read: mail <- @fabfilter.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
+    read: mail <- @waves.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
+    read: mail <- @slatedigital.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
+    read: mail <- @uaudio.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
+    read: mail <- @ilok.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
+    read: mail <- @celemony.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
+    read: mail <- @pluginalliance.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
+    read: mail <- @soundtoys.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
+    read: mail <- @valhalladsp.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
+    read: mail <- @arturia.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
+    read: mail <- @antarestech.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
+    read: mail <- @splice.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
 
 ## Money
 
