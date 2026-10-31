@@ -92,7 +92,7 @@ def loader(tmp_path, logic, front="Logic Pro", started=None):
     (template / "Alternatives" / "000" / "ProjectData").write_bytes(b"pd")
     started = started if started is not None else []
     return BeatLoader(run=logic.run, open_app=lambda p: setattr(logic, "opened", p), front=lambda: front,
-                      tempo=lambda beat: 105.0, align=lambda beat, folder, bpm: (beat, 0.3275, 2),
+                      tempo=lambda beat: 105.0, align=lambda beat, folder, bpm: (beat, 0.3275, 2, None),
                       click=logic.click, scroll=lambda n: None, go_to_start=lambda: started.append("start") or "ok",
                       sleep=lambda s: None, template=template, sessions=tmp_path / "sessions",
                       conn=gate.connect(":memory:"), rules_path=rules(tmp_path), today=lambda: date(2026, 10, 29),
@@ -106,7 +106,7 @@ def test_a_beat_lands_on_the_beat_track_of_a_new_session_from_the_template(tmp_p
     logic, started = FakeLogic("Kai 140 Em"), []
     result = loader(tmp_path, logic, started=started).load(beat)
     session = tmp_path / "sessions" / "Kai 140 Em 2026-10-29.logicx"
-    assert result == ("Kai 140 Em.wav on the Beat track in Kai 140 Em 2026-10-29.logicx, its first hit (0.328 s in) "
+    assert result == ("Kai 140 Em.wav on the Beat track in Kai 140 Em 2026-10-29.logicx, its 1 (0.328 s in, first sound) "
                       "on bar 2 at 105 BPM")
     assert (session / "Alternatives" / "000" / "ProjectData").read_bytes() == b"pd"   # a copy; the template untouched
     assert logic.opened == session and logic.calls[0] == ["wake"]   # the screen lit before Logic opens
@@ -429,7 +429,7 @@ def test_the_aligned_copy_puts_the_first_hit_on_a_bar_line_and_keeps_the_whole_f
     rate, written = 48000, {}
     audio = np.zeros((rate * 3, 2), dtype=np.float32)
     audio[int(0.3275 * rate):int(0.3275 * rate) + 4000] = 0.8
-    path, hit, bar = aligned_copy(Path("fairyrnb.mp3"), tmp_path, 105.0, read=lambda p: (audio, rate),
+    path, hit, bar, one = aligned_copy(Path("fairyrnb.mp3"), tmp_path, 105.0, read=lambda p: (audio, rate),
                                   write=lambda p, d, r: written.update(path=p, data=d, rate=r))
     assert path == tmp_path / "fairyrnb.wav" and bar == 2 and abs(hit - 0.3275) < 0.004
     landed = first_hit(written["data"].mean(axis=1), rate)
@@ -437,7 +437,7 @@ def test_the_aligned_copy_puts_the_first_hit_on_a_bar_line_and_keeps_the_whole_f
     assert len(written["data"]) - len(audio) == round((240 / 105.0 - hit) * rate)   # nothing cut, only silence added
     long_intro = np.zeros((rate * 6, 2), dtype=np.float32)
     long_intro[int(3.0 * rate):int(3.0 * rate) + 4000] = 0.8
-    _, _, bar = aligned_copy(Path("x.wav"), tmp_path, 105.0, read=lambda p: (long_intro, rate),
+    _, _, bar, _ = aligned_copy(Path("x.wav"), tmp_path, 105.0, read=lambda p: (long_intro, rate),
                              write=lambda p, d, r: None)
     assert bar == 3                                                # a lead-in longer than a bar lands on the next bar
 
@@ -484,6 +484,38 @@ def test_live_2026_10_31_a_beat_that_sounds_from_its_first_sample_starts_on_bar_
     audio[int(0.156 * rate):int(0.156 * rate) + 4000] = 0.9           # the first loud hit
     assert first_sound(audio, rate) == 0.0
     written = {}
-    _, hit, bar = aligned_copy(Path("x.wav"), tmp_path, 99.0, read=lambda p: (audio[:, None], rate),
+    _, hit, bar, _ = aligned_copy(Path("x.wav"), tmp_path, 99.0, read=lambda p: (audio[:, None], rate),
                                write=lambda p, d, r: written.update(data=d))
     assert hit == 0.0 and bar == 2 and len(written["data"]) - rate == round(240 / 99.0 * rate)   # a whole bar
+
+
+def test_the_1_comes_from_the_model_on_a_hit_and_a_riser_before_it_sits_in_the_bars_before():
+    import numpy as np
+
+    from hiremarco.studio import the_one
+
+    rate = 22050
+    audio = np.zeros(rate * 6, dtype=np.float32)
+    audio[:int(1.5 * rate)] = np.linspace(0.0, 0.2, int(1.5 * rate))      # a riser from the first sample
+    hit = int(1.5 * rate)
+    audio[hit:hit + 2000] = 0.9                                            # the 1, after the riser
+    sure = the_one.find(audio, rate, [1.52, 3.9])
+    assert sure.sure and abs(sure.seconds - 1.5) < 0.01                    # moved onto the hit's attack
+    unsure = the_one.find(audio, rate, [4.5])                              # no hit near the model's 1
+    assert not unsure.sure
+    fallback = the_one.find(audio, rate, None)
+    assert not fallback.sure and fallback.seconds < 0.05                   # the first sound, never called sure
+
+
+def test_an_unsure_1_is_said_in_the_ready_text():
+    from hiremarco.studio.booth import Booth, Tape
+
+    texts = []
+    b = Booth(understand=lambda line: None, logic=lambda c: c.describe(), say=lambda t: None,
+              feedback=lambda take, r: None, tape=Tape(48000, seconds=1), log=lambda line: None,
+              load_beat=lambda path, name=None: "beat on the Beat track; CHECK BAR 3: not sure where the 1 is",
+              text_owner=lambda body: texts.append(body) or "ok")
+    b._read_beat = lambda ask=False: "read"
+    b.offer = lambda: b.last_setup.update(key="A") or "set"
+    b.beat_arrived(Path("beat.wav"))
+    assert texts[-1] == "session's ready. check bar 3: I'm not sure that's where the 1 is."

@@ -90,16 +90,21 @@ def first_sound(audio, rate: int) -> float:
     return first_hit(audio, rate, threshold=0.01)
 
 
-def aligned_copy(beat: Path, folder: Path, bpm: float, *, read=None, write=None) -> tuple[Path, float, int]:
-    """The whole beat with silence in front so its first sound lands on a bar line when it starts at bar 1:
-    (the copy, the first sound in seconds, the bar it lands on). A lead-in shorter than a bar lands on bar 2."""
+def aligned_copy(beat: Path, folder: Path, bpm: float, *, read=None, write=None, locate=None) -> tuple:
+    """The whole beat with silence in front so its 1 lands on a bar line when it starts at bar 1: (the copy, the 1 in
+    seconds, the bar it lands on, how sure). The 1 comes from the downbeat model (``studio.the_one``), else the first
+    sound; whatever comes before it (a riser, a pickup) sits in the bars before. A lead-in shorter than a bar puts the
+    1 on bar 2."""
     import math
 
     import numpy as np
     import soundfile as sf
 
+    from hiremarco.studio import the_one
+
     data, rate = (read or (lambda p: sf.read(str(p), dtype="float32", always_2d=True)))(beat)
-    hit = first_sound(data.mean(axis=1), rate)
+    one = (locate or (lambda: the_one.find(data.mean(axis=1), rate, the_one.downbeats(beat), bpm)))()
+    hit = one.seconds
     bar = 4 * 60.0 / bpm
     bars = max(1, math.ceil(hit / bar - 1e-9))
     pad = int(round((bars * bar - hit) * rate))
@@ -107,7 +112,7 @@ def aligned_copy(beat: Path, folder: Path, bpm: float, *, read=None, write=None)
     folder.mkdir(parents=True, exist_ok=True)
     target = folder / f"{beat.stem}.wav"
     (write or (lambda p, d, r: sf.write(str(p), d, r, subtype="PCM_24")))(target, out, rate)
-    return target, hit, 1 + bars
+    return target, hit, 1 + bars, one
 
 
 def beat_tempo(beat: Path) -> float:
@@ -566,7 +571,7 @@ class BeatLoader:
                 made["copy"] = self.align(beat, package / "Media" / "Audio Files", bpm)
 
             session = self.open_session(beat, name, prepare)
-            aligned, hit, bar = made["copy"]
+            aligned, hit, bar, one = made["copy"]
             self.select(BEAT_TRACK)
             self._in_front()
             self.go_to_start()
@@ -576,8 +581,10 @@ class BeatLoader:
             regions = [r.strip() for r in self.run(["regions"]).splitlines() if r.strip()]
             if not any(beat.stem.lower() in r.lower() for r in regions):
                 raise LoadError(f"the Beat track shows {regions or 'no region'} after the import")
-            return (f"{beat.name} on the Beat track in {session.name}, its first hit ({hit:.3f} s in) on bar {bar} "
-                    f"at {bpm:g} BPM")
+            sure = getattr(one, "sure", True)
+            return (f"{beat.name} on the Beat track in {session.name}, its 1 ({hit:.3f} s in, "
+                    f"{getattr(one, 'how', 'first sound')}) on bar {bar} at {bpm:g} BPM"
+                    + ("" if sure else f"; CHECK BAR {bar}: not sure where the 1 is"))
 
         return gate.execute_effect(self.conn or gate.connect(), run, tenant_id=TENANT,
                                    idempotency_key=f"beat:{beat.name}:{time.time_ns()}", capability="load_beat",

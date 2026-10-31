@@ -202,7 +202,10 @@ class Booth:
             setup = apply()
         done = self.last_setup
         song = name or path.stem
-        if done:  # Owner 2026-10-30: the text is just "session's ready."; the details are in Logic and the log
+        if done and "CHECK BAR" in loaded:  # the 1 is a guess: he hears that, never a quiet guess (Owner 2026-10-31)
+            where = loaded.split("CHECK BAR ", 1)[1].split(":", 1)[0]
+            sent = self._text(f"session's ready. check bar {where}: I'm not sure that's where the 1 is.")
+        elif done:  # Owner 2026-10-30: the text is just "session's ready."; the details are in Logic and the log
             sent = self._text("session's ready.")
         else:
             sent = self._text(f"{song} is on the Beat track, but I couldn't read its key and tempo.")
