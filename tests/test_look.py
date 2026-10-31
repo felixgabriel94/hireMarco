@@ -23,7 +23,7 @@ def test_the_board_is_read_in_batches_and_kept_as_marked_facts(tmp_path):
         calls.append(body)
         name = body["response_format"]["json_schema"]["name"]
         content = {"notes": ["washed black denim", "cream knit"]} if name == "notes" else \
-            {"look": ["You lean toward washed black and cream.", "You like loose knits over fitted denim."]}
+            {"look": ["The vibe leans washed black and cream.", "The vibe likes loose knits over fitted denim."]}
         return httpx.Response(200, json={"model": "muse-spark-1.3", "usage": {},
                                          "choices": [{"message": {"content": json.dumps(content)}}]})
 
@@ -35,6 +35,6 @@ def test_the_board_is_read_in_batches_and_kept_as_marked_facts(tmp_path):
               for c in calls[:2]]
     assert images == [BATCH, 3] and len(calls) == 3
     facts = [t for _, t in known(conn)]
-    assert facts[0] == f"{MARK}: You lean toward washed black and cream"         # kept without its full stop
+    assert facts[0] == f"{MARK}: The vibe leans washed black and cream"         # kept without its full stop
     assert facts[-1] == "Your mood board is https://www.cosmos.so/fega1/moodboard"
-    assert keep_look(conn, ["You lean toward washed black and cream."], "https://x") == 1   # only the new link
+    assert keep_look(conn, ["The vibe leans washed black and cream."], "https://x") == 1   # only the new link

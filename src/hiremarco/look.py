@@ -22,10 +22,12 @@ SEE = """These pictures are from Felix's mood board: what he wants to look like 
 only what the pictures show that tells you his taste: clothes and cuts, colors, fabrics and textures, accessories, \
 hair, settings, light, mood, and any references you can name for certain. Short phrases, one per line in "notes"; no \
 guesses about who anyone is."""
-SUM = """These are notes on every picture in Felix's mood board, batch by batch. Write his look as at most 12 short \
-lines, each one plain sentence that starts with "You", the way his assistant would say it to him ("You lean toward \
-washed black and cream, never loud color."). Keep what repeats across the board; drop what shows up once. Put the \
-strongest patterns first. Nothing the notes do not support."""
+SUM = """These are notes on every picture in Felix's mood board, batch by batch. The board is the vibe he is going \
+for, not his wardrobe or his body: the people in it are not Felix, so never say what he wears, has or looks like. \
+Write the vibe as at most 12 short lines, each one plain sentence that starts with "The vibe" ("The vibe's palette is \
+washed black and cream, never loud color."): palette, light and grain, textures, clothes, accessories, settings, \
+mood. Keep what repeats across the board; drop what shows up once. Put the strongest patterns first. Nothing the \
+notes do not support."""
 NOTES = {"type": "object", "properties": {"notes": {"type": "array", "items": {"type": "string"}}},
          "required": ["notes"], "additionalProperties": False}
 LOOK = {"type": "object", "properties": {"look": {"type": "array", "items": {"type": "string"}}},
