@@ -76,8 +76,9 @@ def save_profile(values: dict[str, str], path: Path | None = None) -> Path:
 
 
 def kind_for(purpose: str) -> str:
+    """A restaurant reservation only by its own words; "booking a studio session" is a generic call (2026-10-31)."""
     words = purpose.lower()
-    return "reservation" if any(w in words for w in ("book", "table", "reserv")) else "generic"
+    return "reservation" if any(w in words for w in ("table", "reserv", "dinner", "lunch", "restaurant")) else "generic"
 
 
 def parse_pairs(pairs: list[str]) -> dict[str, str]:

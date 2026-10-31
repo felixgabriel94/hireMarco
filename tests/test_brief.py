@@ -35,6 +35,9 @@ def test_given_values_override_the_profile_and_extras_are_kept():
 def test_kind_from_purpose_and_generic_template():
     assert briefs.kind_for("book a table") == "reservation"
     assert briefs.kind_for("ask about their opening hours") == "generic"
+    assert briefs.kind_for("ask about booking a studio session") == "generic"
+    assert briefs.kind_for("make a dinner reservation") == "reservation"
+    assert briefs.kind_for("book lunch for two") == "reservation"
     with pytest.raises(briefs.BriefIncomplete) as gap:
         briefs.build("generic", {}, profile=FILLED)
     assert gap.value.missing == ["ask", "if_unavailable"]
