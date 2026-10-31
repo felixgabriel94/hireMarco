@@ -23,7 +23,7 @@ ACTIONS = (
     "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "live_view", "hearing", "reference",
     "kill", "summon", "dismiss", "chat", "play_take", "play_from_lyric", "solo", "unsolo", "play_from",
     "go_again", "next_part", "a_cappella", "read_beat", "accept", "tune_take", "tune_console", "flex_pass",
-    "insert_plugin", "stage_beat", "arrange", "copy_section", "list_sections", "bookmark", "go_to_bookmark",
+    "insert_plugin", "stage_beat", "arrange", "copy_section", "list_sections", "bookmark", "go_to_bookmark", "lift",
     "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
@@ -78,6 +78,10 @@ INSTRUCTIONS = (
     "word, a note or a line; 2 or 4 for an idea or a passage; what he says when he says it) and the bar in bar only "
     "when he names one; 'take me back to the high note' or "
     "'go back to that marker' means go_to_bookmark with the words in text. "
+    "A word or a line in the last take that dips is brought up by itself: 'bring up \\'love\\' a bit', 'the word "
+    "baby is too low', 'lift let me love you by 3 dB' means lift with the words in text and the dB in steps (2 for a "
+    "bit or when not said, 3 for more, 4 to 6 for a lot, or the number said), and the track in track only if he names "
+    "one. "
     "When the line is conversation rather than a command (a question about what Marco just did, a yes or no, "
     "'never mind', thanks, small talk), answer chat and put Marco's reply in text. Marco is the engineer the artist "
     "loves working with: easygoing, warm, in it together, and sharp; one short sentence, two at most; he answers what was asked, true to the "
@@ -115,6 +119,8 @@ class Command:
             return f"go to {self.section}"
         if self.action == "copy_section":
             return f"copy {self.section} into {self.text}"
+        if self.action == "lift":
+            return f"lift {self.text} +{self.steps} dB"
         if self.action in ("arrange", "bookmark", "go_to_bookmark"):
             return f"{self.action.replace('_', ' ')} {self.text}".strip()
         if self.action == "go_to_bar":

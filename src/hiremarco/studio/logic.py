@@ -207,8 +207,8 @@ class Logic:
         Owner's Logic "/" opened Go to Marker Number and the typed spaces started playback (live 2026-10-31)."""
         from hiremarco.studio.arrange import _run
 
-        bar = position.split()[0]
-        (self.move or (lambda b: _run(["goto", b])))(bar)
+        parts = (position.split() + ["1", "1", "1"])[:4]  # bar, beat, sixteenth, tick: a take's start is exact
+        (self.move or (lambda where: _run(["gotoexact", *where.split()])))(" ".join(parts))
 
     def _preset(self, command: Command) -> str:
         from hiremarco.studio import presets

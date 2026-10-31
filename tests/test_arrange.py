@@ -211,7 +211,7 @@ def test_go_to_a_bar_moves_the_playhead_without_typing_a_position(tmp_path):
                   move=moved.append)
     logic.do(Command("go_to_bar", bar=25))
     logic.do(Command("play_from", text="9 1 1 1"))
-    assert moved == ["25", "9"]
+    assert moved == ["25 1 1 1", "9 1 1 1"]
     assert not any('keystroke "/"' in s for s in scripts) and len(scripts) == 1   # only the play press
 
 
@@ -220,3 +220,20 @@ def test_a_marker_is_never_taken_for_a_plug_in():
 
     assert insert_said("drop a marker on these two bars, hook idea") is None
     assert insert_said("put an LA-2A on the vocal").action == "insert_plugin"
+
+
+def test_a_word_is_lifted_by_cutting_at_its_edges_and_raising_that_piece():
+    from hiremarco.studio.gain import Lifter, Spot
+
+    assert Spot.at(Spot(15, 2, 3, 120).ticks()) == Spot(15, 2, 3, 120)
+    calls = []
+    lifter = Lifter(go=lambda s: calls.append(("go", s)), select=lambda t: calls.append(("select", t)) or "take.2",
+                    split=lambda: calls.append(("split",)), set_gain=lambda db: calls.append(("gain", db)) or f"{db:g}",
+                    sleep=lambda s: None)
+    assert lifter.lift("Lead Vox", Spot(15), Spot(17), 3) == "take.2 on Lead Vox: gain 3 dB"
+    assert [c[0] for c in calls] == ["go", "select", "split", "go", "select", "split", "go", "select", "gain"]
+    assert calls[6] == ("go", Spot(16))                                   # the middle, never an edge
+    with pytest.raises(ValueError):
+        lifter.lift("Lead Vox", Spot(17), Spot(15), 3)
+    with pytest.raises(ValueError):
+        lifter.lift("Lead Vox", Spot(15), Spot(17), 40)

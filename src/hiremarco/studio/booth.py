@@ -164,6 +164,7 @@ class Booth:
     vocal_input: int = 0                              # the Console channel the vocal mic comes in on (ANALOG 1)
     load_beat: Callable[..., str] | None = None       # studio.beat_in.BeatLoader.load: a session with the beat on Beat
     arranger: object | None = None                    # studio.arrange.Arranger: the structure and his bookmarks
+    lifter: object | None = None                      # studio.gain.Lifter: a word or a line raised by itself
     text_owner: Callable[[str], str] | None = None    # one WhatsApp text to the artist; None: the line is said only
     last_setup: dict = field(default_factory=dict)    # the key, tempo and beat gain the session was last set to
 
@@ -799,6 +800,40 @@ class Booth:
         except Exception as exc:
             return f"could not read them: {type(exc).__name__}"
 
+    def _lift(self, command: Command) -> str:
+        """A word or a line of the last take raised by itself: found in the take as for 'take me back to where I say',
+        the region cut at its edges and that piece's gain raised (Owner 2026-10-31: clip gain, not more compression)."""
+        from hiremarco.studio import pitch
+        from hiremarco.studio.gain import Spot
+
+        if self.lifter is None:
+            return "no gain control in this booth"
+        if self.rolling:
+            return "holding the lift until the take stops"
+        if self.take_start is None or self.transcribe is None:
+            self._say("cannot find the line: no take start known", {}, "I need a take to find that in.")
+            return "no take to lift in"
+        take = self.tape.last_take()
+        window = pitch.locate(command.text.strip().lower(), self.transcribe(take, self.tape.rate)) if take.size else None
+        if window is None:
+            self._say("could not find those words in the take", {"words": command.text},
+                      f"I couldn't find {command.text} in that take.")
+            return f"words not found: {command.text}"
+        start, tempo, beats_per_bar = self.take_start
+        spots = []
+        for seconds in (max(0.0, window[0] - COUNT_IN_SECONDS - 0.05), window[1] - COUNT_IN_SECONDS + 0.05):
+            spots.append(Spot(*(int(v) for v in start.later(seconds, tempo, beats_per_bar).typed().split())))
+        db = float(command.steps or 2)
+        try:
+            track = command.track or self.lifter.selected()
+            done = self.lifter.lift(track, spots[0], spots[1], db)
+        except Exception as exc:  # Logic did not do it; he hears so, the log says what broke
+            failed = f"{type(exc).__name__}: {str(exc)[-160:]}"
+            self._say("could not lift those words", {"what_failed": failed}, FAILED)
+            return f"lift failed: {failed}"
+        self._say("raised the gain of those words by themselves", {"words": command.text, "db": db}, "Brought it up.")
+        return f"{done} ({command.text!r}, estimate of the edges)"
+
     def _arrange(self, command: Command) -> str:
         """The structure (arrange, copy_section, list_sections) and his bookmarks (bookmark, go_to_bookmark)."""
         from hiremarco.studio.arrange import labelled, layout, parse_layout
@@ -951,6 +986,8 @@ class Booth:
             return "export is its own step: marco export-dialog, then the ready-to-mix check"
         if a in ARRANGING:
             return self._arrange(command)
+        if a == "lift":
+            return self._lift(command)
         if a in ("go_to_section", "punch") and command.section and not command.bar and self.arranger is not None:
             where = self._section(command.section)
             if where is None:
@@ -1334,6 +1371,7 @@ def run_booth(*, dry_run: bool = False) -> int:
                   text_owner=None if dry_run else _text_owner_plain,
                   arranger=None if dry_run else __import__("hiremarco.studio.arrange", fromlist=["live_arranger"])
                   .live_arranger(),
+                  lifter=None if dry_run else __import__("hiremarco.studio.gain", fromlist=["Lifter"]).Lifter(),
                   transcribe=lambda audio, r: transcribe(audio, r, diarize=False),
                   play_clip=(lambda pcm, label: print(f"   (guide, dry run: {label})")) if dry_run
                   else (lambda pcm, label: talkback.play_clip(pcm, label)))

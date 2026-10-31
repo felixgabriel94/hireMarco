@@ -74,6 +74,29 @@ on gotoBar(target)
 	return gotoPosition(target, 1)
 end gotoBar
 
+on gotoExact(barWanted, beatWanted, divWanted, tickWanted)
+	-- bar, beat, division (sixteenths) and tick, each set until it reads what is wanted (one step per set for bar
+	-- and beat; the division and tick are set the same way, checked)
+	gotoPosition(barWanted, beatWanted)
+	set tw to namedWindow(" - Tracks")
+	tell application "System Events" to tell process "Logic Pro"
+		set cb to (first group of (first group of tw whose description is "Control Bar") whose description is "Control Bar")
+		set g to missing value
+		repeat with cand in (groups of cb whose description is "Playhead Position")
+			if (count of sliders of cand) is 4 and g is missing value then set g to contents of cand
+		end repeat
+		repeat with pair in {{"division", divWanted}, {"tick", tickWanted}}
+			set sl to (first slider of g whose description is (item 1 of pair))
+			repeat 300 times
+				if (value of sl as integer) is (item 2 of pair) then exit repeat
+				set value of sl to (item 2 of pair)
+				delay 0.02
+			end repeat
+		end repeat
+		return ((value of sliders of g) as text)
+	end tell
+end gotoExact
+
 on gotoPosition(target, beatWanted)
 	-- the playhead's bar in the Control Bar: setting it moves one bar per set (live 2026-10-31), so it is set until
 	-- it reads the bar wanted; no keys, so nothing reaches the transport
@@ -116,6 +139,7 @@ on run argv
 		return (((item 1 of p) + (item 1 of s) / 2) as integer as text) & "," & (((item 2 of p) + (item 2 of s) / 2) as integer as text)
 	end if
 	if cmd is "goto" then return gotoBar((item 2 of argv) as integer)
+	if cmd is "gotoexact" then return gotoExact((item 2 of argv) as integer, (item 3 of argv) as integer, (item 4 of argv) as integer, (item 5 of argv) as integer)
 	if cmd is "where" then
 		set tw to namedWindow(" - Tracks")
 		tell application "System Events" to tell process "Logic Pro"
