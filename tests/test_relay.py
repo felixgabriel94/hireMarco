@@ -258,3 +258,25 @@ def test_text_leaves_a_clause_at_a_time_and_a_dropped_stream_is_logged(tmp_path,
             break
     row = log.rows()[-1]
     assert row["ok"] is False and row["note"].startswith("caller dropped it after") and "first text at" in row["note"]
+
+
+def test_a_cut_off_notice_is_said_again_first(setup):
+    client, seen, _ = setup
+    cut = [CALL_SYSTEM, {"role": "assistant", "content": "Hi, just so you..."},
+           {"role": "user", "content": "This is Ava, the virtual assistant. For reservations, press one."}]
+    assert post(client, {"messages": cut}).json()["choices"][0]["message"]["content"].startswith(
+        "Hi, just so you know, this call is recorded. ok")
+    r = post(client, {"stream": True, "messages": cut})
+    spoken = "".join(c["delta"].get("content", "") for line in r.text.splitlines() if line.startswith("data: {")
+                     for c in json.loads(line[6:]).get("choices") or [])
+    assert spoken.startswith("Hi, just so you know, this call is recorded. ")
+    whole = [CALL_SYSTEM, {"role": "assistant", "content": OPENING}, {"role": "user", "content": "For when?"}]
+    assert post(client, {"messages": whole}).json()["choices"][0]["message"]["content"] == "ok"
+
+
+def test_pressing_and_holding_are_never_narrated():
+    from hiremarco.relay import unnarrate
+
+    assert unnarrate("I'll press one to reach reservations.") == ""
+    assert unnarrate("Mm-hm. I'll wait on hold for the host.") == "Mm-hm."
+    assert unnarrate("Indoor at half past eight works.") == "Indoor at half past eight works."

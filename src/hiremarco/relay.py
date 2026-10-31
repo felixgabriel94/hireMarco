@@ -49,7 +49,10 @@ TAG = re.compile(r"\s?\[[A-Za-z][A-Za-z ,'-]{0,24}\]")
 # A sentence narrating what he is doing is never spoken (live 2026-10-31: "Voicemail detected, I'll leave the
 # message." went into a third party's voicemail). Dashes are spoken as commas.
 NARRATION = re.compile(r"voicemail detected|leave (a|the|your) message|wrap(ping)? up the call|(end|ending|hang|hanging) "
-                       r"(up )?the call|i'?ll (end|hang up)|call (has )?ended", re.I)
+                       r"(up )?the call|i'?ll (end|hang up)|call (has )?ended|"
+                       # Ava test 2: "I'll press one to reach reservations", "I'll wait on hold for the host"
+                       r"i'?ll (press|wait|hold)\b|let me (press|wait)\b|pressing (one|two|three|four|\d)|"
+                       r"(wait|waiting) on hold", re.I)
 # Text goes out a clause at a time, so the first words leave as soon as a clause is whole and a narrating clause can
 # still be dropped before any of it is said.
 CLAUSE_END = re.compile(r"[.!?,;](\s|$)")
@@ -119,6 +122,17 @@ def opening_for(messages: list[dict]) -> str | None:
                 line = found.group(1).strip()
                 return line if line.startswith(gate.RECORDING_OPENING) else gate.RECORDING_OPENING
     return None
+
+
+def notice_owed(messages: list[dict]) -> bool:
+    """True on a call whose recording notice was cut off: Marco has spoken, but never the whole notice.
+
+    Ava test 2 (2026-10-31): the receptionist's greeting started over the opening at "Hi, just so you...".
+    """
+    said = [str(m.get("content") or "") for m in messages if m.get("role") == "assistant"]
+    on_call = any(OPENING_LINE.search(str(m.get("content", ""))) for m in messages
+                  if m.get("role") in ("system", "developer"))
+    return on_call and bool(said) and not any(gate.RECORDING_OPENING in s for s in said)
 
 
 def respell(text: str, pairs: dict[str, str]) -> str:
@@ -203,6 +217,9 @@ def make_relay(transport: httpx.AsyncBaseTransport | None = None, joblog: JobLog
             return JSONResponse({"object": "chat.completion", "model": CALL_MODEL, "choices": [
                 {"index": 0, "message": {"role": "assistant", "content": opening}, "finish_reason": "stop"}]})
 
+        # a cut-off notice is said again, first, before whatever Marco says next
+        prefix = gate.RECORDING_OPENING + " " if notice_owed(messages) else ""
+
         forward = {k: v for k, v in body.items() if k in ALLOWED_FIELDS}
         # The model sees the real spelling: what Marco said aloud ("Bettencourt") and the other side's read-back of
         # it come back as the profile's word ("Betancourt"). Live 2026-10-31: seeing his own respelling, he
@@ -244,6 +261,8 @@ def make_relay(transport: httpx.AsyncBaseTransport | None = None, joblog: JobLog
                 message = choice.get("message") or {}
                 if isinstance(message.get("content"), str):
                     message["content"] = unnarrate(respell(TAG.sub("", message["content"]).strip(), pairs)).strip()
+                if prefix:
+                    message["content"] = (prefix + (message.get("content") or "")).strip()
             return JSONResponse(data)
 
         async def relay_stream() -> AsyncIterator[bytes]:
@@ -252,6 +271,8 @@ def make_relay(transport: httpx.AsyncBaseTransport | None = None, joblog: JobLog
             tags = TagFilter(briefs.say_as())
             first_text_ms: int | None = None
             finished = False
+            if prefix:
+                yield _chunk(prefix)
             try:
                 async with client.stream("POST", "/chat/completions", json=forward, headers=headers) as upstream:
                     if upstream.status_code >= 400:
