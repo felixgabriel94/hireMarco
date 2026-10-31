@@ -50,7 +50,9 @@ TAG = re.compile(r"\s?\[[A-Za-z][A-Za-z ,'-]{0,24}\]")
 # message." went into a third party's voicemail). Dashes are spoken as commas.
 NARRATION = re.compile(r"voicemail detected|leave (a|the|your) message|wrap(ping)? up the call|(end|ending|hang|hanging) "
                        r"(up )?the call|i'?ll (end|hang up)|call (has )?ended", re.I)
-SENTENCE_END = re.compile(r"[.!?](\s|$)")
+# Text goes out a clause at a time, so the first words leave as soon as a clause is whole and a narrating clause can
+# still be dropped before any of it is said.
+CLAUSE_END = re.compile(r"[.!?,;](\s|$)")
 # A recorded voicemail greeting, as opposed to an automated assistant that talks back (live 2026-10-31: a carrier
 # voicemail answered; an AI receptionist answers some restaurants and must be talked to, not left a message).
 VOICEMAIL = re.compile(r"voice ?mail|mailbox|(leave|record) (a |your )?message|(after|at) the (tone|beep)|"
@@ -100,7 +102,7 @@ def _tool_call(name: str, stream: bool) -> Response:
 
 def unnarrate(text: str) -> str:
     text = re.sub(r"\s*[\u2014\u2013]\s*", ", ", text)
-    return " ".join(p for p in re.split(r"(?<=[.!?])\s+", text) if not NARRATION.search(p))
+    return " ".join(p for p in re.split(r"(?<=[.!?,;])\s+", text) if not NARRATION.search(p))
 
 
 def opening_for(messages: list[dict]) -> str | None:
@@ -143,8 +145,7 @@ class TagFilter:
 
     def feed(self, text: str) -> str:
         text, self.held = self.held + text, ""
-        # speak whole sentences only, so a narrating sentence can be dropped before any of it is said
-        ends = list(SENTENCE_END.finditer(text))
+        ends = list(CLAUSE_END.finditer(text))
         cut = ends[-1].start() + 1 if ends else 0
         text, self.held = text[:cut], text[cut:]
         return self._out(text)
@@ -249,6 +250,8 @@ def make_relay(transport: httpx.AsyncBaseTransport | None = None, joblog: JobLog
             usage: dict = {}
             ok = True
             tags = TagFilter(briefs.say_as())
+            first_text_ms: int | None = None
+            finished = False
             try:
                 async with client.stream("POST", "/chat/completions", json=forward, headers=headers) as upstream:
                     if upstream.status_code >= 400:
@@ -271,10 +274,19 @@ def make_relay(transport: httpx.AsyncBaseTransport | None = None, joblog: JobLog
                                     delta = choice.get("delta") or {}
                                     if isinstance(delta.get("content"), str):
                                         delta["content"] = tags.feed(delta["content"])
+                                        if delta["content"] and first_text_ms is None:
+                                            first_text_ms = int((time.monotonic() - started) * 1000)
                                 line = "data: " + json.dumps(chunk)
                         yield (line + "\n").encode()
+                finished = True
             finally:
-                record(usage, ok, "" if ok else "upstream error")
+                # A stream the caller closed before the end is logged as such (live 2026-10-31: ElevenLabs dropped
+                # two answers in a row and the log showed only empty rows).
+                if ok and not finished:
+                    record(usage, False, f"caller dropped it after {int((time.monotonic() - started) * 1000)} ms; "
+                                         f"first text at {first_text_ms if first_text_ms is not None else 'none'} ms")
+                else:
+                    record(usage, ok, "" if ok else "upstream error")
                 await client.aclose()
 
         return StreamingResponse(relay_stream(), media_type="text/event-stream")

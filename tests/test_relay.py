@@ -229,3 +229,32 @@ def test_the_model_sees_the_real_spelling_not_the_spoken_one(setup):
     sent = [m["content"] for m in seen[0][1]["messages"]]
     assert "It's under Felix Zorrilla." in sent and "So that's Felix Zorrilla, correct?" in sent
     assert not any("Zor-illa" in m for m in sent)
+
+
+def test_text_leaves_a_clause_at_a_time_and_a_dropped_stream_is_logged(tmp_path, monkeypatch):
+    from hiremarco.relay import TagFilter
+
+    f = TagFilter()
+    assert f.feed("Yeah, eight fif") == "Yeah,"
+    assert f.feed("teen works, perfect") == " eight fifteen works,"
+    assert f.flush() == " perfect"
+    assert TagFilter().feed("Voicemail detected, I'll leave the message. ") == ""
+
+    monkeypatch.setenv("RELAY_TOKEN", "relay-secret")
+    monkeypatch.setenv("MODEL_API_KEY", "meta-key")
+    log = JobLog(tmp_path / "j.jsonl")
+
+    def upstream(request):
+        lines = ['data: {"choices":[{"delta":{"content":"Yes, that is right."}}]}'] * 50 + ["data: [DONE]"]
+        return httpx.Response(200, text="\n".join(lines) + "\n", headers={"content-type": "text/event-stream"})
+
+    app = Starlette(routes=[Route("/llm/v1/chat/completions", make_relay(
+        transport=httpx.MockTransport(upstream), joblog=log), methods=["POST"])])
+    client = TestClient(app)
+    with client.stream("POST", "/llm/v1/chat/completions", headers={"authorization": "Bearer relay-secret"},
+                       json={"stream": True, "messages": [{"role": "assistant", "content": OPENING},
+                                                          {"role": "user", "content": "Right?"}]}) as r:
+        for _ in r.iter_lines():
+            break
+    row = log.rows()[-1]
+    assert row["ok"] is False and row["note"].startswith("caller dropped it after") and "first text at" in row["note"]

@@ -89,6 +89,7 @@ END_CALL_USE = ("End the call after your goodbye has been said, or when they ask
 VOICEMAIL_USE = ("Use only for a real voicemail: a recorded greeting that asks you to leave a message after the tone. "
                  "Call it silently once the greeting has finished; it leaves the message and hangs up. An automated "
                  "assistant that talks with you, asks questions or offers a menu is not a voicemail.")
+SOFT_TIMEOUT_S = 2.0
 SKIP_TURN_USE = "Stay silent and keep listening, for example while a recorded greeting is still playing."
 SKIP_WAIT_S = 10.0  # ElevenLabs refuses less than 10 s (live 2026-10-31)
 KEYPAD_USE = ("Press keypad digits when an automated menu asks you to, for example 2 for reservations. "
@@ -144,7 +145,12 @@ def agent_body(llm_url: str, secret_id: str, voice_id: str, tts_model: str = TTS
             },
             "tts": {"model_id": tts_model, "voice_id": voice_id, **CALL_VOICE},
             # patient: another AI's long prompt or a voicemail greeting is not cut into
-            "turn": {"initial_wait_time": WAIT_FOR_CALLEE_S, "turn_eagerness": "patient"},
+            "turn": {"initial_wait_time": WAIT_FOR_CALLEE_S, "turn_eagerness": "patient",
+                     # live 2026-10-31: 8 s of silence before one answer; start the answer early, and fill a slow
+                     # one with a sound that commits to nothing
+                     "speculative_turn": True,
+                     "soft_timeout_config": {"timeout_seconds": SOFT_TIMEOUT_S, "message": "Mm-hm.",
+                                             "additional_soft_timeout_messages": ["One sec."]}},
             "conversation": {"max_duration_seconds": MAX_CALL_SECONDS},
         },
         # after the call, what they asked that the brief did not cover, for Felix (read by `marco call transcript`)

@@ -75,6 +75,9 @@ def test_setup_creates_agent_secret_and_stores_ids(env):
     assert set(prompt["built_in_tools"]) == {"end_call", "voicemail_detection", "skip_turn", "play_keypad_touch_tone"}
     assert prompt["built_in_tools"]["voicemail_detection"]["params"]["voicemail_message"] == "{{voicemail}}"
     assert body["conversation_config"]["turn"]["turn_eagerness"] == "patient"
+    turn = body["conversation_config"]["turn"]
+    assert turn["speculative_turn"] is True and turn["soft_timeout_config"]["timeout_seconds"] == 2.0
+    assert turn["soft_timeout_config"]["message"] == "Mm-hm."
     assert prompt["built_in_tools"]["skip_turn"]["params"]["wait_timeout_secs"] >= 10
     assert "treat it like a\nperson" in prompt["prompt"] and "keypad" in prompt["prompt"]
     assert prompt["built_in_tools"]["end_call"]["params"] == {"system_tool_type": "end_call"}
