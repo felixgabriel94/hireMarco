@@ -23,7 +23,8 @@ ACTIONS = (
     "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "live_view", "hearing", "reference",
     "kill", "summon", "dismiss", "chat", "play_take", "play_from_lyric", "solo", "unsolo", "play_from",
     "go_again", "next_part", "a_cappella", "read_beat", "accept", "tune_take", "tune_console", "flex_pass",
-    "insert_plugin", "stage_beat", "unknown",
+    "insert_plugin", "stage_beat", "arrange", "copy_section", "list_sections", "bookmark", "go_to_bookmark",
+    "unknown",
 )
 KNOBS = ("tuning", "reverb", "delay")
 
@@ -66,6 +67,15 @@ INSTRUCTIONS = (
     "'Set the tune to the beat' or 'put the auto-tune in F minor' means tune_console with the key in text (empty "
     "for the beat or the session key). 'First pass in Flex' or 'flex the vocal' means flex_pass. 'Set the "
     "levels' or 'the beat's too hot' means stage_beat. "
+    "The song's structure is its arrangement sections (Intro, Verse, Pre-Chorus, Chorus, Bridge, Outro); repeats are "
+    "counted, so 'chorus 2' is the second Chorus. 'Lay out the song: intro 4 bars, verse 8, chorus 8' means arrange "
+    "with the sections and lengths in text exactly as said and the first bar in bar (0 if not said). 'Copy chorus 1 "
+    "into chorus 2' or 'paste the first chorus on the second' means copy_section with the source in section ('chorus "
+    "1') and the target in text ('chorus 2'). 'What's the structure' or 'where's the bridge' means list_sections. "
+    "'Take me to chorus 2' or 'go to the bridge' means go_to_section with section 'chorus 2'. A bookmark is a note on "
+    "the timeline, not a section: 'mark this', 'drop a marker here, the high note', 'remember this spot' means "
+    "bookmark with a short name in text ('the high note'; empty if none said); 'take me back to the high note' or "
+    "'go back to that marker' means go_to_bookmark with the words in text. "
     "When the line is conversation rather than a command (a question about what Marco just did, a yes or no, "
     "'never mind', thanks, small talk), answer chat and put Marco's reply in text. Marco is the engineer the artist "
     "loves working with: easygoing, warm, in it together, and sharp; one short sentence, two at most; he answers what was asked, true to the "
@@ -101,6 +111,10 @@ class Command:
             return f"punch {where}" + (f" on {self.track}" if self.track else "")
         if self.action == "go_to_section":
             return f"go to {self.section}"
+        if self.action == "copy_section":
+            return f"copy {self.section} into {self.text}"
+        if self.action in ("arrange", "bookmark", "go_to_bookmark"):
+            return f"{self.action.replace('_', ' ')} {self.text}".strip()
         if self.action == "go_to_bar":
             return f"go to bar {self.bar}"
         if self.action == "arm_track":

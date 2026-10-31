@@ -32,6 +32,7 @@ from hiremarco.studio.words import Writer
 from hiremarco.studio.feedback import TakeNote
 
 ROLLING = {"record", "play", "punch"}
+ARRANGING = {"arrange", "copy_section", "list_sections", "bookmark", "go_to_bookmark"}
 TAPE_SECONDS = 10 * 60
 NOTED = "That's in the mix notes."
 LISTENING = "Let me listen."
@@ -162,6 +163,7 @@ class Booth:
     flex: Callable[[str], str] | None = None          # Flex Pitch's first pass in the given key, its read-back
     vocal_input: int = 0                              # the Console channel the vocal mic comes in on (ANALOG 1)
     load_beat: Callable[..., str] | None = None       # studio.beat_in.BeatLoader.load: a session with the beat on Beat
+    arranger: object | None = None                    # studio.arrange.Arranger: the structure and his bookmarks
     text_owner: Callable[[str], str] | None = None    # one WhatsApp text to the artist; None: the line is said only
     last_setup: dict = field(default_factory=dict)    # the key, tempo and beat gain the session was last set to
 
@@ -719,6 +721,16 @@ class Booth:
                 bar = None
             if bar:  # "play from the chorus": a marker, not a lyric
                 return self.logic(Command("play_from", text=f"{bar} 1 1 1"))
+            if self.arranger is not None:  # "take me back to the high note": his bookmark, or a section, before a lyric
+                try:
+                    from hiremarco.studio.arrange import find
+
+                    mark = self.arranger.find_bookmark(lyric)
+                    where = mark.bar if mark else getattr(find(self.arranger.structure(), lyric), "bar", 0)
+                except Exception:
+                    where = 0
+                if where:
+                    return self.logic(Command("go_to_bar", bar=where)) + (f" ({mark.name})" if mark else "")
         if self.rolling:
             self.logic(Command("stop"))
             self.rolling = False
@@ -773,6 +785,70 @@ class Booth:
                 self.log(f"   (held guide: {held.reason})")
         where = f"{window[0]:.1f}-{window[1]:.1f} s (estimate)" if window else "whole take"
         return f"run check, {where}: {line}"
+
+    def _section(self, said: str):
+        from hiremarco.studio.arrange import find
+
+        return find(self.arranger.structure(), said)
+
+    def _sections_said(self) -> str:
+        from hiremarco.studio.arrange import labelled
+
+        try:
+            return "; ".join(labelled(self.arranger.structure())) or "none yet"
+        except Exception as exc:
+            return f"could not read them: {type(exc).__name__}"
+
+    def _arrange(self, command: Command) -> str:
+        """The structure (arrange, copy_section, list_sections) and his bookmarks (bookmark, go_to_bookmark)."""
+        from hiremarco.studio.arrange import labelled, layout, parse_layout
+
+        a = command.action
+        if self.arranger is None:
+            return "no arrangement control in this booth"
+        if self.rolling and a in ("arrange", "copy_section"):
+            return f"holding the {a.replace('_', ' ')} until the take stops"
+        try:
+            if a == "arrange":
+                pairs = parse_layout(command.text)
+                if not pairs:
+                    self._say("could not hear the sections and their lengths; ask for them",
+                              {"heard": command.text}, "Give me the sections and how many bars each.")
+                    return f"no sections heard in {command.text!r}"
+                built = self.arranger.build(layout(pairs, command.bar or 1))
+                said = labelled(built)
+                self._say("laid out the song's sections in Logic; read back what is there",
+                          {"sections": said}, "Laid out.")
+                return f"arranged: {'; '.join(said)}"
+            if a == "copy_section":
+                done = self.arranger.copy_section(self.arranger.structure(), command.section, command.text)
+                ok = done.startswith("copied")
+                self._say("copied a section's regions onto another section" if ok else "could not copy the section",
+                          {"result": done}, "Copied." if ok else "Couldn't copy that.")
+                return done
+            if a == "list_sections":
+                said = labelled(self.arranger.structure())
+                self._say("the song's sections, as Logic has them", {"sections": said or "none yet"},
+                          "No sections yet." if not said else "; ".join(said))
+                return f"sections: {'; '.join(said) or 'none'}"
+            if a == "bookmark":
+                name = command.text or f"mark {len(self.arranger.bookmarks()) + 1}"
+                done = self.arranger.bookmark(name)
+                self._say("dropped a bookmark marker at the playhead", {"name": name}, "Marked.")
+                return done
+            mark = self.arranger.find_bookmark(command.text)
+            if mark is None:
+                self._say("no bookmark matches; say which there are",
+                          {"asked": command.text, "bookmarks": [m.name for m in self.arranger.bookmarks()]},
+                          "I don't have a marker like that.")
+                return f"no bookmark for {command.text!r}"
+            return self.logic(Command("go_to_bar", bar=mark.bar)) + f" ({mark.name})"
+        except gate.Refused as held:
+            return f"held: {held.reason}"
+        except Exception as exc:  # Logic did not do what was asked; he hears it, the log says what broke
+            failed = f"{type(exc).__name__}: {str(exc)[-160:]}"
+            self._say("the arrangement step failed in Logic", {"what_failed": failed}, FAILED)
+            return f"{a} failed: {failed}"
 
     def handle(self, command: Command) -> str:
         a = command.action
@@ -873,6 +949,17 @@ class Booth:
             return "holding the preset until the take stops"
         if a == "export":
             return "export is its own step: marco export-dialog, then the ready-to-mix check"
+        if a in ARRANGING:
+            return self._arrange(command)
+        if a in ("go_to_section", "punch") and command.section and not command.bar and self.arranger is not None:
+            where = self._section(command.section)
+            if where is None:
+                self._say("no section by that name in this song; say which sections there are",
+                          {"asked": command.section, "sections": self._sections_said()}, "I don't see that section.")
+                return f"no section {command.section!r} in this song"
+            command = (replace(command, action="go_to_bar", bar=where.bar, section="") if a == "go_to_section"
+                       else replace(command, bar=where.bar))
+            a = command.action
         if a == "punch" and not (command.bar or command.section):
             if not self.pending_punch:
                 return "punch where? nothing pending"
@@ -1245,6 +1332,8 @@ def run_booth(*, dry_run: bool = False) -> int:
                   load_beat=None if dry_run else __import__("hiremarco.studio.beat_in", fromlist=["BeatLoader"])
                   .BeatLoader().load,
                   text_owner=None if dry_run else _text_owner_plain,
+                  arranger=None if dry_run else __import__("hiremarco.studio.arrange", fromlist=["live_arranger"])
+                  .live_arranger(),
                   transcribe=lambda audio, r: transcribe(audio, r, diarize=False),
                   play_clip=(lambda pcm, label: print(f"   (guide, dry run: {label})")) if dry_run
                   else (lambda pcm, label: talkback.play_clip(pcm, label)))
