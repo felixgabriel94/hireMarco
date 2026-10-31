@@ -20,6 +20,8 @@
     uv run marco voicenote send FILE     send a prepared voice note to the Owner on Return
     uv run marco film devices            the audio devices and their channel counts
     uv run marco film record             the booth on one clock until Ctrl+C, in 15-minute segments
+    uv run marco drums train             teach Marco's drum ear on beats built from the Maschine library (once)
+    uv run marco drums read FILE --bpm N  a drums stem's pattern: its main groove as a grid and a MIDI file
     uv run marco export-dialog FOLDER    Muse Wonder fills Logic's export dialog (--dry-run: looks, clicks nothing)
     uv run marco booth                   the session by voice: mic, commands, Logic, talkback (--dry-run: plans only)
     uv run marco routing                 tone and mic test of the interface's virtual channels and inputs
@@ -321,6 +323,37 @@ def cmd_look(args) -> int:
     from hiremarco.look import run
 
     print(run(Path(args.folder).expanduser(), args.board))
+    return 0
+
+
+def cmd_drums(args) -> int:
+    """The drum ear: trained once on beats built from his library, then reads a drums stem into a pattern."""
+    from pathlib import Path
+
+    from hiremarco.studio import drums
+
+    if args.action == "train":
+        print(drums.train(beats=args.beats))
+        return 0
+    if not args.file or not args.bpm:
+        print("read needs a FILE and --bpm")
+        return 2
+    import librosa
+
+    audio = Path(args.file).expanduser()
+    y, rate = librosa.load(str(audio), sr=drums.RATE, mono=True)
+    one = args.one
+    if one is None:
+        from hiremarco.studio import the_one
+
+        found = the_one.find(y, rate, the_one.downbeats(audio), args.bpm)
+        one = found.seconds
+        print(f"the 1 at {one:.3f} s ({'sure' if found.sure else 'not sure, check it'})")
+    hits = drums.transcribe(y, rate, args.bpm, one)
+    loop = drums.groove(hits, bars=args.bars)
+    print(drums.grid(loop, bars=args.bars))
+    target = Path(args.out).expanduser() if args.out else audio.with_name(f"{audio.stem} groove {args.bpm:g} bpm.mid")
+    print(drums.to_midi(loop, target, args.bpm, length_steps=args.bars * 16))
     return 0
 
 
@@ -1034,6 +1067,16 @@ def main(argv: list[str] | None = None) -> int:
     ed.add_argument("folder")
     ed.add_argument("--dry-run", action="store_true")
     ed.set_defaults(func=cmd_export_dialog)
+
+    dr = sub.add_parser("drums", help="the drum ear: train it once, then read a drums stem into a MIDI groove")
+    dr.add_argument("action", choices=["train", "read"])
+    dr.add_argument("file", nargs="?")
+    dr.add_argument("--bpm", type=float, default=0.0)
+    dr.add_argument("--one", type=float, default=None, help="where the 1 is, in seconds; found by ear when left out")
+    dr.add_argument("--bars", type=int, default=2)
+    dr.add_argument("--beats", type=int, default=1500, help="how many built beats to train on")
+    dr.add_argument("--out")
+    dr.set_defaults(func=cmd_drums)
 
     lk = sub.add_parser("look", help="study the mood board's pictures and keep Felix's look as facts")
     lk.add_argument("folder")
