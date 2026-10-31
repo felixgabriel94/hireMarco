@@ -132,11 +132,27 @@ def parse_rows(text: str) -> list[tuple[Mark, int]]:
     return out
 
 
-def _run(args: list[str]) -> str:
+def _osa(args: list[str]) -> str:
     done = subprocess.run(["osascript", str(SCRIPT), *args], capture_output=True, text=True, timeout=60)
     if done.returncode != 0:
         raise RuntimeError(done.stderr.strip()[-200:] or f"osascript exit {done.returncode}")
     return done.stdout.strip()
+
+
+def _run(args: list[str]) -> str:
+    """The marker script; "mark" is two steps, the field opened there and the name pasted from here."""
+    if args[0] != "mark":
+        return _osa(args)
+    subprocess.run(["pbcopy"], input=args[1].encode(), check=True, timeout=10)  # before the field opens
+    _osa(["markstart"])
+    time.sleep(1.5)  # the rename field takes the keys only after this long (live 2026-10-31)
+    front = subprocess.run(["osascript", "-e", 'tell application "System Events" to get name of first process whose '
+                            'frontmost is true'], capture_output=True, text=True, timeout=10).stdout.strip()
+    if front != "Logic Pro":
+        raise RuntimeError(f"Logic is not in front ({front or 'nothing'}); the marker keeps its default name")
+    subprocess.run(["osascript", "-e", 'tell application "System Events"\nkeystroke "v" using {command down}\n'
+                    'delay 0.2\nkey code 36\nend tell'], check=True, capture_output=True, timeout=15)
+    return "marked"
 
 
 class Arranger:
@@ -253,14 +269,14 @@ def live_arranger(conn=None, rules_path: Path | None = None) -> Arranger:
         def run() -> None:
             import Quartz
 
+            _run(["hide"])  # the Marker List floats over the Marker track's name (live 2026-10-31)
             front()
             x, y = (float(v) for v in _run(["header"]).split(","))
             for kind in (Quartz.kCGEventMouseMoved, Quartz.kCGEventLeftMouseDown, Quartz.kCGEventLeftMouseUp):
                 Quartz.CGEventPost(Quartz.kCGHIDEventTap,
                                    Quartz.CGEventCreateMouseEvent(None, kind, (x, y), Quartz.kCGMouseButtonLeft))
                 time.sleep(0.08)
-            time.sleep(0.6)
-            front()
+            time.sleep(0.6)  # the menu is open now and holds Logic: no front() here, it would hang (live 2026-10-31)
             downs = "\n".join(["key code 125", "delay 0.15"] * MENU[item])
             subprocess.run(["osascript", "-e", f'tell application "System Events"\n{downs}\nkey code 36\nend tell'],
                            check=True, capture_output=True, timeout=15)
@@ -271,13 +287,14 @@ def live_arranger(conn=None, rules_path: Path | None = None) -> Arranger:
         gated(lambda: key(Press(letter, mods)), name.replace("_", " "))
 
     def go(bar: int, beat: int = 1) -> None:
-        letter, mods = KEYMAP["go_to_position"]
-        gated(lambda: key(Press(letter, mods, f"{bar} {beat} 1 1")), f"go to bar {bar}")
+        # the playhead's bar in the Control Bar, set without keys: typed digits and spaces reached the transport and
+        # started playback (live 2026-10-31)
+        gated(lambda: _run(["goto", str(bar)]), f"go to bar {bar}")
 
     def locators(start: int, end: int) -> None:
         def run() -> None:
             for bar, which in ((start, "set_left_locator"), (end, "set_right_locator")):
-                key(Press(KEYMAP["go_to_position"][0], KEYMAP["go_to_position"][1], f"{bar} 1 1 1"))
+                _run(["goto", str(bar)])
                 key(Press(*KEYMAP[which]))
         gated(run, f"locators {start} to {end}")
 
