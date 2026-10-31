@@ -6,7 +6,7 @@ from hiremarco.voice.tts import speakable
 def test_keys_and_notes_are_said_like_a_musician_says_them():
     assert speakable("Session's ready: A major, 99 BPM.") == "Session's ready: Eigh major, 99 BPM."
     assert speakable("We're in F# minor.") == "We're in F sharp minor."
-    assert speakable("Bb major, then Am.") == "B flat major, then Ay minor."
+    assert speakable("Bb major, then Am.") == "B flat major, then Eigh minor."
     assert speakable("The third above is G A B.") == "The third above is G Eigh B."
     assert speakable("the key of A") == "the key of Eigh"
 
