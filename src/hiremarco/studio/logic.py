@@ -138,6 +138,8 @@ def plan(command: Command) -> Plan:
         return Plan([p("go_to_start")])
     if a == "new_track":
         return Plan([p("new_audio_track"), p("record_arm")])
+    if a == "new_sound_track":  # a track for a made sound: nothing will be recorded on it, so it is not armed
+        return Plan([p("new_audio_track")])
     if a == "arm_track":
         return Plan([p("record_arm")])
     if a == "play_from" and command.text:

@@ -519,3 +519,40 @@ def test_an_unsure_1_is_said_in_the_ready_text():
     b.offer = lambda: b.last_setup.update(key="A") or "set"
     b.beat_arrived(Path("beat.wav"))
     assert texts[-1] == "session's ready. check bar 3: I'm not sure that's where the 1 is."
+
+
+class StackedLogic:
+    """A session whose last track is an open stack: selecting it closes it first, so a new track lands after it."""
+
+    def __init__(self):
+        self.calls, self.clicks, self.open, self.focus = [], [], True, False
+
+    def run(self, args):
+        self.calls.append(args)
+        if args[0] == "list":
+            return "1\tTrack 1 “KEYS”\t0\n2\tTrack 2 “Pad”\t0\n3\tTrack 3 “FEGA”\t0\n"
+        if args[0] == "header" and args[1] == "FEGA":
+            return f"237\t300\t325\t44\t{1 if self.focus else 0}\t{1 if self.open else 0}"
+        return "missing"
+
+    def click(self, x, y):
+        self.clicks.append((x, y))
+        if x == 237 + 43:
+            self.open = False
+        else:
+            self.focus = True
+
+
+def test_the_last_track_is_selected_with_its_stack_closed_before_a_new_track(tmp_path):
+    logic = StackedLogic()
+    assert loader(tmp_path, logic).select_last() == "FEGA"
+    assert logic.clicks[0] == (237 + 43, 322) and not logic.open and logic.focus
+
+
+def test_a_track_for_a_made_sound_is_not_armed():
+    from hiremarco.studio.commands import Command
+    from hiremarco.studio.logic import KEYMAP, plan
+
+    presses = plan(Command("new_sound_track")).presses
+    armed = plan(Command("new_track")).presses
+    assert len(presses) == 1 and presses[0].key == KEYMAP["new_audio_track"][0] and len(armed) == 2

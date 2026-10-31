@@ -512,6 +512,25 @@ class BeatLoader:
         if after is None or not after.focus:
             raise LoadError(f"the click did not select {name!r}")
 
+    def select_last(self) -> str:
+        """The session's last track selected, its stack closed if it is an open one, so a new track lands after it,
+        outside every stack (live 2026-10-31: with the closed FEGA stack selected, the new track came after the
+        stack; with a track inside KEYS selected, it went into KEYS). Returns the track's name."""
+        import re
+
+        lines = [line for line in self.run(["list"]).splitlines() if line.strip()]
+        named = re.search(r"“(.*)”", lines[-1]) if lines else None
+        if named is None:
+            raise LoadError("the session lists no tracks")
+        name = named.group(1)
+        target = self._reach(name)
+        if target.open:
+            self._in_front()
+            self.click(target.x + 43, target.middle)  # the stack's disclosure triangle, left in its header
+            self.sleep(0.8)
+        self.select(name)
+        return name
+
     def open_session(self, beat: Path, name: str | None = None, prepare: Callable[[Path], None] | None = None) -> Path:
         if not self.template.exists():
             raise LoadError(f"the template is missing: {self.template}")

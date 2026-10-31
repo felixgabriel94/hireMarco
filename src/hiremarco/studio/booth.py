@@ -800,14 +800,16 @@ class Booth:
         try:
             made = soundgen.fit(soundgen.generate(soundgen.prompt(described, key, bpm, seconds), seconds), key,
                                 config.STATE_DIR / "sounds", f"{described[:40].strip()} {time.strftime('%H%M%S')}")
-            self.logic(Command("new_track"))
+            loader = BeatLoader()
+            loader.select_last()  # the new track after the last one, outside every stack
+            self.logic(Command("new_sound_track"))
             time.sleep(self.settle)
             name = f"{described[:24].strip().title()} (Marco)"
             if self.tracks is not None:
                 self.tracks.rename(name)
             if bar and self.lifter is not None:
                 self.lifter.go(Spot(bar))
-            BeatLoader().run(["import", str(made.path)])
+            loader.run(["import", str(made.path)])
         except gate.Refused as held:
             self._say("could not make the sound", {"why": held.reason}, "I can't make sounds yet; that's off.")
             return f"held: {held.reason}"

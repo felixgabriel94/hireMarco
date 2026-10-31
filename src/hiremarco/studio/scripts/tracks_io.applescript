@@ -188,7 +188,12 @@ on run argv
 		-- before it was the window (live 2026-10-29). Anything else means the editor did not open; nothing is typed.
 		if not startedNone and focusedLine() is not "none" then error "Rename Track (Shift+Return) did not open the track's name field"
 		-- Paste, not typed letters: in Logic a stray letter is a key command (R records).
-		set saved to the clipboard
+		-- a clipboard holding only Logic's own data (a copied region) cannot be read as AppleScript data (live
+		-- 2026-10-31: "Can't make some data into the expected type"); it is then left as the paste leaves it
+		set saved to missing value
+		try
+			set saved to the clipboard
+		end try
 		set the clipboard to newName
 		tell application "System Events"
 			tell process "Logic Pro"
@@ -200,7 +205,7 @@ on run argv
 		end tell
 		delay 0.5
 		try
-			set the clipboard to saved
+			if saved is not missing value then set the clipboard to saved
 		end try
 		set namesAfter to headerNames(main)
 		set committed to ""
@@ -608,7 +613,12 @@ on run argv
 				if not (exists window "Open File") then error "the Import Audio File panel did not open"
 			end tell
 		end tell
-		set saved to the clipboard
+		-- a clipboard holding only Logic's own data (a copied region) cannot be read as AppleScript data (live
+		-- 2026-10-31: "Can't make some data into the expected type"); it is then left as the paste leaves it
+		set saved to missing value
+		try
+			set saved to the clipboard
+		end try
 		set the clipboard to wanted
 		tell application "System Events"
 			if my frontName() is not "Logic Pro" then error "Logic is not in front"
@@ -640,7 +650,7 @@ on run argv
 			end tell
 		end tell
 		try
-			set the clipboard to saved
+			if saved is not missing value then set the clipboard to saved
 		end try
 		return "imported"
 	end if
