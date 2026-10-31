@@ -471,3 +471,19 @@ def test_only_a_one_button_notice_is_pressed(monkeypatch):
                         type("R", (), {"stdout": "Plug-ins load as needed;"})())
     assert beat_in.dismiss_notices() == "Plug-ins load as needed;"
     assert 'does not contain "Cancel"' in seen["script"] and 'does not contain "Save"' in seen["script"]
+
+
+def test_live_2026_10_31_a_beat_that_sounds_from_its_first_sample_starts_on_bar_2(tmp_path):
+    import numpy as np
+
+    from hiremarco.studio.beat_in import aligned_copy, first_sound
+
+    rate = 48000
+    audio = np.zeros(rate, dtype=np.float32)
+    audio[:int(0.156 * rate)] = 0.03                                  # a quiet opening from the very start
+    audio[int(0.156 * rate):int(0.156 * rate) + 4000] = 0.9           # the first loud hit
+    assert first_sound(audio, rate) == 0.0
+    written = {}
+    _, hit, bar = aligned_copy(Path("x.wav"), tmp_path, 99.0, read=lambda p: (audio[:, None], rate),
+                               write=lambda p, d, r: written.update(data=d))
+    assert hit == 0.0 and bar == 2 and len(written["data"]) - rate == round(240 / 99.0 * rate)   # a whole bar

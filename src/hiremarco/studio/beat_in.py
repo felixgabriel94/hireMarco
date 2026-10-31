@@ -65,9 +65,9 @@ class LoadError(RuntimeError):
     pass
 
 
-def first_hit(audio, rate: int) -> float:
-    """Seconds from the file's start to the attack of its first hit: where the 5 ms envelope first passes 10% of
-    the file's loudest moment, walked back (at most 30 ms) to where the attack began."""
+def first_hit(audio, rate: int, threshold: float = 0.1) -> float:
+    """Seconds from the file's start to the attack of its first hit: where the 5 ms envelope first passes
+    ``threshold`` of the file's loudest moment, walked back (at most 30 ms) to where the attack began."""
     import numpy as np
 
     level = np.abs(np.asarray(audio, dtype=np.float32))
@@ -76,23 +76,30 @@ def first_hit(audio, rate: int) -> float:
     peak = float(env.max()) if env.size else 0.0
     if peak <= 0:
         return 0.0
-    i = int(np.argmax(env > 0.1 * peak))
-    floor, stop = 0.02 * peak, max(0, i - int(rate * 0.03))
+    i = int(np.argmax(env > threshold * peak))
+    floor, stop = 0.2 * threshold * peak, max(0, i - int(rate * 0.03))
     while i > stop and env[i - 1] > floor:
         i -= 1
     return i / rate
 
 
+def first_sound(audio, rate: int) -> float:
+    """Seconds to the beat's first sound, quiet or loud: the first hit at 1% of the loudest moment (-40 dB). Live
+    2026-10-31 the 10% hit skipped a beat's quiet opening: the file sounded from 0.0 s, the hit chosen was at 0.156
+    s, and the beat's start landed two sixteenths before bar 2."""
+    return first_hit(audio, rate, threshold=0.01)
+
+
 def aligned_copy(beat: Path, folder: Path, bpm: float, *, read=None, write=None) -> tuple[Path, float, int]:
-    """The whole beat with silence in front so its first hit lands on a bar line when it starts at bar 1:
-    (the copy, the first hit in seconds, the bar it lands on). A lead-in shorter than a bar lands on bar 2."""
+    """The whole beat with silence in front so its first sound lands on a bar line when it starts at bar 1:
+    (the copy, the first sound in seconds, the bar it lands on). A lead-in shorter than a bar lands on bar 2."""
     import math
 
     import numpy as np
     import soundfile as sf
 
     data, rate = (read or (lambda p: sf.read(str(p), dtype="float32", always_2d=True)))(beat)
-    hit = first_hit(data.mean(axis=1), rate)
+    hit = first_sound(data.mean(axis=1), rate)
     bar = 4 * 60.0 / bpm
     bars = max(1, math.ceil(hit / bar - 1e-9))
     pad = int(round((bars * bar - hit) * rate))
