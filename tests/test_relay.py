@@ -216,3 +216,16 @@ def test_without_the_tools_the_relay_does_not_act_on_a_voicemail(setup):
     client, _, _ = setup
     r = post(client, {"messages": [CALL_SYSTEM, {"role": "user", "content": "At the tone, record your message."}]})
     assert tool_called(r) is None and r.json()["choices"][0]["message"]["content"] == OPENING
+
+
+def test_the_model_sees_the_real_spelling_not_the_spoken_one(setup):
+    from hiremarco.calls import brief as briefs
+
+    client, seen, _ = setup
+    briefs.save_profile({**briefs.PROFILE_FIELDS, "say_as": "Zorrilla=Zor-illa"})
+    post(client, {"messages": [CALL_SYSTEM, {"role": "assistant", "content": OPENING},
+                               {"role": "assistant", "content": "It's under Felix Zor-illa."},
+                               {"role": "user", "content": "So that's Felix Zor-illa, correct?"}]})
+    sent = [m["content"] for m in seen[0][1]["messages"]]
+    assert "It's under Felix Zorrilla." in sent and "So that's Felix Zorrilla, correct?" in sent
+    assert not any("Zor-illa" in m for m in sent)

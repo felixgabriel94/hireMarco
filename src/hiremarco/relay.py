@@ -203,6 +203,13 @@ def make_relay(transport: httpx.AsyncBaseTransport | None = None, joblog: JobLog
                 {"index": 0, "message": {"role": "assistant", "content": opening}, "finish_reason": "stop"}]})
 
         forward = {k: v for k, v in body.items() if k in ALLOWED_FIELDS}
+        # The model sees the real spelling: what Marco said aloud ("Bettencourt") and the other side's read-back of
+        # it come back as the profile's word ("Betancourt"). Live 2026-10-31: seeing his own respelling, he
+        # "corrected" a right read-back three times.
+        spoken = {said: word for word, said in briefs.say_as().items()}
+        if spoken:
+            forward["messages"] = [{**m, "content": respell(m["content"], spoken)} if isinstance(m.get("content"), str)
+                                   else m for m in forward.get("messages") or []]
         if "max_tokens" in forward:  # Meta's field name is max_completion_tokens
             forward.setdefault("max_completion_tokens", forward.pop("max_tokens"))
         forward["max_completion_tokens"] = min(int(forward.get("max_completion_tokens") or CALL_MAX_TOKENS),
