@@ -70,6 +70,14 @@ Owner's yes to receipts and serials, 2026-10-29:
     read: mail <- @antarestech.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
     read: mail <- @splice.com ; license receipts: products, renewals and serials into the Keychain ; until revoked
 
+Owner's yes to booking confirmations, 2026-10-31 (a new place's own domain is a new line, by his hand):
+
+    read: mail <- @opentable.com ; booking confirmations for calls Marco placed ; until revoked
+    read: mail <- @resy.com ; booking confirmations for calls Marco placed ; until revoked
+    read: mail <- @sevenrooms.com ; booking confirmations for calls Marco placed ; until revoked
+    read: mail <- @exploretock.com ; booking confirmations for calls Marco placed ; until revoked
+    read: mail <- @americansocialbar.com ; booking confirmations for calls Marco placed ; until revoked
+
 ## Money
 
 Caps in code: 10 minutes per call, 30 calls and 100 WhatsApp messages per

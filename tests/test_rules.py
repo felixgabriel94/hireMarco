@@ -94,11 +94,15 @@ def test_read_grants_exact_address_and_domain(tmp_path):
     assert not rules.may_read("x@resy.com.evil.io", p, today)
 
 
-def test_repo_rules_file_grants_only_vendor_receipts():
-    """The Owner's yes of 2026-10-29: plug-in vendors' receipts, for licenses and serials, and nothing else."""
+def test_repo_rules_file_grants_only_vendor_receipts_and_booking_confirmations():
+    """The Owner's yes of 2026-10-29: plug-in vendors' receipts, for licenses and serials; and of 2026-10-31:
+    booking confirmations for calls Marco placed, from the booking services and the places' own domains."""
     grants = rules.read_grants()
-    assert grants and all(g.sender.startswith("@") and "license receipts" in g.purpose for g in grants)
-    assert not rules.may_read("someone@gmail.com")
+    assert grants and all(g.sender.startswith("@") for g in grants)
+    assert all("license receipts" in g.purpose or "booking confirmations" in g.purpose for g in grants)
+    booking = {g.sender for g in grants if "booking confirmations" in g.purpose}
+    assert booking == {"@opentable.com", "@resy.com", "@sevenrooms.com", "@exploretock.com", "@americansocialbar.com"}
+    assert rules.may_read("no-reply@opentable.com") and not rules.may_read("someone@gmail.com")
 
 
 def test_nothing_in_the_repo_rules_ends_on_a_date():
