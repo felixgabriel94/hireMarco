@@ -71,7 +71,7 @@ def test_repo_rules_file_reaches_the_owner_and_whom_he_names():
     # number the Owner names in that request (Owner 2026-10-31); nothing else reaches anyone.
     assert [(s.tool, s.destination) for s in rules.switches()] == [
         ("whatsapp", "owner"), ("talkback", "*"), ("logic", "*"), ("calls", "owner"), ("calls", "named"),
-        ("calls", "places"), ("unsubscribe", "*")]
+        ("calls", "places"), ("unsubscribe", "*"), ("mail", "*")]
 
 
 def test_named_line_needs_the_owner_to_have_named_the_number(tmp_path):
