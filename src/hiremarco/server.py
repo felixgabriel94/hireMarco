@@ -301,10 +301,38 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
 SETTLE_S = 20.0  # a photo with no words waits this long for the words he sends after it
 
 
+def dress_me(photo, said: str, sender: str, message_id: str, wa: WhatsApp, marco=None,
+             waiting_row: int | None = None) -> str:
+    """"Marco, dress me": what SAM sees, then the board of three looks, both sent to him (Owner 2026-11-01)."""
+    from hiremarco import dress
+    from hiremarco.sam import SamError
+
+    def send(picture: bytes, caption: str, step: str) -> None:
+        wa.send_image(sender, picture, caption, idempotency_key=f"dress-{step}:{message_id}", mime="image/jpeg")
+
+    plain = lambda text, tag: wa.send_text(sender, text, idempotency_key=f"dress-{tag}:{message_id}")  # noqa: E731
+    try:
+        done = dress.dress(photo.path, said, conn=wa.conn, send=send, client=getattr(marco, "client", None),
+                           film=dress.film_dir(), waiting_row=waiting_row)
+    except dress.NoClothesFound:
+        plain("I couldn't make out any clothes in that one. Lay them out flat and send me another?", "none")
+        return "dress me: no clothing found in the photo"
+    except dress.LooksError as bad:
+        plain("I couldn't build three looks from that one. Send it again?", "looks")
+        return f"dress me: looks rejected: {bad}"
+    except SamError as failed:
+        plain("I couldn't read the photo just now. Send it again?", "sam")
+        return f"dress me: {failed}"
+    thrown = f"; threw out pieces {done.looks.dropped}" if done.looks.dropped else ""
+    return (f"dress me: {len(done.pieces)} pieces, what SAM sees and the board sent, {done.looks.recommend} "
+            f"recommended{thrown}")
+
+
 def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None = None,
            inbox: Path | None = None, listen=None, booth=None, running=None, settle=None) -> str:
     import time
 
+    from hiremarco import dress
     from hiremarco.whatsapp import photos
 
     wa = wa or WhatsApp()
@@ -330,6 +358,11 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
             photo = photos.keep(wa.conn, data, message.id, message.caption)  # remembered in the conversation
             said = message.caption.strip()
             trace.add(f"photo kept: {photo.path.name}")
+            if dress.wants_dressing(said):
+                return trace.done(dress_me(photo, said, message.sender, message.id, wa, marco))
+            asked = dress.waiting(wa.conn) if not said else None
+            if asked is not None:  # "dress me" came first; this is the photo it waited for
+                return trace.done(dress_me(photo, asked[1], message.sender, message.id, wa, marco, asked[0]))
             if not said:  # his words may follow: give them a moment, and let that message take the photo
                 (settle or time.sleep)(SETTLE_S)
                 if photos.newer_from(wa.conn, message.sender, message.id):
@@ -341,6 +374,19 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
             return trace.done(f"{message.kind} noted, no handler yet")
         if photo is None:
             remember(wa.conn, "felix", said or "[an empty voice note]")
+            if dress.wants_dressing(said):
+                photo = photos.wait_for(wa.conn, message.sender)  # it may still be downloading
+                if photo is None:
+                    dress.wait_for_photo(wa.conn, said)
+                    wa.send_text(message.sender, "Send me a photo of the clothes laid out and I'll put three looks "
+                                 "together.", idempotency_key=f"dress-photo:{message.id}")
+                    return trace.done("dress me: waiting for the photo")
+                return trace.done(dress_me(photo, said, message.sender, message.id, wa, marco))
+            letter = dress.picked(said)
+            if letter and dress.open_board(wa.conn) is not None:
+                text, did = dress.lock_in(wa.conn, letter, client=getattr(marco, "client", None))
+                wa.send_text(message.sender, text, idempotency_key=f"dress-pick:{message.id}")
+                return trace.done(f"dress me: {did}")
             photo = photos.latest(wa.conn)  # a photo he sent in the last minutes goes with his words
         if message.kind == "image":
             said = said or "(he sent this photo without a word)"

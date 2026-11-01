@@ -2,8 +2,11 @@
 
 Responses API, ``model: sam-3.1``, one ``input_text`` noun phrase and one
 ``input_image`` data URL (dev.meta.ai SAM segmenting page, read 2026-10-28).
-The answer is one line of records, each a box then a mask; only the boxes are
-used here, with confidence on. Nothing found is an empty answer, not an error.
+The answer is one line of records, each a box then a mask, with confidence on.
+``segment`` keeps the boxes; ``segment_masks`` keeps each box with its mask, a
+box-local raster in one_bit encoding decoded by Meta's own parser (dev.meta.ai
+SAM reading-segmentation page, read 2026-11-01). Nothing found is an empty
+answer, not an error.
 """
 
 from __future__ import annotations
@@ -28,6 +31,10 @@ BOX = re.compile(
 )
 
 
+MASK = re.compile(r"<\|mask;[^|]*?data=(?P<h>\d+),(?P<w>\d+),(?P<payload>[!~][^|]+)\|>")
+RECORD = re.compile(BOX.pattern + r"(?P<mask><\|mask;[^|]*\|>)?")
+
+
 class SamError(RuntimeError):
     pass
 
@@ -47,6 +54,37 @@ class Box:
         return (self.x1 + self.x2) / 2, (self.y1 + self.y2) / 2
 
 
+@dataclass(frozen=True)
+class Found:
+    """One match: its box, and its mask as rows of 0 and 1 over the box (``mask_size`` wide and high), or None when
+    the answer carried no mask SAM's parser could read."""
+    box: Box
+    mask: bytes | None = None
+    mask_size: tuple[int, int] = (0, 0)
+
+
+def parse_found(text: str) -> list[Found]:
+    from meta_sam_parser import InvalidSegmentationMaskError, SegmentationMask, decode_mask_to_raster
+
+    found = []
+    for m in RECORD.finditer(text or ""):
+        box = Box(int(m["x1"]), int(m["y1"]), int(m["x2"]), int(m["y2"]), int(m["w"]), int(m["h"]),
+                  float(m["c"]) if m["c"] else 1.0)
+        mask = MASK.fullmatch(m["mask"] or "")
+        if mask is None:
+            found.append(Found(box))
+            continue
+        width, height, payload = int(mask["w"]), int(mask["h"]), mask["payload"]
+        try:
+            raster = decode_mask_to_raster(SegmentationMask("lossless" if payload[0] == "~" else "one_bit", payload,
+                                                            width, height))
+        except (InvalidSegmentationMaskError, ValueError):
+            found.append(Found(box))
+            continue
+        found.append(Found(box, bytes(raster), (width, height)))
+    return found
+
+
 def parse_boxes(text: str) -> list[Box]:
     return [Box(int(m["x1"]), int(m["y1"]), int(m["x2"]), int(m["y2"]), int(m["w"]), int(m["h"]),
                 float(m["c"]) if m["c"] else 1.0) for m in BOX.finditer(text or "")]
@@ -59,6 +97,13 @@ def data_url(image: bytes, mime: str) -> str:
 def segment(image: bytes, phrase: str, *, mime: str = "image/jpeg", min_confidence: float = 0.5,
             joblog: JobLog | None = None, api_key: str | None = None,
             transport: httpx.BaseTransport | None = None, timeout: float = 60.0) -> list[Box]:
+    return [f.box for f in segment_masks(image, phrase, mime=mime, min_confidence=min_confidence, joblog=joblog,
+                                         api_key=api_key, transport=transport, timeout=timeout)]
+
+
+def segment_masks(image: bytes, phrase: str, *, mime: str = "image/jpeg", min_confidence: float = 0.5,
+                  joblog: JobLog | None = None, api_key: str | None = None,
+                  transport: httpx.BaseTransport | None = None, timeout: float = 60.0) -> list[Found]:
     joblog = joblog or JobLog()
     gate.check_model_call(TENANT, model=MODEL, system="", prompt=phrase, joblog=joblog)
     body = {
@@ -88,7 +133,7 @@ def segment(image: bytes, phrase: str, *, mime: str = "image/jpeg", min_confiden
         for item in data.get("output") or [] if item.get("type") == "message"
         for block in item.get("content") or [] if block.get("type") == "output_text"
     )
-    boxes = [b for b in parse_boxes(text) if b.confidence >= min_confidence]
+    found = [f for f in parse_found(text) if f.box.confidence >= min_confidence]
     joblog.append(JobRow(job="segment", model=MODEL, cost_usd=PRICES_PER_IMAGE[MODEL], duration_ms=duration_ms,
-                         ok=True, note=f"{phrase}: {len(boxes)} found"))
-    return boxes
+                         ok=True, note=f"{phrase}: {len(found)} found"))
+    return found

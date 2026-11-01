@@ -58,7 +58,9 @@ def speech_cost_usd(model: str, characters: int) -> float:
 
 
 # Segmentation is priced per image (pricing page, read 2026-10-28): 2.50 USD
-# per 1,000 images for SAM 3.1.
+# per 1,000 images for SAM 3.1. Muse Image is 0.01 USD per generated image,
+# whatever the prompt or reasoning strength (same page, read 2026-11-01).
 PRICES_PER_IMAGE: dict[str, float] = {
     "sam-3.1": 2.50 / 1000,
+    "muse-image-1.0": 0.01,
 }

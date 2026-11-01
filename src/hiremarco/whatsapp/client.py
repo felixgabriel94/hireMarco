@@ -180,14 +180,15 @@ class WhatsApp:
         return (data.get("messages") or [{}])[0].get("id", "")
 
     def send_image(self, to: str, png: bytes, caption: str, *, idempotency_key: str, critic=None,
-                   now: datetime | None = None) -> str:
-        """A picture with a short caption: uploaded and sent inside one gated action."""
+                   now: datetime | None = None, mime: str = "image/png") -> str:
+        """A picture with a short caption: uploaded and sent inside one gated action. ``mime`` image/jpeg for a
+        photo-heavy picture, which as a PNG can pass WhatsApp's 5 MB image limit."""
         caption = casual(caption)
         if not self._inside_window(to, now):
             raise gate.Refused("outside the 24-hour window; a template would cost money, so asking the Owner first")
 
         def run() -> dict[str, Any]:
-            media_id = self.upload_media(png, "image/png", "marco.png")
+            media_id = self.upload_media(png, mime, "marco.jpg" if mime == "image/jpeg" else "marco.png")
             return self._post_message({"to": to.lstrip("+"), "type": "image",
                                        "image": {"id": media_id, "caption": caption[:1024]}})
 
