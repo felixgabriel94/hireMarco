@@ -201,6 +201,7 @@ MONTHS = "jan feb mar apr may jun jul aug sep oct nov dec".split()
 NAMED_DATE = re.compile(r"\b(" + "|".join(MONTHS) + r")[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(\d{4})\b)?", re.I)
 SLASH_DATE = re.compile(r"(?<![\d/])(\d{1,2})/(\d{1,2})(?:/(\d{4}|\d{2}))?(?![\d/])")
 UNCLEAR = "unclear"
+REPLY = re.compile(r"\s*(re|fwd?)\s*:", re.I)
 
 
 def _on(arrived: date, month: int, day: int, year: str | None) -> date:
@@ -239,7 +240,7 @@ def expire_reminders(mail, conn: sqlite3.Connection, limit: int = 100, today: da
     the words don't settle on a date, or the arrival is unknown, the email stays."""
     today, moved = today or date.today(), 0
     for found in mail.found(REMINDERS, limit=limit):
-        if found.day is None:
+        if found.day is None or REPLY.match(found.subject):  # a reply or a forward is a conversation, not a reminder
             continue
         when = appointment_date(found.subject, found.snippet, found.day)
         if when == UNCLEAR:

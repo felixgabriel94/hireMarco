@@ -166,7 +166,9 @@ def test_a_reminder_goes_once_its_date_has_passed_and_an_upcoming_one_stays_howe
         Found("no date old", "a@x.com", "Appointment Reminder", "", date(2026, 10, 18)),
         Found("no date new", "a@x.com", "Appointment Reminder", "", date(2026, 10, 19)),
         Found("unclear", "a@x.com", "Appointment reminder: Feb 31", "", date(2026, 1, 1)),
-        Found("unknown arrival", "a@x.com", "Appointment reminder: Oct 30", "", None)]
+        Found("unknown arrival", "a@x.com", "Appointment reminder: Oct 30", "", None),
+        Found("a reply", "kai@x.com", "Re: Appointment reminder: Oct 30", "", date(2026, 10, 25)),
+        Found("a forward", "kai@x.com", "Fwd: Appointment Reminder", "", date(2024, 1, 12))]
     assert cleanup.expire_reminders(mail, conn, today=today) == 3
     assert mail.trashed == ["past", "yesterday", "no date old"]
     details = [r[0] for r in conn.execute("select detail from cleanup where action = 'trashed' order by id")]
