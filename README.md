@@ -40,7 +40,7 @@ only once the code that calls it is committed.
 | `muse-spark-1.2` | "Marco, how was that take?": listens to the take and gives a producer's note (Meta's recommended version for audio input) | live |
 | `muse-voice-transcribe-1.0` | Hearing studio commands and take notes live from the mic (keyword biasing, endpointing); the call transcript with speaker labels behind the proof card | live |
 | `sam-3.1` | Isolating the hardware's knobs in the glasses photo before Muse Spark reads them | live |
-| `sam-3.1`, `muse-image-1.0` | Dress me: SAM 3.1 finds and cuts out each piece of clothing on the bed and shows what it sees, numbered, before Muse Spark builds three looks from those pieces only; Muse Image paints the look board's paper, never a piece of clothing | live |
+| `sam-3.1`, `muse-image-1.0` | Dress me: SAM 3.1 finds and cuts out each piece of clothing on the bed and shows what it sees, numbered, before Muse Spark builds three looks from those pieces only; Muse Image paints the look board's paper, never a piece of clothing. The selects: SAM 3.1 isolates Felix in each frame of a shoot, one call per frame in parallel, and shows what it sees across the shoot; from his mask Marco measures fill, an edge cut, sharpness and exposure before Muse Spark picks three | live |
 
 ## Built here
 
@@ -85,10 +85,11 @@ below grows as the build does; `git log` carries the dates.
 | Oct 28 | `hiremarco.marco`, `server`, `livelog`, `cli` | Marco's voice through the gate, the running webhook, his on-screen log, the `marco` command |
 | Oct 31 | `hiremarco.calls` | Marco's phone calls: one ElevenLabs agent on the relay's brain, made or updated by `marco call setup`; each call through the gate's `calls` switch, opening with the recording notice for its purpose, hanging up on a machine, with its transcript and cost read back; a read-only Twilio check |
 | Nov 1 | `hiremarco.whatsapp.photos`, `dress`, `meta.image` | Photos in: every photo Felix sends is kept upright in a dated folder, remembered, and seen by Muse Spark with his words, whether they come with it, just before or just after it, typed or spoken. Dress me: SAM 3.1 per clothing phrase, masks decoded with Meta's parser, duplicates merged and shoes paired; the photo tinted, outlined and numbered for the lens; three looks in structured output where a piece not in the photo is thrown out; the board built from the real cut-outs on a Muse Image backdrop; "B" or a voice note naming it locks the look in as a dated fact; `marco dress PHOTO` runs it from a file |
+| Nov 1 | `hiremarco.selects`, `whatsapp.photos`, `whatsapp.webhook` | The selects: a burst of frames, as photos or as JPEG, HEIC or RAW documents, is one shoot with one short line back, and a text or voice note in the middle of it is answered at once. The shoot runs since the last Dress me or selects, within 90 minutes, at most 30 frames. SAM 3.1 per frame in parallel, the largest person kept; from his mask, the fill, an edge cut, the variance of the Laplacian inside him and the light on him. One contact sheet, numbered and tinted to read at phone size; three picks in structured output where a number that is not a frame he is in is thrown out, each with one honest line; three separate pictures of his own unedited pixels, the originals kept together; `marco selects FOLDER` runs it from files |
 
 Planned, in order: the studio (voice
 commands in Logic, three plugin knobs, take notes, the ready-to-mix export,
-the hardware read), the call and its proof, then Dress me (built Nov 1).
+the hardware read), the call and its proof, then Dress me and the selects (built Nov 1).
 
 ## Setup used, not built here
 

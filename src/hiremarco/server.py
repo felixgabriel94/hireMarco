@@ -3,7 +3,8 @@
 When the Owner writes, Marco marks it read, shows the typing dots, answers
 through Muse Spark and replies, each step on his live log. Voice notes are
 heard; a photo is kept and seen, with the words that come with it, just before
-it or just after it. A
+it or just after it; a burst of them is one shoot, acknowledged once, and his
+selects come from it when he asks. A
 beat he sends as an audio file or a document is kept until he says to start
 a session, by text, by the caption on the beat or by voice note; then the
 booth puts it on the Beat track of a new session.
@@ -356,12 +357,64 @@ def dress_me(photo, said: str, sender: str, message_id: str, wa: WhatsApp, marco
             f"recommended{thrown}")
 
 
+def selects_me(said: str, sender: str, message_id: str, wa: WhatsApp, marco=None, sleep=None) -> str:
+    """"Marco, pick my selects": once the burst has landed, what SAM sees across the shoot, then his three, one picture
+    at a time (Owner 2026-11-01)."""
+    import time
+
+    from hiremarco import dress, selects
+    from hiremarco.sam import SamError
+    from hiremarco.whatsapp import photos
+
+    def send(picture: bytes | None, text: str, step: str) -> None:
+        key = f"selects-{step}:{message_id}"
+        if picture is None:
+            wa.send_text(sender, text, idempotency_key=key)
+        else:
+            wa.send_image(sender, picture, text, idempotency_key=key, mime="image/jpeg")
+
+    plain = lambda text, tag: wa.send_text(sender, text, idempotency_key=f"selects-{tag}:{message_id}")  # noqa: E731
+    photos.settled(wa.conn, sender, sleep=sleep)
+    if selects.running(wa.conn):
+        return "selects: already going through them"
+    frames, total = selects.shoot(wa.conn)
+    if not frames:
+        plain("I don't have any new frames from you. Send them over and ask me again.", "none")
+        return "selects: no frames to pick from"
+    row = selects.begin(wa.conn, frames[-1].id, len(frames))
+    noted = f"You sent {total}, so I'm working from the last {selects.CAP}. " if total > selects.CAP else ""
+    try:
+        done = selects.run([(f.path, f.original) for f in frames], said, conn=wa.conn, send=send,
+                           client=getattr(marco, "client", None), film=dress.film_dir(), noted=noted,
+                           pause=sleep or time.sleep)
+    except selects.NoOneFound:
+        selects.finish(wa.conn, row, "failed")
+        plain("I couldn't find you in any of those frames. Send me a few more?", "nobody")
+        return f"selects: nobody found in {len(frames)} frames"
+    except selects.PickError as bad:
+        selects.finish(wa.conn, row, "failed")
+        plain("I couldn't settle on my three just now. Ask me again?", "pick")
+        return f"selects: picks rejected: {bad}"
+    except SamError as failed:
+        selects.finish(wa.conn, row, "failed")
+        plain("I couldn't read the frames just now. Ask me again?", "sam")
+        return f"selects: {failed}"
+    except Exception:
+        selects.finish(wa.conn, row, "failed")
+        raise
+    numbers = [n for n, _ in done.picks.picks]
+    selects.finish(wa.conn, row, "done", numbers, str(done.folder))
+    notes = "".join(f"; {line}" for line in done.log)
+    return f"selects: {len(frames)} frames, picked {numbers} in {done.seconds['total']:.0f}s{notes}"
+
+
 def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None = None,
            inbox: Path | None = None, listen=None, booth=None, running=None, settle=None) -> str:
     import time
 
-    from hiremarco import dress
+    from hiremarco import dress, selects
     from hiremarco.whatsapp import photos
+    from hiremarco.whatsapp.client import WhatsAppError
 
     wa = wa or WhatsApp()
     booth, running = booth or ensure_booth, running or booth_running
@@ -382,19 +435,43 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
             return trace.done(f"beat kept as {path.name}, waiting for his word")
         said, photo = message.text, None
         if message.kind == "image" and message.media_id:
-            data, _ = wa.download_media(message.media_id)
-            photo = photos.keep(wa.conn, data, message.id, message.caption)  # remembered in the conversation
+            try:
+                data, mime = wa.download_media(message.media_id)
+                photo = photos.keep(wa.conn, data, message.id, message.caption,  # remembered in the conversation
+                                    suffix=photos.suffix_of(message.filename, message.mime_type or mime))
+            except (photos.Unreadable, WhatsAppError) as bad:
+                photos.failed(wa.conn, message.id)
+                # one line for the whole burst: the same key for ten minutes, and the gate lets one through
+                wa.send_text(message.sender, "I can't open that one. Send your frames as JPEG?",
+                             idempotency_key=f"photo-unreadable:{int(time.time()) // 600}")
+                return trace.done(f"photo not kept: {bad}")
             said = message.caption.strip()
             trace.add(f"photo kept: {photo.path.name}")
             if dress.wants_dressing(said):
                 return trace.done(dress_me(photo, said, message.sender, message.id, wa, marco))
+            if selects.wants(said):
+                return trace.done(selects_me(said, message.sender, message.id, wa, marco, sleep=settle))
             asked = dress.waiting(wa.conn) if not said else None
             if asked is not None:  # "dress me" came first; this is the photo it waited for
                 return trace.done(dress_me(photo, asked[1], message.sender, message.id, wa, marco, asked[0]))
             if not said:  # his words may follow: give them a moment, and let that message take the photo
-                (settle or time.sleep)(SETTLE_S)
+                # a frame sent as a document is slower to come than the next one is to follow: it gets the long wait
+                waited = selects.QUIET_S if message.filename else SETTLE_S
+                (settle or time.sleep)(waited)
                 if photos.newer_from(wa.conn, message.sender, message.id):
                     return trace.done(f"photo {photo.path.name} kept; his next message says what it is for")
+                if selects.taken(wa.conn, photo):
+                    return trace.done(f"photo {photo.path.name} kept; the selects have it")
+                if selects.burst(wa.conn) >= selects.BURST_MIN:  # one line when the burst is over, not one per frame
+                    if waited < selects.QUIET_S:
+                        (settle or time.sleep)(selects.QUIET_S - waited)
+                        if photos.newer_from(wa.conn, message.sender, message.id):
+                            return trace.done(f"photo {photo.path.name} kept; his next message says what it is for")
+                        if selects.taken(wa.conn, photo):
+                            return trace.done(f"photo {photo.path.name} kept; the selects have it")
+                    count = len(selects.shoot(wa.conn)[0])
+                    wa.send_text(message.sender, f"Got {count} frames.", idempotency_key=f"burst:{message.id}")
+                    return trace.done(f"burst: {count} frames, one acknowledgement")
         elif message.kind == "audio" and message.voice and message.media_id:
             said = voice_text(message, wa, listen)
             trace.add(f"voice note: {said[:60]}")
@@ -410,12 +487,16 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
                                  "together.", idempotency_key=f"dress-photo:{message.id}")
                     return trace.done("dress me: waiting for the photo")
                 return trace.done(dress_me(photo, said, message.sender, message.id, wa, marco))
+            if selects.wants(said):
+                return trace.done(selects_me(said, message.sender, message.id, wa, marco, sleep=settle))
             letter = dress.picked(said)
             if letter and dress.open_board(wa.conn) is not None:
                 text, did = dress.lock_in(wa.conn, letter, client=getattr(marco, "client", None))
                 wa.send_text(message.sender, text, idempotency_key=f"dress-pick:{message.id}")
                 return trace.done(f"dress me: {did}")
             photo = photos.latest(wa.conn)  # a photo he sent in the last minutes goes with his words
+            if photo is not None and selects.burst(wa.conn) >= selects.BURST_MIN and not selects.about_a_photo(said):
+                photo = None  # "set up my session" between frames is about the session, not the last frame
         if message.kind == "image":
             said = said or "(he sent this photo without a word)"
         dropped = digest_unsubscribe(said, message.sender, message.id, wa) if said and message.kind != "image" else None

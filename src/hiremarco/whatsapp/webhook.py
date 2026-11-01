@@ -24,6 +24,7 @@ from starlette.responses import PlainTextResponse, Response
 from starlette.routing import Route
 
 from hiremarco.whatsapp.client import record_inbound
+from hiremarco.whatsapp.photos import is_photo_file
 
 
 @dataclass(frozen=True)
@@ -55,10 +56,13 @@ def parse_payload(payload: dict[str, Any]) -> list[Inbound]:
             for m in value.get("messages") or []:
                 kind = m.get("type", "unknown")
                 body = m.get(kind) or {}
+                # a photo sent as a document, for full quality, is a photo and never a beat
+                is_photo = kind == "document" and isinstance(body, dict) and is_photo_file(body.get("mime_type", ""),
+                                                                                           body.get("filename", ""))
                 found.append(Inbound(
                     id=m.get("id", ""),
                     sender=(m.get("from") or "").lstrip("+"),
-                    kind=kind,
+                    kind="image" if is_photo else kind,
                     text=(m.get("text") or {}).get("body", ""),
                     media_id=body.get("id", "") if kind in ("audio", "image", "video", "document") else "",
                     caption=body.get("caption", "") if isinstance(body, dict) else "",

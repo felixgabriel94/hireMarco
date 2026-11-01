@@ -37,6 +37,8 @@
     uv run marco dress PHOTO --say "..." Dress me from a photo on this Mac: what SAM sees and the board to the
                                          Owner's WhatsApp, his pick there (--dry-run: the pictures only, nothing sent)
     uv run marco dress --backdrop        Muse Image paints the board's paper once (0.01 USD), kept in the state dir
+    uv run marco selects FOLDER --say "..." the selects from a folder of frames: what SAM sees, then his three, one at a
+                                         time, to the Owner's WhatsApp (--dry-run: the files only, nothing sent)
     uv run marco drums train             teach Marco's drum ear on beats built from the Maschine library (once)
     uv run marco drums read FILE --bpm N  a drums stem's pattern: its main groove as a grid and a MIDI file
     uv run marco samples scan             catalog My Packs: each sound's kind, its pack's genre, loop tempo and key
@@ -638,6 +640,90 @@ def cmd_dress(args) -> int:
     for copy in done.copies:
         print(f"  film copy:     {copy}")
     trace.done(f"{len(done.pieces)} pieces, {'sent' if send else 'dry run, nothing sent'}, {spent:.4f} USD")
+    return 0
+
+
+def cmd_selects(args) -> int:
+    """The selects from a folder of frames, the same steps as a shoot on WhatsApp: for dry runs and the film's backup.
+    Without --dry-run the contact sheet and the three picks go to the Owner's WhatsApp."""
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from hiremarco import dress, selects
+    from hiremarco.joblog import JobLog
+    from hiremarco.sam import SamError
+    from hiremarco.whatsapp import photos
+
+    source = Path(args.folder).expanduser()
+    if not source.is_dir():
+        print(f"not a folder: {source}")
+        return 2
+    files = sorted(p for p in source.iterdir() if p.is_file() and not p.name.startswith(".")
+                   and p.suffix.lower() in photos.PHOTO_FILES)
+    stems = {p.stem for p in files if p.suffix.lower() not in photos.RAW}
+    files = [p for p in files if p.suffix.lower() not in photos.RAW or p.stem not in stems]  # RAW+JPEG: the JPEG
+    if not files:
+        print(f"no frames in {source}")
+        return 2
+    started = datetime.now(timezone.utc)
+    stamp = started.astimezone().strftime("%Y-%m-%d-%H%M%S")
+    said = args.say or "Marco, pick my selects."
+    trace = Trace(f"selects: {source.name}: {len(files)} frames: {said[:50]}")
+    work = config.STATE_DIR / "selects" / stamp / "frames"
+    work.mkdir(parents=True, exist_ok=True)
+    noted = f"You sent {len(files)}, so I'm working from the first {selects.CAP}. " if len(files) > selects.CAP else ""
+    frames = []
+    for i, path in enumerate(files[:selects.CAP], 1):
+        try:
+            made = photos.upright(path.read_bytes(), suffix=path.suffix.lower())
+        except photos.Unreadable as bad:
+            print(f"  skipped {path.name}: {bad}")
+            continue
+        (work / f"{i:02d}.jpg").write_bytes(made)
+        frames.append((work / f"{i:02d}.jpg", path))
+    if not frames:
+        trace.done("stopped: no frame could be read; send JPEG")
+        return 1
+    conn = gate.connect()
+    send = None
+    if not args.dry_run:
+        from hiremarco.whatsapp import WhatsApp
+
+        wa, owner = WhatsApp(conn=conn), config.require("OWNER_WHATSAPP")
+
+        def send(picture: bytes | None, text: str, step: str) -> None:
+            key = f"selects-{step}:desk:{stamp}"
+            if picture is None:
+                wa.send_text(owner, text, idempotency_key=key)
+            else:
+                wa.send_image(owner, picture, text, idempotency_key=key, mime="image/jpeg")
+    try:
+        done = selects.run(frames, said, conn=conn, send=send, film=dress.film_dir(), now=started, noted=noted)
+    except gate.Refused as held:
+        trace.done(f"held: {held.reason}")
+        return 1
+    except (selects.NoOneFound, selects.PickError, SamError) as bad:
+        trace.done(f"stopped: {bad}")
+        return 1
+    spent = sum(r.get("cost_usd", 0.0) for r in JobLog().rows() if r.get("ts", "") >= started.astimezone()
+                .isoformat(timespec="seconds"))
+    for f in done.frames:
+        print(f"  {f.number:>2} {f.original.name:<24} " + (
+            f"fills {f.fill:4.0%}  cut {','.join(f.cut) or '-':<14} sharp {f.sharp:8.1f}  light {f.light:.2f}  "
+            f"blown {f.blown:.0%}  people {f.people}" if f.usable else "no one usable"))
+    for line in done.log:
+        print(f"  log: {line}")
+    for number, line in done.picks.picks:
+        print(f"  pick {number}: {line}")
+    print(f"  the others: {done.picks.others}")
+    print(f"  contact sheet: {done.sheet}")
+    print(f"  together:      {done.together}")
+    for kept in done.originals:
+        print(f"  original:      {kept}")
+    for copy in done.copies:
+        print(f"  film copy:     {copy}")
+    print("  seconds: " + ", ".join(f"{k} {v:.1f}" for k, v in done.seconds.items()))
+    trace.done(f"{len(done.frames)} frames, {'sent' if send else 'dry run, nothing sent'}, {spent:.4f} USD")
     return 0
 
 
@@ -1449,6 +1535,11 @@ def main(argv: list[str] | None = None) -> int:
     dm.add_argument("--dry-run", action="store_true", help="write the pictures only; nothing is sent")
     dm.add_argument("--backdrop", action="store_true", help="paint the board's paper with Muse Image (0.01 USD)")
     dm.set_defaults(func=cmd_dress)
+    se = sub.add_parser("selects", help="The selects from a folder of frames: what SAM sees, then his three")
+    se.add_argument("folder")
+    se.add_argument("--say", default="", help="his words, as he would send them")
+    se.add_argument("--dry-run", action="store_true", help="write the files only; nothing is sent")
+    se.set_defaults(func=cmd_selects)
 
     bo = sub.add_parser("booth")
     bo.add_argument("--dry-run", action="store_true")

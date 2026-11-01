@@ -3,13 +3,18 @@
 Owner 2026-11-01: any photo he sends is downloaded into a dated folder under the state dir, one row in the gate's
 database, and one line in the conversation; Muse Spark sees it, so Marco answers about any photo, not only clothes.
 The caption is his words. The words can also come just before the photo or just after it, as a text or a voice note:
-a photo counts as his latest for ten minutes.
+a photo counts as his latest for ten minutes. A photo sent as a document, for full quality, is a photo too. What he sent
+is kept as it came beside the upright copy, so a pick can go back to the full resolution.
 """
 
 from __future__ import annotations
 
+import hashlib
 import io
 import sqlite3
+import subprocess
+import tempfile
+import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -30,11 +35,32 @@ create table if not exists photos (
     path text not null,
     caption text not null default ''
 );
+create table if not exists photo_failed (message_id text primary key);
 """
+
+RAW = {".arw", ".cr2", ".cr3", ".nef", ".dng", ".raf", ".orf", ".rw2"}
+PHOTO_FILES = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".webp", ".tif", ".tiff"} | RAW
+EXT_OF = {"image/jpeg": ".jpg", "image/png": ".png", "image/heic": ".heic", "image/heif": ".heif",
+          "image/webp": ".webp", "image/tiff": ".tif", "image/x-sony-arw": ".arw"}
 
 SEE = ("Felix sent you this photo on WhatsApp. If he said something with it, answer that, about the photo. If he "
        "said nothing, say in one short line what you see and ask what he wants you to do with it. One or two short "
        "sentences. Say only what the photo shows; no guesses about who anyone is.")
+
+
+class Unreadable(ValueError):
+    """A file that came as a photo and cannot be turned into one."""
+
+
+def is_photo_file(mime_type: str, filename: str) -> bool:
+    """A document that is a photo: by its type, or by its name when WhatsApp calls it a generic file (a RAW often)."""
+    return (mime_type or "").split(";")[0].strip().lower().startswith("image/") or \
+        Path(filename or "").suffix.lower() in PHOTO_FILES
+
+
+def suffix_of(filename: str, mime_type: str) -> str:
+    ext = Path(filename or "").suffix.lower()
+    return ext if ext in PHOTO_FILES else EXT_OF.get((mime_type or "").split(";")[0].strip().lower(), ".jpg")
 
 
 @dataclass(frozen=True)
@@ -48,31 +74,67 @@ class Photo:
     def jpeg(self) -> bytes:
         return self.path.read_bytes()
 
+    @property
+    def original(self) -> Path:
+        """The file as he sent it; the upright copy for a photo kept before originals were."""
+        found = sorted(self.path.parent.glob(f"originals/{self.path.stem}.*"))
+        return found[0] if found else self.path
+
 
 def folder(now: datetime | None = None) -> Path:
     return config.STATE_DIR / "photos" / (now or datetime.now(timezone.utc)).astimezone().strftime("%Y-%m-%d")
 
 
-def upright(data: bytes, long_side: int = LONG_SIDE) -> bytes:
-    """The photo as the models and the boards use it: turned the way the phone held it, RGB, at most ``long_side``
-    pixels on its longer side, JPEG. One copy for everyone, so a box SAM draws lands on the same pixels later."""
-    from PIL import Image, ImageOps
+def through_sips(data: bytes, suffix: str) -> bytes:
+    """What Pillow cannot read (an iPhone HEIC, a camera RAW) turned into JPEG by macOS's own sips."""
+    with tempfile.TemporaryDirectory() as tmp:
+        source, out = Path(tmp) / f"photo{suffix or '.heic'}", Path(tmp) / "photo.jpg"
+        source.write_bytes(data)
+        try:
+            subprocess.run(["sips", "-s", "format", "jpeg", str(source), "--out", str(out)], check=True,
+                           capture_output=True, timeout=60)
+            return out.read_bytes()
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise Unreadable(f"sips could not read {suffix or 'the file'}: {type(exc).__name__}") from exc
 
-    image = ImageOps.exif_transpose(Image.open(io.BytesIO(data))).convert("RGB")
+
+def upright(data: bytes, long_side: int = LONG_SIDE, suffix: str = "") -> bytes:
+    """The photo as the models and the boards use it: turned the way the phone held it, RGB, at most ``long_side``
+    pixels on its longer side, JPEG. One copy for everyone, so a box SAM draws lands on the same pixels later. A RAW
+    goes straight to sips: an ARW is built on TIFF, and Pillow would read its tiny thumbnail as the photo."""
+    from PIL import Image, ImageOps, UnidentifiedImageError
+
+    if suffix.lower() in RAW:
+        data = through_sips(data, suffix)
+    try:
+        try:
+            opened = Image.open(io.BytesIO(data))
+        except UnidentifiedImageError:
+            opened = Image.open(io.BytesIO(through_sips(data, suffix)))
+        image = ImageOps.exif_transpose(opened).convert("RGB")
+    except (OSError, ValueError, Image.DecompressionBombError) as exc:
+        if isinstance(exc, Unreadable):
+            raise
+        raise Unreadable(f"the file is not a readable photo: {type(exc).__name__}") from exc
     image.thumbnail((long_side, long_side))
     out = io.BytesIO()
     image.save(out, "JPEG", quality=92)
     return out.getvalue()
 
 
-def keep(conn: sqlite3.Connection, data: bytes, message_id: str, caption: str = "",
-         now: datetime | None = None) -> Photo:
-    """A photo he sent, saved upright in today's folder and remembered in the conversation."""
+def keep(conn: sqlite3.Connection, data: bytes, message_id: str, caption: str = "", now: datetime | None = None,
+         suffix: str = ".jpg") -> Photo:
+    """A photo he sent, saved upright in today's folder with the file as it came beside it, and remembered in the
+    conversation. Raises Unreadable when it cannot be turned into a photo. The name carries a hash of the message id:
+    its last letters can repeat within a burst and can hold a slash."""
     now = now or datetime.now(timezone.utc)
+    made = upright(data, suffix=suffix)
     where = folder(now)
-    where.mkdir(parents=True, exist_ok=True)
-    path = where / f"{now.astimezone().strftime('%H%M%S')}-{(message_id or 'photo')[-6:]}.jpg"
-    path.write_bytes(upright(data))
+    (where / "originals").mkdir(parents=True, exist_ok=True)
+    tag = hashlib.sha256((message_id or "photo").encode()).hexdigest()[:10]
+    path = where / f"{now.astimezone().strftime('%H%M%S')}-{tag}.jpg"
+    path.write_bytes(made)
+    (where / "originals" / f"{path.stem}{suffix or '.jpg'}").write_bytes(data)
     conn.executescript(SCHEMA)
     cur = conn.execute("insert into photos (ts, message_id, path, caption) values (?, ?, ?, ?)",
                        (now.isoformat(), message_id, str(path), caption or ""))
@@ -103,7 +165,32 @@ def on_its_way(conn: sqlite3.Connection, sender: str, now: datetime | None = Non
     arrived = {r[0] for r in conn.execute("select wa_message_id from inbound where from_number = ? and kind = 'image' "
                                           "and ts >= ?", (sender.lstrip("+"), since))}
     kept = {r[0] for r in conn.execute("select message_id from photos where ts >= ?", (since,))}
-    return bool(arrived - kept)
+    failed = {r[0] for r in conn.execute("select message_id from photo_failed")}
+    return bool(arrived - kept - failed)
+
+
+def failed(conn: sqlite3.Connection, message_id: str) -> None:
+    """This photo will not be kept, so nothing should wait for it."""
+    conn.executescript(SCHEMA)
+    conn.execute("insert or ignore into photo_failed (message_id) values (?)", (message_id,))
+    conn.commit()
+
+
+def settled(conn: sqlite3.Connection, sender: str, *, now=None, sleep=None, quiet_s: float = 12.0,
+            limit_s: float = 40.0, step_s: float = 1.0) -> None:
+    """Wait for a burst to land: no photo still downloading and none new for ``quiet_s``. His words can overtake his
+    last frames on the way. Gives up after ``limit_s``, so a stuck download costs seconds, not the scene."""
+    from hiremarco.whatsapp.client import INBOUND_SCHEMA
+
+    conn.executescript(INBOUND_SCHEMA)
+    for _ in range(int(limit_s / step_s)):
+        at = now() if now else datetime.now(timezone.utc)
+        row = conn.execute("select max(ts) from inbound where from_number = ? and kind = 'image'",
+                           (sender.lstrip("+"),)).fetchone()
+        last = datetime.fromisoformat(row[0]) if row and row[0] else None
+        if not on_its_way(conn, sender, at) and (last is None or (at - last).total_seconds() >= quiet_s):
+            return
+        (sleep or time.sleep)(step_s)
 
 
 def wait_for(conn: sqlite3.Connection, sender: str, *, now=None, sleep=None, tries: int = 15,
