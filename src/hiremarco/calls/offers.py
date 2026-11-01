@@ -128,7 +128,7 @@ def asking(conn: sqlite3.Connection, now: datetime | None = None) -> CallOffer |
 QUESTIONS = ("1. If Thursday at eight is gone, what other day or time works?",
              "2. Indoor or patio, or either?",
              "3. If they want a card to hold it, is a link to you OK?",
-             "4. Anything else to tell them?")
+             "4. Any allergies, an occasion, or anything else to tell them?")
 FLEXIBLE = re.compile(r"\b(whatever works|anything works|either|flexible|up to you|you decide|any)\b", re.I)
 
 
@@ -175,6 +175,12 @@ def brief_for(offer: CallOffer) -> dict[str, str]:
              "occasion": offer.occasion or "none"}
     if offer.fallbacks:
         given["fallbacks"] = offer.fallbacks
+        # his one reply answers the window, the seating and the requests the profile leaves open (live 2026-10-31:
+        # the profile had none of them, Marco asked for them first, and the answer went to plain chat)
+        standing = briefs.load_profile()
+        for field in ("time_window", "seating", "special_requests"):
+            if not standing.get(field):
+                given[field] = "see Felix's fallbacks below"
     return given
 
 

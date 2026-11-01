@@ -249,15 +249,15 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
         offers.set_status(conn, offer.id, "no such place")
         reply("I can't find that place in your list anymore, so I'm not calling.", "offer-place")
         return f"offer {offer.id}: place {offer.place_id} not in the places file"
+    if answered is None:  # the questions come first, so one reply can fill what the profile leaves open
+        offers.ask_fallbacks(conn, offer)
+        reply(offers.questions_text(offer), "offer-questions")
+        return f"offer {offer.id}: asked the fallback questions before dialing"
     try:
         full = briefs.build("reservation", offers.brief_for(offer))
     except briefs.BriefIncomplete as gap:
         reply(offers.ask_for_gaps(gap), "offer-gap")
         return f"offer {offer.id}: asked for {', '.join(gap.missing)} before dialing"
-    if answered is None:
-        offers.ask_fallbacks(conn, offer)
-        reply(offers.questions_text(offer), "offer-questions")
-        return f"offer {offer.id}: asked the fallback questions before dialing"
     taken = offers.accept(conn, offer, now)
     if taken is None:
         return f"offer {offer.id}: already taken"

@@ -100,6 +100,20 @@ def test_whatever_works_stands_as_flexible(world, monkeypatch):
     assert "- fallbacks: flexible (whatever works)" in brief
 
 
+def test_one_reply_fills_what_the_profile_leaves_open(world, monkeypatch):
+    # live 2026-10-31: the profile had no window, seating or requests; the questions now come first and cover them
+    monkeypatch.setattr("hiremarco.critic.Critic.__call__", lambda self, d: (True, "ok"))
+    briefs.save_profile({**PROFILE, "time_window": "", "seating": "", "special_requests": ""})
+    offers.record_offer(world["conn"], KITCHEN, weekday="thursday", day="2026-11-05", hour=20, party_size=4)
+    assert yes(world).endswith("asked the fallback questions before dialing")
+    assert "4. any allergies, an occasion" in world["texts"][-1].lower()
+    line = yes(world, said="1. Friday at 8 or Thursday 7:30 to 8:30. 2. Either. 3. Yes. 4. No allergies.", mid="m5")
+    assert "calling Test Kitchen" in line and len(world["dialed"]) == 1
+    brief = world["dialed"][0]["conversation_initiation_client_data"]["dynamic_variables"]["brief"]
+    assert "- seating (indoor, outdoor, any): see Felix's fallbacks below" in brief
+    assert "- fallbacks: 1. Friday at 8 or Thursday 7:30 to 8:30. 2. Either. 3. Yes. 4. No allergies." in brief
+
+
 def test_no_offer_or_a_stale_one_or_not_a_yes_does_nothing(world):
     assert yes(world) is None
     offers.record_offer(world["conn"], KITCHEN, weekday="thursday", day="2026-11-05", hour=20, party_size=4,
@@ -113,7 +127,8 @@ def test_no_offer_or_a_stale_one_or_not_a_yes_does_nothing(world):
 def test_a_gap_in_the_brief_is_asked_about_before_dialing(world):
     briefs.save_profile({**PROFILE, "email": ""})
     offers.record_offer(world["conn"], KITCHEN, weekday="thursday", day="2026-11-05", hour=20, party_size=4)
-    line = yes(world)
+    yes(world)
+    line = yes(world, said="Friday works", mid="m4")
     assert "asked for email before dialing" in line and world["dialed"] == []
     assert "email for the confirmation" in world["texts"][-1].lower()
 
