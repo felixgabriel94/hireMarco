@@ -236,7 +236,7 @@ def cmd_inbox(args) -> int:
         mail = Mail()
         if args.action == "lindy-off":
             gone = mail.delete_label("Lindy")
-            mail.ensure_label("Marco", inbox.LABELS["Task"])
+            mail.ensure_label("Marco", inbox.LABELS["Marco"])
             print(("Lindy label removed" if gone else "no Lindy label") + "; Marco label ready")
             return 0
         if args.action == "undo":
@@ -253,7 +253,7 @@ def cmd_inbox(args) -> int:
         b = done["blocked"]
         print(f"one-click unsubscribes {'to send' if args.dry_run else 'sent'}: "
               f"{done['one_click'] if args.dry_run else done['unsubscribed']}; "
-              f"{'to block' if args.dry_run else 'blocked'} (web link / email only / none): {b['link']} / {b['email']} /"
+              f"{'for' if args.dry_run else 'on'} the auto-trash list (web link / email only / none): {b['link']} / {b['email']} /"
               f" {b['none']}; {'to trash' if args.dry_run else 'trashed'}: {done['trashed']}; kept by the receipt guard:"
               f" {done['kept_by_guard']}; no mail found: {done['skipped']}; unsubscribed before (a resume):"
               f" {done.get('already', 0)}; emails Gmail would not move (logged): {done.get('not_moved', 0)}")
@@ -266,9 +266,17 @@ def cmd_inbox(args) -> int:
         return 0
     owner = config.require("OWNER_WHATSAPP")
     if args.action == "digest":
+        from hiremarco.inbox import cleanup as _cleanup
+
         since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
-        text = inbox.digest(inbox.todays_reply(conn, since), inbox.closed_since(conn, since))
-        WhatsApp().send_text(owner, text, idempotency_key=f"digest:{datetime.now().date()}")
+        listed = _cleanup.connect()
+        text = inbox.digest(inbox.todays_reply(conn, since), inbox.closed_since(conn, since),
+                            inbox.new_promo_senders(conn, since, lambda s: _cleanup.blocked(listed, s)))
+        try:
+            WhatsApp().send_text(owner, text, idempotency_key=f"digest:{datetime.now().date()}")
+        except Exception as exc:  # WhatsApp refuses outside its 24 hour window; the job log keeps the reason
+            print(f"digest not sent: {type(exc).__name__}: {exc}")
+            return 1
         print("digest sent")
         return 0
     mail = Mail()
@@ -280,18 +288,37 @@ def cmd_inbox(args) -> int:
         print(inbox.summary(pairs))
         return 0
     wa = WhatsApp()
-    pairs = inbox.sort_inbox(mail, MuseSpark(), conn, newer_than=f"{args.days}d", limit=args.limit)
     from hiremarco.inbox import cleanup as _cleanup
 
-    trashed = _cleanup.trash_blocked(mail, _cleanup.connect(), [item for item, _ in pairs])
+    listed, moved, status, unsent = _cleanup.connect(), [], {}, []
+
+    def auto_trash(items):
+        moved.extend(_cleanup.trash_blocked(mail, listed, items))
+        return moved
+
+    def sent(send):
+        """A send WhatsApp refuses (its 24 hour window) is noted and the run goes on: the sort and labels still count."""
+        def attempt(*a, **k):
+            try:
+                return send(*a, **k)
+            except Exception as exc:
+                unsent.append(type(exc).__name__)
+        return attempt
+
+    pairs = inbox.sort_inbox(mail, MuseSpark(), conn, newer_than=f"{args.days}d", limit=args.limit,
+                             before=auto_trash, status=status)
     labelled = inbox.apply_labels(mail, conn, pairs)
     learned = inbox.learn_corrections(mail, conn)
-    closed = inbox.link_tasks(conn, pairs, lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-proof:{tid}"),
-                              lambda tid, text, url: wa.send_link(owner, text, url, "View booking",
-                                                                  idempotency_key=f"task-proof:{tid}"))
-    nudged = inbox.nudge_stale(conn, lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-nudge:{tid}"))
-    Trace("inbox: sorted").done(f"{len(pairs)} new, {trashed} from blocked senders to Trash, {labelled} labelled, {len(closed)} tasks proved, {nudged} nudged,"
-                                f" {learned} corrections learned")
+    expired = _cleanup.expire_watch(mail, listed) + _cleanup.expire_reminders(mail, listed)
+    proof_text = sent(lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-proof:{tid}"))
+    proof_link = sent(lambda tid, text, url: wa.send_link(owner, text, url, "View booking",
+                                                          idempotency_key=f"task-proof:{tid}"))
+    closed = inbox.link_tasks(conn, pairs, proof_text, proof_link)
+    nudged = inbox.nudge_stale(conn, sent(lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-nudge:{tid}")))
+    Trace("inbox: sorted").done(f"{len(pairs)} new, {len(moved)} from the auto-trash list to Trash, {expired} expired,"
+                                f" {labelled} labelled, {len(closed)} tasks proved, {nudged} nudged, {learned} corrections"
+                                f" learned" + (f", stopped sorting: {status['capped']}" if status else "")
+                                + (f", {len(unsent)} WhatsApp not sent" if unsent else ""))
     return 0
 
 
@@ -1345,7 +1372,7 @@ def main(argv: list[str] | None = None) -> int:
     ib.add_argument("--confirm", default="", help="cleanup: the sha256 of that list, as the Owner confirmed it")
     ib.add_argument("--dry-run", action="store_true", help="cleanup: count only, change nothing")
     ib.add_argument("state", nargs="?", choices=["on", "off"])
-    ib.add_argument("--days", type=int, default=1)
+    ib.add_argument("--days", type=int, default=3)
     ib.add_argument("--limit", type=int, default=300)
     ib.set_defaults(func=cmd_inbox)
 

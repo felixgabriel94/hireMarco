@@ -4,8 +4,8 @@ Owner 2026-10-31: "I want to clean contact@felixgabriel.com up." The marked list
 confirmed by its sha256 on the command line, so a list nobody confirmed does nothing. For a sender marked
 Unsubscribe or Unsubscribe and trash, Marco uses the sender's one-click unsubscribe (RFC 8058: a POST of
 "List-Unsubscribe=One-Click" to its https link) through the gate's ``unsubscribe`` switch. A sender with no
-one-click link (a web page, an email address, or nothing) is put on the block list instead, and the inbox sort
-moves its new mail to Trash on arrival; the web-page ones are listed for Felix. For Unsubscribe and trash, the
+one-click link (a web page, an email address, or nothing) is put on Marco's auto-trash list instead (a list on Felix's
+Mac, nothing is set in Gmail), and the inbox sort moves its new mail to Trash on arrival; the web-page ones are listed for Felix. For Unsubscribe and trash, the
 sender's mail moves to Gmail's Trash (Gmail empties it after 30 days; Marco never deletes for good), except
 starred mail and anything that looks like an order, receipt, invoice, shipping or booking confirmation (the
 receipt guard). A sender marked "Trash all but the latest" (Owner 2026-10-31, for Sezzle's billing notices) keeps
@@ -106,7 +106,7 @@ def run(mail, plan_path: Path, confirm: str, conn: sqlite3.Connection, *, gate_c
             done["skipped"] += 1
             continue
         link = one_click(latest[1])
-        if not link:  # nothing is sent: the sender is blocked, and a web link is listed for Felix
+        if not link:  # nothing is sent: the sender goes on the auto-trash list, and a web link is listed for Felix
             listed = latest[1].get("list-unsubscribe", "")
             pages = re.findall(r"<(https://[^>]+)>", listed)
             how = "link" if pages else "email" if "mailto:" in listed else "none"
@@ -137,7 +137,7 @@ def run(mail, plan_path: Path, confirm: str, conn: sqlite3.Connection, *, gate_c
                         raise
                     # a rerun after a stop: this sender was unsubscribed the first time
                     done["already"] = done.get("already", 0) + 1
-                except Exception as exc:  # their link failed: blocked instead, nothing else changes
+                except Exception as exc:  # their link failed: on the auto-trash list instead, nothing else changes
                     conn.execute("insert or ignore into blocked (sender, how, ts) values (?, ?, ?)",
                                  (sender, "one-click failed", datetime.now(timezone.utc).isoformat()))
                     conn.commit()
@@ -163,14 +163,47 @@ def blocked(conn: sqlite3.Connection, sender: str) -> bool:
     return conn.execute("select 1 from blocked where sender = ?", (sender.lower(),)).fetchone() is not None
 
 
-def trash_blocked(mail, conn: sqlite3.Connection, items) -> int:
-    """New mail from a blocked sender goes to Trash on arrival, receipts excepted; logged for undo."""
-    moved = 0
+def trash_blocked(mail, conn: sqlite3.Connection, items) -> list[str]:
+    """New mail from a sender on the auto-trash list goes to Trash on arrival, receipts and Watch senders excepted;
+    logged for undo. Costs no model call. Returns the ids moved."""
+    from hiremarco.inbox import WATCH
+
+    moved = []
     for item in items:
-        if blocked(conn, item.sender) and not guarded(item.subject):
+        if blocked(conn, item.sender) and not guarded(item.subject) and not WATCH.search(item.sender):
             mail.trash(item.id)
-            _log(conn, item.sender, "trashed", item.id, "blocked sender, on arrival")
+            _log(conn, item.sender, "trashed", item.id, "auto-trash list, on arrival")
+            moved.append(item.id)
+    return moved
+
+
+WATCH_EXPIRY = ("label:Watch -is:starred is:read older_than:30d", "label:Watch -is:starred is:unread older_than:60d")
+
+
+def expire_watch(mail, conn: sqlite3.Connection, limit: int = 100) -> int:
+    """Watch mail past its time goes to Trash, logged for undo: read after 30 days, unread after 60, starred never
+    (Owner 2026-11-01). Gmail's search is the clock: older_than counts from when the email arrived."""
+    moved = 0
+    for query in WATCH_EXPIRY:
+        for message_id, sender in mail.found(query, limit=limit):
+            mail.trash(message_id)
+            _log(conn, sender, "trashed", message_id, "watch expiry")
             moved += 1
+    return moved
+
+
+# an appointment reminder is for the days before it: past that it is noise, and the upcoming ones stay (Owner 2026-11-01)
+OLD_REMINDERS = ('{subject:"appointment reminder" subject:"appointment is coming up" subject:"upcoming appointment"}'
+                 " -is:starred older_than:14d")
+
+
+def expire_reminders(mail, conn: sqlite3.Connection, limit: int = 100) -> int:
+    """Appointment reminders two weeks old go to Trash, logged for undo. Nothing newer is touched."""
+    moved = 0
+    for message_id, sender in mail.found(OLD_REMINDERS, limit=limit):
+        mail.trash(message_id)
+        _log(conn, sender, "trashed", message_id, "old appointment reminder")
+        moved += 1
     return moved
 
 

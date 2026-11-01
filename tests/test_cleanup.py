@@ -104,15 +104,41 @@ def test_only_the_lindy_label_can_be_removed_and_no_email_is_deleted(tmp_path):
     assert not any(m == "DELETE" and "/messages" in p for m, p in seen)
 
 
-def test_new_mail_from_a_blocked_sender_goes_to_trash_receipts_excepted():
+def test_new_mail_from_the_auto_trash_list_goes_to_trash_receipts_and_watch_excepted():
     from hiremarco.google.mail import MailItem
 
     conn, mail = cleanup.connect(":memory:"), FakeMail({})
     conn.execute("insert into blocked (sender, how, ts) values ('promo@shop.com', 'link', 'now')")
     items = [MailItem("a", "promo@shop.com", "", "48 hours left", "", ""),
              MailItem("b", "promo@shop.com", "", "Your order has shipped", "", ""),
-             MailItem("c", "friend@gmail.com", "", "48 hours left", "", "")]
-    assert cleanup.trash_blocked(mail, conn, items) == 1 and mail.trashed == ["a"]
+             MailItem("c", "friend@gmail.com", "", "48 hours left", "", ""),
+             MailItem("d", "hello@lindy.ai", "", "48 hours left", "", "")]
+    conn.execute("insert into blocked (sender, how, ts) values ('hello@lindy.ai', 'link', 'now')")
+    assert cleanup.trash_blocked(mail, conn, items) == ["a"] and mail.trashed == ["a"]
+
+
+def test_watch_mail_expires_read_at_30_days_unread_at_60_starred_never_and_can_be_undone():
+    conn, mail = cleanup.connect(":memory:"), FakeMail({})
+    asked = []
+
+    def found(q, limit=100):
+        asked.append(q)
+        return [("w1", "hello@lindy.ai")] if "is:read" in q else [("w2", "team@mail.cerebralvalley.ai")]
+
+    mail.found = found
+    assert cleanup.expire_watch(mail, conn) == 2 and mail.trashed == ["w1", "w2"]
+    assert asked == ["label:Watch -is:starred is:read older_than:30d", "label:Watch -is:starred is:unread older_than:60d"]
+    logged = conn.execute("select message_id, detail from cleanup where action = 'trashed' order by id").fetchall()
+    assert logged == [("w1", "watch expiry"), ("w2", "watch expiry")]
+
+
+def test_only_old_appointment_reminders_expire_and_they_can_be_undone():
+    conn, mail = cleanup.connect(":memory:"), FakeMail({})
+    asked = []
+    mail.found = lambda q, limit=100: asked.append(q) or [("r1", "admin@vagaro.com")]
+    assert cleanup.expire_reminders(mail, conn) == 1 and mail.trashed == ["r1"]
+    assert "older_than:14d" in asked[0] and "-is:starred" in asked[0]
+    assert cleanup.undo(mail, conn) == 1 and mail.untrashed == ["r1"]
 
 
 def test_trash_all_but_the_latest_keeps_only_the_newest_and_sends_nothing(tmp_path):

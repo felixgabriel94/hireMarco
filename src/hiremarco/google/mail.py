@@ -31,6 +31,12 @@ class MailItem:
     date: str
     text: str
     links: tuple[str, ...] = ()  # every https link in the email, the HTML's hrefs included (Owner 2026-10-31)
+    label_ids: tuple[str, ...] = ()  # Gmail's labels on it, its tab (CATEGORY_*) among them
+    unsubscribe: bool = False  # it carries a List-Unsubscribe header: bulk mail
+
+    @property
+    def tab(self) -> str:
+        return next((i[9:].lower() for i in self.label_ids if i.startswith("CATEGORY_")), "primary")
 
 
 def _header(headers: list[dict], name: str) -> str:
@@ -145,10 +151,10 @@ class Mail:
             ))
         return items
 
-    def everything(self, newer_than: str = "14d", limit: int = 300, skip_body=None) -> list[MailItem]:
+    def everything(self, newer_than: str = "14d", limit: int = 300, skip_body=None, known=None) -> list[MailItem]:
         """Every email in the window, for sorting, only under the Owner's read-all line (none without it).
         ``skip_body(sender, sender_name, subject)`` true keeps the body unread: sensitive mail is sorted from its
-        headers alone and its body is never fetched."""
+        headers alone and its body is never fetched. ``known(id)`` true skips an email already handled."""
         grants = rules.read_grants(self.rules_path)
         if not any(g.sender == "*" for g in grants):
             return []
@@ -157,8 +163,10 @@ class Mail:
             page = self._get("/messages", q=query(grants, newer_than), maxResults=min(100, limit - len(items)),
                              **({"pageToken": token} if token else {}))
             for ref in page.get("messages") or []:
+                if known and known(ref["id"]):
+                    continue
                 meta = self._get(f"/messages/{ref['id']}", format="metadata",
-                                 metadataHeaders=["From", "Subject", "Date"])
+                                 metadataHeaders=["From", "Subject", "Date", "List-Unsubscribe"])
                 headers = meta.get("payload", {}).get("headers", [])
                 name, address = parseaddr(_header(headers, "From"))
                 subject = _header(headers, "Subject")
@@ -167,25 +175,41 @@ class Mail:
                     full = self._get(f"/messages/{ref['id']}", format="full")
                     text, links = body_text(full.get("payload", {})), body_links(full.get("payload", {}))
                 items.append(MailItem(id=ref["id"], sender=address.lower(), sender_name=name, subject=subject,
-                                      date=_header(headers, "Date"), text=text, links=links))
+                                      date=_header(headers, "Date"), text=text, links=links,
+                                      label_ids=tuple(meta.get("labelIds") or ()),
+                                      unsubscribe=bool(_header(headers, "List-Unsubscribe"))))
             token = page.get("nextPageToken")
             if not token:
                 break
         return items
 
+    def found(self, q: str, limit: int = 100) -> list[tuple[str, str]]:
+        """(id, sender) for the emails a Gmail search finds, up to ``limit``."""
+        page = self._get("/messages", q=q, maxResults=limit)
+        out = []
+        for ref in page.get("messages") or []:
+            meta = self._get(f"/messages/{ref['id']}", format="metadata", metadataHeaders=["From"])
+            out.append((ref["id"], parseaddr(_header(meta.get("payload", {}).get("headers", []), "From"))[1].lower()))
+        return out
+
     def labels(self) -> dict[str, str]:
         """Label name to id."""
         return {lab["name"]: lab["id"] for lab in self._get("/labels").get("labels") or []}
 
-    def ensure_label(self, name: str, colors: tuple[str, str]) -> str:
-        if not (name == "Marco" or name.startswith("Marco/")):
-            raise ValueError("Marco makes only his own labels")
+    def ensure_label(self, name: str, colors: tuple[str, str] | None = None) -> str:
+        """The label's id, made if it is missing. Only the inbox's own set: Felix's labels (an existing one is used as
+        he left it, colour and all), Watch, Marco and Marco/<task> (Owner 2026-11-01)."""
+        from hiremarco.inbox import LABELS
+
+        if not (name in LABELS or name.startswith("Marco/")):
+            raise ValueError("Marco uses only the inbox's own labels")
         found = self.labels().get(name)
         if found:
             return found
-        response = self._http.post("/labels", headers=self.auth.headers(), json={
-            "name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show",
-            "color": {"backgroundColor": colors[0], "textColor": colors[1]}})
+        body = {"name": name, "labelListVisibility": "labelShow", "messageListVisibility": "show"}
+        if colors:
+            body["color"] = {"backgroundColor": colors[0], "textColor": colors[1]}
+        response = self._http.post("/labels", headers=self.auth.headers(), json=body)
         if response.status_code >= 400:
             raise RuntimeError(f"Gmail refused the label (HTTP {response.status_code})")
         return response.json()["id"]
@@ -193,14 +217,13 @@ class Mail:
     def label_ids(self, message_id: str) -> list[str]:
         return self._get(f"/messages/{message_id}", format="minimal").get("labelIds") or []
 
-    def set_marco_label(self, message_id: str, add: str, marco_ids: set[str]) -> None:
-        """Put one of Marco's labels on an email, taking off his others. Nothing else changes: no archive, no read
-        mark, no delete (Owner 2026-10-31)."""
-        if add not in marco_ids:
-            raise ValueError("only Marco's own labels")
-        remove = [i for i in self.label_ids(message_id) if i in marco_ids and i != add]
+    def add_label(self, message_id: str, add: str, ours: set[str]) -> None:
+        """Add one of the inbox's labels to an email. Add only: no label comes off, nothing is archived, marked
+        read or deleted (Owner 2026-10-31, 2026-11-01)."""
+        if add not in ours:
+            raise ValueError("only the inbox's own labels")
         response = self._http.post(f"/messages/{message_id}/modify", headers=self.auth.headers(),
-                                   json={"addLabelIds": [add], "removeLabelIds": remove})
+                                   json={"addLabelIds": [add]})
         if response.status_code >= 400:
             raise RuntimeError(f"Gmail refused the label (HTTP {response.status_code})")
 
