@@ -40,7 +40,7 @@ only once the code that calls it is committed.
 | `muse-spark-1.2` | "Marco, how was that take?": listens to the take and gives a producer's note (Meta's recommended version for audio input) | live |
 | `muse-voice-transcribe-1.0` | Hearing studio commands and take notes live from the mic (keyword biasing, endpointing); the call transcript with speaker labels behind the proof card | live |
 | `sam-3.1` | Isolating the hardware's knobs in the glasses photo before Muse Spark reads them | live |
-| `sam-3.1`, `muse-image-1.0` | Dress me: the clothes on the bed, and the look board | planned, last in the queue |
+| `sam-3.1`, `muse-image-1.0` | Dress me: SAM 3.1 finds and cuts out each piece of clothing on the bed and shows what it sees, numbered, before Muse Spark builds three looks from those pieces only; Muse Image paints the look board's paper, never a piece of clothing | live |
 
 ## Built here
 
@@ -84,10 +84,11 @@ below grows as the build does; `git log` carries the dates.
 | Oct 28 | `hiremarco.mix.hearing` | The mix hearing: on a developed session Marco reads everything first, says what he hears in plain words, and asks how the artist feels; the answer becomes the song's guardrails (tracks to keep, wishes per track, a reference sound as Muse Wonder's understanding of it, measured numbers when a reference file is given), saved with the song and honored by every later pass. The artist is the CEO |
 | Oct 28 | `hiremarco.marco`, `server`, `livelog`, `cli` | Marco's voice through the gate, the running webhook, his on-screen log, the `marco` command |
 | Oct 31 | `hiremarco.calls` | Marco's phone calls: one ElevenLabs agent on the relay's brain, made or updated by `marco call setup`; each call through the gate's `calls` switch, opening with the recording notice for its purpose, hanging up on a machine, with its transcript and cost read back; a read-only Twilio check |
+| Nov 1 | `hiremarco.whatsapp.photos`, `dress`, `meta.image` | Photos in: every photo Felix sends is kept upright in a dated folder, remembered, and seen by Muse Spark with his words, whether they come with it, just before or just after it, typed or spoken. Dress me: SAM 3.1 per clothing phrase, masks decoded with Meta's parser, duplicates merged and shoes paired; the photo tinted, outlined and numbered for the lens; three looks in structured output where a piece not in the photo is thrown out; the board built from the real cut-outs on a Muse Image backdrop; "B" or a voice note naming it locks the look in as a dated fact; `marco dress PHOTO` runs it from a file |
 
 Planned, in order: the studio (voice
 commands in Logic, three plugin knobs, take notes, the ready-to-mix export,
-the hardware read), the call and its proof, then Dress me.
+the hardware read), the call and its proof, then Dress me (built Nov 1).
 
 ## Setup used, not built here
 

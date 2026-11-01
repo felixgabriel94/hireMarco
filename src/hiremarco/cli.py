@@ -34,6 +34,9 @@
     uv run marco voicenote send FILE     send a prepared voice note to the Owner on Return
     uv run marco film devices            the audio devices and their channel counts
     uv run marco film record             the booth on one clock until Ctrl+C, in 15-minute segments
+    uv run marco dress PHOTO --say "..." Dress me from a photo on this Mac: what SAM sees and the board to the
+                                         Owner's WhatsApp, his pick there (--dry-run: the pictures only, nothing sent)
+    uv run marco dress --backdrop        Muse Image paints the board's paper once (0.01 USD), kept in the state dir
     uv run marco drums train             teach Marco's drum ear on beats built from the Maschine library (once)
     uv run marco drums read FILE --bpm N  a drums stem's pattern: its main groove as a grid and a MIDI file
     uv run marco samples scan             catalog My Packs: each sound's kind, its pack's genre, loop tempo and key
@@ -517,6 +520,95 @@ def cmd_look(args) -> int:
     from hiremarco.look import run
 
     print(run(Path(args.folder).expanduser(), args.board))
+    return 0
+
+
+def photo_bytes(path) -> bytes:
+    """A photo file as JPEG-readable bytes: an iPhone HEIC is turned into JPEG by macOS's own sips first."""
+    import io
+    import tempfile
+    from pathlib import Path
+
+    from PIL import Image, UnidentifiedImageError
+
+    data = Path(path).read_bytes()
+    try:
+        Image.open(io.BytesIO(data)).verify()
+        return data
+    except UnidentifiedImageError:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "photo.jpg"
+            subprocess.run(["sips", "-s", "format", "jpeg", str(path), "--out", str(out)], check=True,
+                           capture_output=True, timeout=60)
+            return out.read_bytes()
+
+
+def cmd_dress(args) -> int:
+    """Dress me from a photo on this Mac, the same steps as a photo on WhatsApp: for dry runs and the film's backup.
+    Without --dry-run the two pictures go to the Owner's WhatsApp and the board waits for his pick there."""
+    from datetime import datetime, timezone
+    from pathlib import Path
+
+    from hiremarco import dress
+    from hiremarco.joblog import JobLog
+    from hiremarco.whatsapp import photos
+
+    if args.backdrop:
+        from hiremarco.meta.image import MuseImageError, generate
+
+        trace = Trace("dress: backdrop")
+        try:
+            dress.backdrop(generate, refresh=True)
+        except (gate.Refused, MuseImageError) as held:
+            trace.done(f"held: {getattr(held, 'reason', held)}")
+            return 1
+        trace.done(f"painted {config.STATE_DIR / 'dress' / dress.BACKDROP}")
+        return 0
+    if not args.photo:
+        print("name the photo: marco dress PHOTO --say \"...\"")
+        return 2
+    said = args.say or "Marco, dress me."
+    started = datetime.now(timezone.utc)
+    stamp = started.astimezone().strftime("%Y%m%d-%H%M%S")
+    trace = Trace(f"dress: {Path(args.photo).name}: {said[:50]}")
+    conn = gate.connect()
+    data = photo_bytes(Path(args.photo).expanduser())
+    send, wa = None, None
+    if args.dry_run:
+        upright = config.STATE_DIR / "dress" / f"{stamp}-photo.jpg"
+        upright.parent.mkdir(parents=True, exist_ok=True)
+        upright.write_bytes(photos.upright(data))
+    else:
+        from hiremarco.whatsapp import WhatsApp
+
+        wa, owner = WhatsApp(conn=conn), config.require("OWNER_WHATSAPP")
+        upright = photos.keep(conn, data, f"desk:{stamp}", said).path
+
+        def send(picture: bytes, caption: str, step: str) -> None:
+            wa.send_image(owner, picture, caption, idempotency_key=f"dress-{step}:desk:{stamp}", mime="image/jpeg")
+    try:
+        done = dress.dress(upright, said, conn=conn, send=send, film=dress.film_dir())
+    except gate.Refused as held:
+        trace.done(f"held: {held.reason}")
+        return 1
+    except (dress.NoClothesFound, dress.LooksError) as bad:
+        trace.done(f"stopped: {bad}")
+        return 1
+    spent = sum(r.get("cost_usd", 0.0) for r in JobLog().rows() if r.get("ts", "") >= started.astimezone()
+                .isoformat(timespec="seconds"))
+    for p in done.pieces:
+        print(f"  {p.number:>2} {p.label:<11} confidence {p.confidence:.2f}  {'mask' if p.mask is not None else 'box'}")
+    for look in done.looks.looks:
+        mark = "  <- pick" if look.letter == done.looks.recommend else ""
+        print(f"  {look.letter}: {look.name}: pieces {look.pieces}: {look.line}{mark}")
+    if done.looks.dropped:
+        print(f"  thrown out (not in the photo): {done.looks.dropped}")
+    print(f"  caption: {done.looks.caption}")
+    print(f"  what SAM sees: {done.seen}")
+    print(f"  board:         {done.board}")
+    for copy in done.copies:
+        print(f"  film copy:     {copy}")
+    trace.done(f"{len(done.pieces)} pieces, {'sent' if send else 'dry run, nothing sent'}, {spent:.4f} USD")
     return 0
 
 
@@ -1322,6 +1414,13 @@ def main(argv: list[str] | None = None) -> int:
     lk.add_argument("folder")
     lk.add_argument("--board", required=True, help="the board's link, kept beside the look")
     lk.set_defaults(func=cmd_look)
+    dm = sub.add_parser("dress", help="Dress me from a photo on this Mac: what SAM sees, then the board of three looks")
+    dm.add_argument("photo", nargs="?")
+    dm.add_argument("--say", default="", help="his words, as he would send them")
+    dm.add_argument("--dry-run", action="store_true", help="write the pictures only; nothing is sent")
+    dm.add_argument("--backdrop", action="store_true", help="paint the board's paper with Muse Image (0.01 USD)")
+    dm.set_defaults(func=cmd_dress)
+
     bo = sub.add_parser("booth")
     bo.add_argument("--dry-run", action="store_true")
     bo.set_defaults(func=cmd_booth)

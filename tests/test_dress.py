@@ -418,3 +418,75 @@ def test_muse_image_respects_the_kill_switch(tmp_path):
                                 transport=httpx.MockTransport(lambda r: pytest.fail("no request")))
     finally:
         gate.set_kill_switch(False)
+
+
+# --- the command -------------------------------------------------------------------------------------------------
+
+def command(tmp_path, monkeypatch, *argv):
+    import argparse
+
+    from hiremarco import cli
+    from hiremarco.meta import client as meta_client
+
+    seen = []
+    monkeypatch.setattr(meta_client, "MuseSpark", lambda *a, **k: spark(tmp_path, seen))
+    monkeypatch.setattr(dress, "segment_masks", fake_find())
+    monkeypatch.setenv("HIREMARCO_DRESS_FILM_DIR", str(tmp_path / "film"))
+    (tmp_path / "film").mkdir(exist_ok=True)
+    photo = tmp_path / "bed.jpg"
+    photo.write_bytes(jpeg(bed()))
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers()
+    dm = sub.add_parser("dress")
+    dm.add_argument("photo", nargs="?")
+    dm.add_argument("--say", default="")
+    dm.add_argument("--dry-run", action="store_true")
+    dm.add_argument("--backdrop", action="store_true")
+    args = parser.parse_args(["dress", str(photo), *argv])
+    return cli.cmd_dress(args), seen
+
+
+def test_the_command_dry_run_writes_the_pictures_and_sends_nothing(tmp_path, monkeypatch, capsys):
+    from hiremarco import whatsapp
+
+    monkeypatch.setattr(whatsapp, "WhatsApp", lambda *a, **k: pytest.fail("a dry run sends nothing"))
+    code, seen = command(tmp_path, monkeypatch, "--dry-run", "--say", "Marco, dress me. Studio today, dinner tonight.")
+    out = capsys.readouterr().out
+    assert code == 0 and "dry run, nothing sent" in out and "<- pick" in out
+    assert json.loads(seen[0]["messages"][1]["content"][0]["text"])["felix_says"].startswith("Marco, dress me.")
+    assert len(list((tmp_path / "film").iterdir())) == 2
+    assert dress.open_board(gate.connect()) is None
+
+
+def test_the_command_sends_both_pictures_to_the_owner_and_opens_the_board(tmp_path, monkeypatch, capsys):
+    from hiremarco import whatsapp
+
+    sent = []
+
+    class Line:
+        def __init__(self, conn=None, **k):
+            self.conn = conn
+
+        def send_image(self, to, picture, caption, *, idempotency_key, mime):
+            sent.append((to, caption, idempotency_key, mime, picture[:2]))
+
+    monkeypatch.setattr(whatsapp, "WhatsApp", Line)
+    monkeypatch.setenv("OWNER_WHATSAPP", OWNER)
+    code, _ = command(tmp_path, monkeypatch, "--say", "dress me")
+    assert code == 0 and [s[0] for s in sent] == [OWNER, OWNER]
+    assert sent[0][2].startswith("dress-sees:desk:") and sent[1][2].startswith("dress-board:desk:")
+    assert {s[3] for s in sent} == {"image/jpeg"} and {s[4] for s in sent} == {b"\xff\xd8"}
+    assert dress.open_board(gate.connect())["recommend"] == "B"
+
+
+@pytest.mark.skipif(not __import__("shutil").which("sips"), reason="macOS sips turns HEIC into JPEG")
+def test_an_iphone_heic_is_read_through_sips(tmp_path):
+    import subprocess
+
+    from hiremarco.cli import photo_bytes
+
+    src = tmp_path / "bed.jpg"
+    src.write_bytes(jpeg(bed()))
+    heic = tmp_path / "bed.heic"
+    subprocess.run(["sips", "-s", "format", "heic", str(src), "--out", str(heic)], check=True, capture_output=True)
+    assert Image.open(io.BytesIO(photo_bytes(heic))).size == (W, H)
