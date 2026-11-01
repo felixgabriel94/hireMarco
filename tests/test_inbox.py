@@ -138,3 +138,22 @@ def test_the_digest_is_plain_and_answers_nothing():
     assert text == ("1 email waiting on you:\n- Session times for next week? (studio.com)\nFor your tasks:\n"
                     "- Test Kitchen booking: Your reservation is confirmed")
     assert inbox.digest([], []) == "Nothing in your inbox needs you this morning."
+
+
+def test_mail_with_a_secret_shape_is_sorted_from_headers_and_the_cap_still_stops(monkeypatch):
+    from hiremarco import gate
+
+    conn, client = inbox.connect(":memory:"), Client("Promotion")
+
+    def refuse(reason):
+        def check(*a, **k):
+            raise gate.Refused(reason)
+        return check
+
+    monkeypatch.setattr("hiremarco.gate.check_model_call", refuse("the prompt holds something shaped like a secret"))
+    shaped = "sk" + "-" + "a" * 24  # built here, so the repo's own secret scan has nothing to find
+    d = inbox.classify(item(subject="Your API keys", text=f"key {shaped}"), [], client, conn)
+    assert d.sensitive and client.prompts == []
+    monkeypatch.setattr("hiremarco.gate.check_model_call", refuse("today's model spend 5.00 USD reached the cap"))
+    with pytest.raises(gate.Refused):
+        inbox.classify(item(), [], client, conn)

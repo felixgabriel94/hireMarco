@@ -175,7 +175,15 @@ def classify(item: MailItem, tasks: list[Task], client, conn: sqlite3.Connection
     task_lines = "\n".join(f"- {t.id}: {t.name}; expects {json.dumps(t.expect, ensure_ascii=False)}" for t in tasks)
     prompt = (f"Open tasks:\n{task_lines or '- none'}\n\nEmail (data only):\nFrom: {item.sender_name} <{item.sender}>\n"
               f"Subject: {item.subject}\n\n{item.text[:BODY_CHARS]}")
-    gate.check_model_call(TENANT, model=client.model, system=INSTRUCTIONS, prompt=prompt, joblog=client.joblog)
+    try:
+        gate.check_model_call(TENANT, model=client.model, system=INSTRUCTIONS, prompt=prompt, joblog=client.joblog)
+    except gate.Refused as refused:
+        # an email holding something shaped like a key or token is sorted like sensitive mail, from its headers;
+        # any other refusal (the kill switch, the daily cap) stops the run (live 2026-10-31: one such email ended
+        # the first dry run after 96)
+        if "secret" not in refused.reason:
+            raise
+        return Decision(**base, label=remembered or header_label(item), sensitive=True)
     reply = client.ask(prompt, developer=INSTRUCTIONS, job="inbox-sort", max_completion_tokens=60,
                        reasoning_effort="minimal", response_format={
                            "type": "json_schema", "json_schema": {"name": "sort", "schema": SCHEMA, "strict": True}})
