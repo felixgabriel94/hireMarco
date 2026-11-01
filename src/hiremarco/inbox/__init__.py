@@ -27,6 +27,7 @@ import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 from hiremarco import config, gate
@@ -92,6 +93,7 @@ create table if not exists overrides (sender text primary key, label text not nu
 create table if not exists tasks (id text primary key, name text not null, expect text not null,
                                   opened_at text not null, status text not null, closed_at text, proof text);
 create table if not exists flags (name text primary key, value text not null);
+create table if not exists task_checked (message_id text primary key, ts text not null);
 create table if not exists offered (n integer primary key, sender text not null, day text not null);
 """
 
@@ -326,18 +328,20 @@ def seen(conn: sqlite3.Connection, message_id: str) -> bool:
 
 
 def sort_inbox(mail, client, conn: sqlite3.Connection, *, newer_than: str = "1d", limit: int = 300,
-               dry_run: bool = False, before=None, status: dict | None = None) -> list[tuple[MailItem, Decision]]:
+               dry_run: bool = False, before=None, status: dict | None = None,
+               with_tasks: bool = True) -> list[tuple[MailItem, Decision]]:
     """Read and sort the new mail. In a dry run nothing is recorded, labelled or linked.
 
     ``before(items)`` runs on everything read, before any model call, and returns the ids it took care of (the
     auto-trash list), which are not sorted. Mail already wearing one of the inbox's labels is left alone. When the
     daily cap or the kill switch refuses a model call, sorting stops there, ``status["capped"]`` says why, and the
-    rest waits for the next run; what was sorted is kept."""
+    rest waits for the next run; what was sorted is kept. ``with_tasks`` false leaves the task ledger unread: the
+    always-on sweep has none, the machine that opens tasks matches them (``match_tasks``)."""
     items = mail.everything(newer_than=newer_than, limit=limit, known=None if dry_run else lambda i: seen(conn, i),
                             skip_body=lambda sender, name, subject: bool(SENSITIVE.search(f"{sender} {name} {subject}")))
     handled = set(before(items) or ()) if before else set()
     ours = set(_our_ids(mail).values()) if items and not dry_run else set()
-    tasks = open_tasks(conn)
+    tasks = open_tasks(conn) if with_tasks else []
     pairs = []
     for item in items:
         if item.id in handled or ours & set(item.label_ids):
@@ -357,6 +361,42 @@ def sort_inbox(mail, client, conn: sqlite3.Connection, *, newer_than: str = "1d"
                          " (?, ?, ?, ?, ?, ?)", (d.message_id, d.label, d.sender, _now(), d.subject,
                                                  d.task.id if d.task else None))
         conn.commit()
+    return pairs
+
+
+TASK_SLACK_S = 60 * 60  # a confirmation can land while the call is still on, before its task opens
+
+
+def match_tasks(mail, client, conn: sqlite3.Connection, tasks: list[Task], *, newer_than: str = "3d", limit: int = 300,
+                status: dict | None = None) -> list[tuple[MailItem, Decision]]:
+    """New mail checked against the open tasks, each email once, and only mail from around when the oldest task opened.
+    Sorted the same way the sweep sorts; only a match counts here, and the sweep owns every other label."""
+    def checked(message_id: str) -> bool:
+        return conn.execute("select 1 from task_checked where message_id = ?", (message_id,)).fetchone() is not None
+
+    oldest = min(datetime.fromisoformat(t.opened_at) for t in tasks).timestamp() - TASK_SLACK_S
+    items = mail.everything(newer_than=newer_than, limit=limit, known=checked,
+                            skip_body=lambda sender, name, subject: bool(SENSITIVE.search(f"{sender} {name} {subject}")))
+    pairs = []
+    for item in items:
+        try:
+            arrived = parsedate_to_datetime(item.date).timestamp()
+        except (TypeError, ValueError):
+            arrived = None
+        try:
+            decision = classify(item, tasks, client, conn) if arrived is None or arrived >= oldest else None
+        except Unread:
+            if status is not None:
+                status["unread"] = status.get("unread", 0) + 1
+            continue
+        except gate.Refused as refused:
+            if status is not None:
+                status["capped"] = refused.reason
+            break
+        conn.execute("insert or ignore into task_checked (message_id, ts) values (?, ?)", (item.id, _now()))
+        conn.commit()
+        if decision is not None and decision.task is not None:
+            pairs.append((item, decision))
     return pairs
 
 

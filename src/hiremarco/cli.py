@@ -15,6 +15,8 @@
     uv run marco relay token             make the call relay's token, copy it to the clipboard for ElevenLabs
     uv run marco inbox dry-run --days 14 sort the inbox without labelling: counts and examples per label
     uv run marco inbox sync              sort new mail, label it (once labels are on), link it to his tasks
+    uv run marco inbox sync --sweep      the always-on half: sort, label, auto-trash, expire; only Google and model keys
+    uv run marco inbox sync --tasks      the half beside serve: match mail to open tasks; nothing read when none is open
     uv run marco inbox labels on|off     labels in Gmail, after the Owner saw a dry run
     uv run marco inbox digest            the morning WhatsApp: what needs a reply, what came in for tasks
     uv run marco inbox cleanup --list F --confirm SHA   unsubscribe and trash the senders the Owner marked
@@ -266,6 +268,10 @@ def cmd_inbox(args) -> int:
         inbox.set_labels(conn, args.state == "on")
         print(f"labels {'on' if args.state == 'on' else 'off'}")
         return 0
+    if args.action == "sync" and args.sweep:
+        return _inbox_sweep(args, conn)
+    if args.action == "sync" and args.tasks:
+        return _inbox_tasks(args, conn)
     owner = config.require("OWNER_WHATSAPP")
     if args.action == "digest":
         from hiremarco.inbox import cleanup as _cleanup
@@ -323,6 +329,69 @@ def cmd_inbox(args) -> int:
                                 f" learned" + (f", stopped sorting: {status['capped']}" if "capped" in status else "")
                                 + (f", {status['unread']} left for the next run" if "unread" in status else "")
                                 + (f", {len(unsent)} WhatsApp not sent" if unsent else ""))
+    return 0
+
+
+def _sent(send, unsent: list):
+    """A send WhatsApp refuses (its 24 hour window) is noted and the run goes on."""
+    def attempt(*a, **k):
+        try:
+            return send(*a, **k)
+        except Exception as exc:
+            unsent.append(type(exc).__name__)
+    return attempt
+
+
+def _inbox_sweep(args, conn) -> int:
+    """The always-on half: sort, label, learn, auto-trash and expire. No WhatsApp, no task ledger: it needs only the
+    Google and model keys, and tells nobody anything."""
+    from hiremarco import inbox
+    from hiremarco.google import Mail
+    from hiremarco.inbox import cleanup
+    from hiremarco.meta.client import MuseSpark
+
+    mail, listed, moved, status = Mail(), cleanup.connect(), [], {}
+
+    def auto_trash(items):
+        moved.extend(cleanup.trash_blocked(mail, listed, items))
+        return moved
+
+    pairs = inbox.sort_inbox(mail, MuseSpark(), conn, newer_than=f"{args.days}d", limit=args.limit, before=auto_trash,
+                             status=status, with_tasks=False)
+    labelled = inbox.apply_labels(mail, conn, pairs)
+    learned = inbox.learn_corrections(mail, conn)
+    expired = cleanup.expire_watch(mail, listed) + cleanup.expire_reminders(mail, listed)
+    Trace("inbox: swept").done(f"{len(pairs)} new, {len(moved)} from the auto-trash list to Trash, {expired} expired,"
+                               f" {labelled} labelled, {learned} corrections learned"
+                               + (f", stopped sorting: {status['capped']}" if "capped" in status else "")
+                               + (f", {status['unread']} left for the next run" if "unread" in status else ""))
+    return 0
+
+
+def _inbox_tasks(args, conn) -> int:
+    """The half that stays beside marco serve, which opens the tasks: with none open it reads nothing and costs nothing."""
+    from hiremarco import inbox
+
+    tasks = inbox.open_tasks(conn)
+    if not tasks:
+        Trace("inbox: tasks").done("none open")
+        return 0
+    from hiremarco.google import Mail
+    from hiremarco.meta.client import MuseSpark
+    from hiremarco.whatsapp import WhatsApp
+
+    owner, wa, mail, status, unsent = config.require("OWNER_WHATSAPP"), WhatsApp(), Mail(), {}, []
+    pairs = inbox.match_tasks(mail, MuseSpark(), conn, tasks, newer_than=f"{args.days}d", limit=args.limit, status=status)
+    labelled = inbox.apply_labels(mail, conn, pairs)
+    closed = inbox.link_tasks(conn, pairs,
+                              _sent(lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-proof:{tid}"), unsent),
+                              _sent(lambda tid, text, url: wa.send_link(owner, text, url, "View booking",
+                                                                        idempotency_key=f"task-proof:{tid}"), unsent))
+    nudged = inbox.nudge_stale(conn, _sent(lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-nudge:{tid}"), unsent))
+    Trace("inbox: tasks").done(f"{len(tasks)} open, {labelled} labelled, {len(closed)} proved, {nudged} nudged"
+                               + (f", stopped: {status['capped']}" if "capped" in status else "")
+                               + (f", {status['unread']} left for the next run" if "unread" in status else "")
+                               + (f", {len(unsent)} WhatsApp not sent" if unsent else ""))
     return 0
 
 
@@ -1460,6 +1529,9 @@ def main(argv: list[str] | None = None) -> int:
     ib.add_argument("--confirm", default="", help="cleanup: the sha256 of that list, as the Owner confirmed it")
     ib.add_argument("--dry-run", action="store_true", help="cleanup: count only, change nothing")
     ib.add_argument("state", nargs="?", choices=["on", "off"])
+    split = ib.add_mutually_exclusive_group()
+    split.add_argument("--sweep", action="store_true", help="sync only: sort, label, auto-trash and expire; no WhatsApp, no tasks")
+    split.add_argument("--tasks", action="store_true", help="sync only: match new mail to open tasks; nothing read when none is open")
     ib.add_argument("--days", type=int, default=3)
     ib.add_argument("--limit", type=int, default=300)
     ib.set_defaults(func=cmd_inbox)
