@@ -47,6 +47,37 @@ def test_the_model_sees_headers_and_the_start_of_the_body_as_data():
     assert len(prompt) < 1200 and "x" * 700 not in prompt
 
 
+class Empty(Client):
+    """The model answering nothing, as it did live at 60 tokens, ``empties`` times before it reads."""
+
+    def __init__(self, empties):
+        super().__init__("Promotions")
+        self.empties, self.budgets = empties, []
+
+    def ask(self, prompt, **kwargs):
+        self.budgets.append(kwargs["max_completion_tokens"])
+        if len(self.budgets) <= self.empties:
+            return type("Reply", (), {"text": ""})()
+        return super().ask(prompt, **kwargs)
+
+
+def test_an_empty_answer_is_asked_again_with_room_and_is_never_a_guess():
+    conn = inbox.connect(":memory:")
+    client = Empty(1)
+    assert inbox.classify(item(), [], client, conn).label == "Promotions"
+    assert client.budgets == [600, 1500]
+    with pytest.raises(inbox.Unread):
+        inbox.classify(item(), [], Empty(2), conn)
+
+
+def test_an_email_the_model_could_not_answer_waits_for_the_next_run():
+    conn, status = inbox.connect(":memory:"), {}
+    fresh = MailItem(id="new", sender="a@b.com", sender_name="", subject="s", date="", text="")
+    assert inbox.sort_inbox(Listing([fresh]), Empty(2), conn, status=status) == []
+    assert status == {"unread": 1} and not inbox.seen(conn, "new")
+    assert [i.id for i, _ in inbox.sort_inbox(Listing([fresh]), Client("FYI"), conn)] == ["new"]
+
+
 def test_a_correction_in_gmail_is_remembered_for_the_sender():
     conn, client = inbox.connect(":memory:"), Client("Promotions")
     inbox.remember_correction(conn, "News@Shop.com", "Newsletters")

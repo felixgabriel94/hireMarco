@@ -199,6 +199,10 @@ def override(conn: sqlite3.Connection, sender: str) -> str | None:
     return r[0] if r else None
 
 
+class Unread(Exception):
+    """The model's answer about an email could not be read, twice: it stays unsorted until the next run."""
+
+
 def classify(item: MailItem, tasks: list[Task], client, conn: sqlite3.Connection) -> Decision:
     base = dict(message_id=item.id, sender=item.sender, subject=item.subject)
     ruled = rule_label(item.sender)
@@ -220,16 +224,21 @@ def classify(item: MailItem, tasks: list[Task], client, conn: sqlite3.Connection
         if "secret" not in refused.reason:
             raise
         return Decision(**base, label=RENAMED.get(remembered, remembered) or header_label(item), sensitive=True)
-    reply = client.ask(prompt, developer=INSTRUCTIONS, job="inbox-sort", max_completion_tokens=60,
-                       reasoning_effort="minimal", response_format={
-                           "type": "json_schema", "json_schema": {"name": "sort", "schema": SCHEMA, "strict": True}})
-    try:
-        data = json.loads(reply.text)
-        label = data["label"] if data["label"] in SORTED else "FYI"
+    # live 2026-11-01: at 60 tokens the reasoning ate the budget, the answer came back empty and every email read as
+    # FYI. An answer that can't be read is asked once more, then the email waits for the next run; never a guess.
+    for budget in (600, 1500):
+        reply = client.ask(prompt, developer=INSTRUCTIONS, job="inbox-sort", max_completion_tokens=budget,
+                           reasoning_effort="minimal", response_format={
+                               "type": "json_schema", "json_schema": {"name": "sort", "schema": SCHEMA, "strict": True}})
+        try:
+            data = json.loads(reply.text)
+            if data["label"] not in SORTED:
+                continue
+        except (ValueError, KeyError, TypeError):
+            continue
         task = next((t for t in tasks if t.id == data.get("task_id")), None)
-    except (ValueError, KeyError, TypeError):
-        label, task = "FYI", None
-    return Decision(**base, label=RENAMED.get(remembered, remembered) or label, task=task)
+        return Decision(**base, label=RENAMED.get(remembered, remembered) or data["label"], task=task)
+    raise Unread(f"no readable answer for {item.id}")
 
 
 def summary(decisions, examples: int = 5) -> str:
@@ -303,6 +312,9 @@ def sort_inbox(mail, client, conn: sqlite3.Connection, *, newer_than: str = "1d"
             continue
         try:
             pairs.append((item, classify(item, tasks, client, conn)))
+        except Unread:
+            if status is not None:
+                status["unread"] = status.get("unread", 0) + 1
         except gate.Refused as refused:
             if status is not None:
                 status["capped"] = refused.reason

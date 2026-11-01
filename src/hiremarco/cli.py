@@ -317,7 +317,8 @@ def cmd_inbox(args) -> int:
     nudged = inbox.nudge_stale(conn, sent(lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-nudge:{tid}")))
     Trace("inbox: sorted").done(f"{len(pairs)} new, {len(moved)} from the auto-trash list to Trash, {expired} expired,"
                                 f" {labelled} labelled, {len(closed)} tasks proved, {nudged} nudged, {learned} corrections"
-                                f" learned" + (f", stopped sorting: {status['capped']}" if status else "")
+                                f" learned" + (f", stopped sorting: {status['capped']}" if "capped" in status else "")
+                                + (f", {status['unread']} left for the next run" if "unread" in status else "")
                                 + (f", {len(unsent)} WhatsApp not sent" if unsent else ""))
     return 0
 
