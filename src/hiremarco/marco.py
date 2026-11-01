@@ -62,14 +62,17 @@ class Marco:
 
     def converse(self, history: list[dict], text: str, *, instructions: str = "", job: str = "converse",
                  response_format: dict | None = None, max_completion_tokens: int = 1500,
-                 reasoning_effort: str = "low") -> Reply:
+                 reasoning_effort: str = "low", image_url: str | None = None) -> Reply:
         """Marco with the conversation so far (``history``: user and assistant turns, oldest first) before ``text``,
-        through the same gate and persona rule as ``answer``."""
+        through the same gate and persona rule as ``answer``. ``image_url`` (a data URL) goes with ``text``: the photo
+        he is talking about."""
         if private_persona_on() and self.client.model.endswith("-contributor"):
             raise gate.Refused("the private persona never goes to a contributor model")
         system = persona() + (f"\n\n{instructions}" if instructions else "")
         gate.check_model_call(TENANT, model=self.client.model, system=system,
                               prompt="\n".join([*(h["content"] for h in history), text]), joblog=self.client.joblog)
-        messages = [{"role": "developer", "content": system}, *history, {"role": "user", "content": text}]
+        content = text if image_url is None else [{"type": "text", "text": text},
+                                                  {"type": "image_url", "image_url": {"url": image_url}}]
+        messages = [{"role": "developer", "content": system}, *history, {"role": "user", "content": content}]
         return self.client.chat(messages, job=job, max_completion_tokens=max_completion_tokens,
                                 response_format=response_format, reasoning_effort=reasoning_effort)

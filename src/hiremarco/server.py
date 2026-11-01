@@ -1,8 +1,9 @@
 """The running Marco: the WhatsApp webhook wired to his voice.
 
 When the Owner writes, Marco marks it read, shows the typing dots, answers
-through Muse Spark and replies, each step on his live log. Voice notes and
-photos are acknowledged here and handled by the packages that need them. A
+through Muse Spark and replies, each step on his live log. Voice notes are
+heard; a photo is kept and seen, with the words that come with it, just before
+it or just after it. A
 beat he sends as an audio file or a document is kept until he says to start
 a session, by text, by the caption on the beat or by voice note; then the
 booth puts it on the Beat track of a new session.
@@ -297,8 +298,15 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
     return f"offer {offer.id}: calling {place.name}, conversation {placed['conversation_id']}"
 
 
+SETTLE_S = 20.0  # a photo with no words waits this long for the words he sends after it
+
+
 def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None = None,
-           inbox: Path | None = None, listen=None, booth=None, running=None) -> str:
+           inbox: Path | None = None, listen=None, booth=None, running=None, settle=None) -> str:
+    import time
+
+    from hiremarco.whatsapp import photos
+
     wa = wa or WhatsApp()
     booth, running = booth or ensure_booth, running or booth_running
     heard = message.text or f"[{message.kind}]"
@@ -316,27 +324,46 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
             wa.send_text(message.sender, f"Got the beat ({path.stem}). Want me to start a session with it?",
                          idempotency_key=f"beat:{message.id}")
             return trace.done(f"beat kept as {path.name}, waiting for his word")
-        said = message.text
-        if message.kind == "audio" and message.voice and message.media_id:
+        said, photo = message.text, None
+        if message.kind == "image" and message.media_id:
+            data, _ = wa.download_media(message.media_id)
+            photo = photos.keep(wa.conn, data, message.id, message.caption)  # remembered in the conversation
+            said = message.caption.strip()
+            trace.add(f"photo kept: {photo.path.name}")
+            if not said:  # his words may follow: give them a moment, and let that message take the photo
+                (settle or time.sleep)(SETTLE_S)
+                if photos.newer_from(wa.conn, message.sender, message.id):
+                    return trace.done(f"photo {photo.path.name} kept; his next message says what it is for")
+        elif message.kind == "audio" and message.voice and message.media_id:
             said = voice_text(message, wa, listen)
             trace.add(f"voice note: {said[:60]}")
         elif message.kind != "text":
             return trace.done(f"{message.kind} noted, no handler yet")
-        remember(wa.conn, "felix", said or "[an empty voice note]")
-        called = offer_yes(said, message.sender, message.id, wa) if said else None
+        if photo is None:
+            remember(wa.conn, "felix", said or "[an empty voice note]")
+            photo = photos.latest(wa.conn)  # a photo he sent in the last minutes goes with his words
+        if message.kind == "image":
+            said = said or "(he sent this photo without a word)"
+        called = offer_yes(said, message.sender, message.id, wa) if said and message.kind != "image" else None
         if called is not None:
             return trace.done(called)
         if said:
             try:
                 marco = marco or Marco()
                 decision = decide(marco, said, context(wa.conn, inbox or _inbox(), running, said), turns,
-                                  instructions=ENGLISH)
+                                  instructions=ENGLISH, photo=photo)
             except gate.Refused:
                 raise
             except Exception as exc:  # the brain is unreachable or answered off-schema: the fixed patterns answer
                 trace.add(f"brain unavailable: {type(exc).__name__}")
             else:
                 return trace.done(act(decision, message.sender, message.id, wa, inbox, booth=booth))
+        if message.kind == "image":  # the brain could not be reached: Marco still looks at the photo
+            text = photos.see(photo, message.caption, (marco or Marco()).client, instructions=ENGLISH)
+            if not text:
+                return trace.done("no reply: the model returned no text")
+            wa.send_text(message.sender, text, idempotency_key=f"photo:{message.id}")
+            return trace.done("answered the photo")
         started = instruction(said, message.sender, message.id, wa, inbox, booth=booth, running=running)
         if started is not None:
             return trace.done(started)

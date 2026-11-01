@@ -124,14 +124,20 @@ def history(conn, limit: int = 40) -> list[dict]:
 
 
 def decide(marco, said: str, state: dict, turns: list[dict], *, instructions: str = "",
-           now: datetime | None = None) -> Decision:
-    """One brain call. Raises when the brain cannot be reached or answers outside the schema."""
+           now: datetime | None = None, photo=None) -> Decision:
+    """One brain call. Raises when the brain cannot be reached or answers outside the schema. ``photo`` is his last
+    photo when he sent it in the last few minutes: the brain sees it beside his words (Owner 2026-11-01)."""
+    from hiremarco.sam import data_url
+    from hiremarco.whatsapp.photos import attached
+
     state = state if "studio" in state else {"studio": state}
-    asked = json.dumps({"now": when(now or datetime.now(timezone.utc)), **state, "felix_says": said},
+    seen = {"photo_attached": attached(photo)} if photo is not None else {}
+    asked = json.dumps({"now": when(now or datetime.now(timezone.utc)), **state, **seen, "felix_says": said},
                        ensure_ascii=False)
     # live 2026-10-30: at 1500 tokens a "No" was all thinking and no answer; low thinking used 995 of 4000
     reply = marco.converse(turns, asked, instructions=f"{RULES}\n\n{instructions}".strip(), job="whatsapp-brain",
                            max_completion_tokens=4000, reasoning_effort="low",
+                           image_url=data_url(photo.jpeg(), "image/jpeg") if photo is not None else None,
                            response_format={"type": "json_schema",
                                             "json_schema": {"name": "decision", "schema": SCHEMA, "strict": True}})
     data = json.loads(reply.text)
