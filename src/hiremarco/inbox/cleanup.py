@@ -90,8 +90,7 @@ def run(mail, plan_path: Path, confirm: str, conn: sqlite3.Connection, *, gate_c
         raise gate.Refused("the list's fingerprint doesn't match the one confirmed")
     http = http or httpx.Client(timeout=20, follow_redirects=False)
     gate_conn = gate_conn or gate.connect()
-    done = {"one_click": 0, "unsubscribed": 0, "trashed": 0, "kept_by_guard": 0,
-            "blocked": {"link": 0, "email": 0, "none": 0}, "for_felix": [], "skipped": 0}
+    done = new_counts()
     for sender, action in load_plan(plan_path):
         if action == "Trash all but the latest":  # by the Owner's word for this sender: no unsubscribe, no guard
             for message_id in mail.ids_from(sender, keep_starred=True)[1:]:  # Gmail lists newest first
@@ -101,62 +100,103 @@ def run(mail, plan_path: Path, confirm: str, conn: sqlite3.Connection, *, gate_c
                 done["trashed"] += 1
                 done["all_but_latest"] = done.get("all_but_latest", 0) + 1
             continue
-        latest = mail.latest_from(sender)
-        if latest is None:
-            done["skipped"] += 1
-            continue
-        link = one_click(latest[1])
-        if not link:  # nothing is sent: the sender goes on the auto-trash list, and a web link is listed for Felix
-            listed = latest[1].get("list-unsubscribe", "")
-            pages = re.findall(r"<(https://[^>]+)>", listed)
-            how = "link" if pages else "email" if "mailto:" in listed else "none"
-            done["blocked"][how] += 1
-            if pages:
-                done["for_felix"].append((sender, pages[0][:160]))
-            if not dry_run:
-                conn.execute("insert or ignore into blocked (sender, how, ts) values (?, ?, ?)",
-                             (sender, how, datetime.now(timezone.utc).isoformat()))
-                conn.commit()
-        else:
-            done["one_click"] += 1
-            if not dry_run:
-                def post(link=link):
-                    response = http.post(link, data={"List-Unsubscribe": "One-Click"})
-                    if response.status_code >= 400:
-                        raise RuntimeError(f"HTTP {response.status_code}")
-                    return response.status_code
-                try:
-                    code = gate.execute_effect(gate_conn, post, tenant_id=TENANT, idempotency_key=f"unsub:{sender}",
-                                               capability="unsubscribe", channel="unsubscribe", target="*",
-                                               message=f"one-click unsubscribe from {sender}",
-                                               department="assistant", rules_path=rules_path)
-                    _log(conn, sender, "unsubscribed", detail=f"HTTP {code}")
-                    done["unsubscribed"] += 1
-                except gate.Refused as refused:
-                    if "already done" not in refused.reason:
-                        raise
-                    # a rerun after a stop: this sender was unsubscribed the first time
-                    done["already"] = done.get("already", 0) + 1
-                except Exception as exc:  # their link failed: on the auto-trash list instead, nothing else changes
-                    conn.execute("insert or ignore into blocked (sender, how, ts) values (?, ?, ?)",
-                                 (sender, "one-click failed", datetime.now(timezone.utc).isoformat()))
-                    conn.commit()
-                    _log(conn, sender, "unsubscribe failed", detail=type(exc).__name__)
-        if action == "Unsubscribe and trash":
-            every = mail.ids_from(sender, keep_starred=True)
-            movable = mail.ids_from(sender, keep_starred=True, exclude=GUARD_QUERY)
-            done["kept_by_guard"] += len(every) - len(movable)
-            for message_id in movable:
-                if not dry_run:
-                    try:
-                        mail.trash(message_id)
-                    except RuntimeError as exc:  # one email Gmail won't move: logged and left, the run goes on
-                        _log(conn, sender, "not moved", message_id, str(exc))
-                        done["not_moved"] = done.get("not_moved", 0) + 1
-                        continue
-                    _log(conn, sender, "trashed", message_id)
-                done["trashed"] += 1
+        drop_sender(mail, sender, conn, done, gate_conn=gate_conn, http=http, rules_path=rules_path, dry_run=dry_run,
+                    trash=action == "Unsubscribe and trash")
     return done
+
+
+def new_counts() -> dict:
+    return {"one_click": 0, "unsubscribed": 0, "trashed": 0, "kept_by_guard": 0,
+            "blocked": {"link": 0, "email": 0, "none": 0}, "for_felix": [], "skipped": 0}
+
+
+def drop_sender(mail, sender: str, conn: sqlite3.Connection, done: dict, *, gate_conn, http, rules_path=None,
+                dry_run: bool = False, trash: bool = True) -> None:
+    """One sender gone: its one-click unsubscribe through the gate, or the auto-trash list when it offers none or its
+    link fails; then, with ``trash``, its mail to Trash, starred mail and the receipt guard's excepted."""
+    latest = mail.latest_from(sender)
+    if latest is None:
+        done["skipped"] += 1
+        return
+    link = one_click(latest[1])
+    if not link:  # nothing is sent: the sender goes on the auto-trash list, and a web link is listed for Felix
+        listed = latest[1].get("list-unsubscribe", "")
+        pages = re.findall(r"<(https://[^>]+)>", listed)
+        how = "link" if pages else "email" if "mailto:" in listed else "none"
+        done["blocked"][how] += 1
+        if pages:
+            done["for_felix"].append((sender, pages[0][:160]))
+        if not dry_run:
+            conn.execute("insert or ignore into blocked (sender, how, ts) values (?, ?, ?)",
+                         (sender, how, datetime.now(timezone.utc).isoformat()))
+            conn.commit()
+    else:
+        done["one_click"] += 1
+        if not dry_run:
+            def post(link=link):
+                response = http.post(link, data={"List-Unsubscribe": "One-Click"})
+                if response.status_code >= 400:
+                    raise RuntimeError(f"HTTP {response.status_code}")
+                return response.status_code
+            try:
+                code = gate.execute_effect(gate_conn, post, tenant_id=TENANT, idempotency_key=f"unsub:{sender}",
+                                           capability="unsubscribe", channel="unsubscribe", target="*",
+                                           message=f"one-click unsubscribe from {sender}",
+                                           department="assistant", rules_path=rules_path)
+                _log(conn, sender, "unsubscribed", detail=f"HTTP {code}")
+                done["unsubscribed"] += 1
+            except gate.Refused as refused:
+                if "already done" not in refused.reason:
+                    raise
+                # a rerun after a stop: this sender was unsubscribed the first time
+                done["already"] = done.get("already", 0) + 1
+            except Exception as exc:  # their link failed: on the auto-trash list instead, nothing else changes
+                conn.execute("insert or ignore into blocked (sender, how, ts) values (?, ?, ?)",
+                             (sender, "one-click failed", datetime.now(timezone.utc).isoformat()))
+                conn.commit()
+                _log(conn, sender, "unsubscribe failed", detail=type(exc).__name__)
+                done["failed"] = done.get("failed", 0) + 1
+    if trash:
+        every = mail.ids_from(sender, keep_starred=True)
+        movable = mail.ids_from(sender, keep_starred=True, exclude=GUARD_QUERY)
+        done["kept_by_guard"] += len(every) - len(movable)
+        for message_id in movable:
+            if not dry_run:
+                try:
+                    mail.trash(message_id)
+                except RuntimeError as exc:  # one email Gmail won't move: logged and left, the run goes on
+                    _log(conn, sender, "not moved", message_id, str(exc))
+                    done["not_moved"] = done.get("not_moved", 0) + 1
+                    continue
+                _log(conn, sender, "trashed", message_id)
+            done["trashed"] += 1
+
+
+def drop_reply(mail, senders: list[str], conn: sqlite3.Connection, *, gate_conn=None, http=None, rules_path=None) -> str:
+    """Felix's one reply to the digest: these senders gone, told back in plain words, one line each. A keep-list
+    sender is left alone, whatever the list said."""
+    from hiremarco.inbox import rule_label
+
+    http = http or httpx.Client(timeout=20, follow_redirects=False)
+    gate_conn = gate_conn or gate.connect()
+    lines = []
+    for sender in senders:
+        name = sender.rpartition("@")[2]
+        if rule_label(sender):
+            lines.append(f"{name}: left alone, you keep that one.")
+            continue
+        done = new_counts()
+        drop_sender(mail, sender, conn, done, gate_conn=gate_conn, http=http, rules_path=rules_path)
+        moved = f"{done['trashed']} email{'s' if done['trashed'] != 1 else ''} to Trash"
+        receipts = done["kept_by_guard"]
+        kept = f", {receipts} receipt{'s' if receipts != 1 else ''} stayed" if receipts else ""
+        if done["skipped"]:
+            lines.append(f"{name}: no mail left from them.")
+        elif done["unsubscribed"] or done.get("already"):
+            lines.append(f"{name}: unsubscribed, {moved}{kept}.")
+        else:
+            lines.append(f"{name}: no working unsubscribe, so their new mail goes straight to Trash. {moved.capitalize()}{kept}.")
+    return "\n".join(lines)
 
 
 def blocked(conn: sqlite3.Connection, sender: str) -> bool:

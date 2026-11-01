@@ -270,8 +270,9 @@ def cmd_inbox(args) -> int:
 
         since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
         listed = _cleanup.connect()
-        text = inbox.digest(inbox.todays_reply(conn, since), inbox.closed_since(conn, since),
-                            inbox.new_promo_senders(conn, since, lambda s: _cleanup.blocked(listed, s)))
+        promos = inbox.new_promo_senders(conn, since, lambda s: _cleanup.blocked(listed, s))
+        inbox.offer_senders(conn, promos, datetime.now().date().isoformat())
+        text = inbox.digest(inbox.todays_reply(conn, since), inbox.closed_since(conn, since), promos)
         try:
             WhatsApp().send_text(owner, text, idempotency_key=f"digest:{datetime.now().date()}")
         except Exception as exc:  # WhatsApp refuses outside its 24 hour window; the job log keeps the reason

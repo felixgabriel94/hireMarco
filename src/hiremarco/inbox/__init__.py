@@ -92,6 +92,7 @@ create table if not exists overrides (sender text primary key, label text not nu
 create table if not exists tasks (id text primary key, name text not null, expect text not null,
                                   opened_at text not null, status text not null, closed_at text, proof text);
 create table if not exists flags (name text primary key, value text not null);
+create table if not exists offered (n integer primary key, sender text not null, day text not null);
 """
 
 
@@ -270,11 +271,42 @@ def digest(decisions: list[Decision], closed: list[tuple[Task, str]], promo_send
         lines += [f"- {t.name}: {proof}" for t, proof in closed]
     if promo_senders:
         lines.append("New promotion senders:")
-        lines += [f"- {s}" for s in promo_senders[:10]]
+        lines += [f"{n}. {s}" for n, s in enumerate(promo_senders[:MAX_OFFERED], 1)]
+        lines.append('Reply "unsubscribe 2" or "unsubscribe all" and they\'re gone.')
     return "\n".join(lines) or "Nothing in your inbox needs you this morning."
 
 
 NUDGE_AFTER_S = 2 * 60 * 60
+MAX_OFFERED = 10
+OFFER_DAYS = 3  # how long a digest's numbers can be answered
+UNSUBSCRIBE = re.compile(r"\s*unsubscribe(?:\s+from)?\s+(all|\d+(?:(?:\s*,\s*|\s+and\s+|\s+)\d+)*)\s*[.!]?\s*", re.I)
+
+
+def offer_senders(conn: sqlite3.Connection, senders: list[str], day: str) -> None:
+    """The numbers the digest printed, replacing the last digest's. No new senders: the old numbers stand."""
+    if not senders:
+        return
+    conn.execute("delete from offered")
+    conn.executemany("insert into offered (n, sender, day) values (?, ?, ?)",
+                     [(n, s, day) for n, s in enumerate(senders[:MAX_OFFERED], 1)])
+    conn.commit()
+
+
+def unsubscribe_words(said: str) -> str | list[int] | None:
+    """What "unsubscribe 2", "unsubscribe 1, 3" or "unsubscribe all" asks for; None when his words are anything else."""
+    m = UNSUBSCRIBE.fullmatch(said or "")
+    if not m:
+        return None
+    return "all" if m.group(1).lower() == "all" else [int(n) for n in re.findall(r"\d+", m.group(1))]
+
+
+def offered_senders(conn: sqlite3.Connection, asked: str | list[int], today: str) -> tuple[list[str], list[int]]:
+    """The senders his reply points at on the current list, and the numbers that aren't on it."""
+    rows = conn.execute("select n, sender, day from offered order by n").fetchall()
+    fresh = {n: s for n, s, day in rows if (datetime.fromisoformat(today) - datetime.fromisoformat(day)).days <= OFFER_DAYS}
+    if asked == "all":
+        return list(fresh.values()), []
+    return [fresh[n] for n in asked if n in fresh], [n for n in asked if n not in fresh]
 
 
 def labels_on(conn: sqlite3.Connection) -> bool:

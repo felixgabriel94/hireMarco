@@ -222,6 +222,34 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
     return f"brain: {decision.action}; {did}{memory}"
 
 
+def digest_unsubscribe(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=None, listed=None, mail=None,
+                       gate_conn=None, http=None, rules_path=None, today: str | None = None) -> str | None:
+    """His one reply to the morning digest: "unsubscribe 2" or "unsubscribe all" (Owner 2026-11-01). None when his
+    words are anything else, and the brain answers as usual."""
+    from datetime import date
+
+    from hiremarco import inbox as mailbox
+    from hiremarco.google import Mail
+    from hiremarco.inbox import cleanup
+
+    asked = mailbox.unsubscribe_words(said)
+    if asked is None:
+        return None
+    conn = conn or mailbox.connect()
+    senders, missing = mailbox.offered_senders(conn, asked, today or date.today().isoformat())
+    lines = []
+    if senders:
+        lines.append(cleanup.drop_reply(mail or Mail(), senders, listed or cleanup.connect(), gate_conn=gate_conn,
+                                        http=http, rules_path=rules_path))
+    if missing:
+        lines.append(f"Number {missing[0]} isn't on the list." if len(missing) == 1
+                     else f"Numbers {', '.join(map(str, missing))} aren't on the list.")
+    if not lines:
+        lines.append("There's no list to unsubscribe from right now. New promotion senders show up in your morning digest.")
+    wa.send_text(sender, "\n".join(lines), idempotency_key=f"digest-unsubscribe:{message_id}")
+    return f"digest unsubscribe: {len(senders)} senders, {len(missing)} numbers not on the list"
+
+
 def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=None, calls=None, places=None,
               start=None, now=None) -> str | None:
     """His yes to Marco's pending call offer: accept it once, build the brief, ask about any gap before dialing,
@@ -390,6 +418,9 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
             photo = photos.latest(wa.conn)  # a photo he sent in the last minutes goes with his words
         if message.kind == "image":
             said = said or "(he sent this photo without a word)"
+        dropped = digest_unsubscribe(said, message.sender, message.id, wa) if said and message.kind != "image" else None
+        if dropped is not None:
+            return trace.done(dropped)
         called = offer_yes(said, message.sender, message.id, wa) if said and message.kind != "image" else None
         if called is not None:
             return trace.done(called)

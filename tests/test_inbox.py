@@ -221,7 +221,7 @@ def test_new_promotion_senders_reach_the_digest_unless_listed():
         conn.execute("insert into applied (message_id, label, sender, ts) values (?, 'Promotions', ?, ?)", (mid, sender, ts))
     senders = inbox.new_promo_senders(conn, "2026-10-31", lambda s: s == "listed@shop.com")
     assert senders == ["new@shop.com"]
-    assert inbox.digest([], [], senders) == "New promotion senders:\n- new@shop.com"
+    assert inbox.digest([], [], senders).startswith("New promotion senders:\n1. new@shop.com\n")
 
 
 def test_rows_under_the_first_label_set_read_under_felixs(tmp_path):
