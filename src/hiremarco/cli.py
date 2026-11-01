@@ -18,6 +18,7 @@
                                          (anyone but the Owner: --owner-said "his words, with the full number")
     uv run marco call transcript ID      the call's transcript and cost, into the state folder
     uv run marco call profile [set F V]  Felix's standing facts for call briefs, kept outside the repo
+    uv run marco call offer PLACE_ID --day thursday --hour 20 --party 4   ask him on WhatsApp to call a place
     uv run marco twilio check            read only: the verified caller IDs and the last calls' status
     uv run marco say "text"              one talkback line in the headphones, kept as a WAV
     uv run marco say --tone              a one-second tone on the talkback output, to test the routing
@@ -226,6 +227,28 @@ def cmd_call(args) -> int:
     from hiremarco.calls import brief as briefs
     from hiremarco.critic import Critic
 
+    if args.action == "offer":
+        from datetime import date
+
+        from hiremarco.calls import offers
+        from hiremarco.offer import load_places, next_weekday
+        from hiremarco.whatsapp import WhatsApp
+
+        place = next((p for p in load_places() if p.id == args.id), None)
+        if place is None:
+            print(f"no place {args.id!r} in the places file")
+            return 1
+        day = next_weekday(args.day.lower(), date.today())
+        offer = offers.record_offer(offers.connect(), place, weekday=args.day, day=day.isoformat(), hour=args.hour,
+                                    party_size=args.party)
+        try:
+            WhatsApp().send_text(config.require("OWNER_WHATSAPP"), offer.text(place),
+                                 idempotency_key=f"offer:{offer.id}")
+        except gate.Refused as refused:
+            print(f"offer {offer.id} not sent: {refused.reason}")
+            return 1
+        print(f"offer {offer.id} sent: {offer.text(place)}")
+        return 0
     if args.action == "profile":
         profile = briefs.load_profile()
         if args.id == "set":
@@ -1146,7 +1169,7 @@ def main(argv: list[str] | None = None) -> int:
     r.set_defaults(func=cmd_relay)
 
     ca = sub.add_parser("call")
-    ca.add_argument("action", choices=["setup", "place", "transcript", "profile"])
+    ca.add_argument("action", choices=["setup", "place", "transcript", "profile", "offer"])
     ca.add_argument("id", nargs="?", help="the conversation id, for transcript; set, for profile")
     ca.add_argument("rest", nargs="*", help="profile set FIELD VALUE")
     ca.add_argument("--relay-url", default="", help="https://<tunnel>/llm/v1, for setup")
@@ -1156,6 +1179,9 @@ def main(argv: list[str] | None = None) -> int:
     ca.add_argument("--brief", action="append", default=[], help="FIELD=VALUE, one per field the call needs")
     ca.add_argument("--brief-file", default="", help="a JSON file of brief fields")
     ca.add_argument("--kind", default="", help="reservation or generic (default: from the purpose)")
+    ca.add_argument("--day", default="thursday", help="for offer: the weekday")
+    ca.add_argument("--hour", type=int, default=20, help="for offer: the hour, 24-hour clock")
+    ca.add_argument("--party", type=int, default=4, help="for offer: everyone at the table")
     ca.add_argument("--no-critic", action="store_true", help="skip the critic's second look")
     ca.add_argument("--owner-said", default="", help="the Owner's own words naming the number, for anyone but him")
     ca.set_defaults(func=cmd_call)

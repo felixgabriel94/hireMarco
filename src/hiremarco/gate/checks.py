@@ -11,7 +11,7 @@ import re
 import sqlite3
 import time
 from collections.abc import Callable
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import TypeVar
 
@@ -116,11 +116,16 @@ def check_outbound(
     today: date | None = None,
     rules_path: Path | None = None,
     owner_request: str | None = None,
+    offer: dict | None = None,
 ) -> None:
     """Raise ``Refused`` unless this action may happen now.
 
     ``owner_request`` is the Owner's own words asking for this action. A ``named`` send switch lets a call through
     only when the target's full number (E.164 digits) is in those words.
+
+    ``offer`` is the evidence for a ``places`` switch: an offer the Owner said yes to on WhatsApp. It holds only
+    when the target is that offer's place, the number is in his private places file, and the yes came within the
+    yes window of the offer and recently.
     """
     if kill_switch_on():
         raise Refused("kill switch is on")
@@ -140,7 +145,8 @@ def check_outbound(
         raise Refused(f"{channel} reaches no person; its target is '*'")
 
     named = channel == "voice" and bool(owner_request) and target in re.sub(r"\D", "", owner_request or "")
-    if not rules.allowed(tool, target, today, rules_path, named_by_owner=named):
+    offered = channel == "voice" and offer is not None and offer_holds(offer, target)
+    if not rules.allowed(tool, target, today, rules_path, named_by_owner=named, offered=offered):
         raise Refused(f"no send switch for {tool} -> {target}")
 
     try:
@@ -167,6 +173,18 @@ def check_outbound(
                 raise Refused(f"daily limit of {limit} {channel} actions reached")
     except sqlite3.Error as exc:
         raise Refused(f"gate record unreadable: {type(exc).__name__}") from exc
+
+
+def offer_holds(offer: dict, target: str, now: datetime | None = None) -> bool:
+    """True when ``offer`` is an accepted offer to call ``target``, a number in the Owner's places file."""
+    from hiremarco.calls.offers import YES_WINDOW
+    from hiremarco.offer import load_places
+
+    now = now or datetime.now(timezone.utc)
+    offered, accepted = offer.get("offered_at"), offer.get("accepted_at")
+    phones = {p.phone.lstrip("+") for p in load_places()}
+    return (offer.get("place_phone") == target and target in phones and offered is not None and accepted is not None
+            and timedelta(0) <= accepted - offered <= YES_WINDOW and timedelta(0) <= now - accepted <= YES_WINDOW)
 
 
 def record_effect(
@@ -209,6 +227,7 @@ def execute_effect(
     today: date | None = None,
     rules_path: Path | None = None,
     owner_request: str | None = None,
+    offer: dict | None = None,
 ) -> T:
     """Check, ask the critic if one is given, run, record.
 
@@ -219,7 +238,7 @@ def execute_effect(
         tenant_id=tenant_id, idempotency_key=idempotency_key, capability=capability, channel=channel,
         target=target, message=message, department=department, workflow_name=workflow_name,
     )
-    check_outbound(conn, **fields, today=today, rules_path=rules_path, owner_request=owner_request)
+    check_outbound(conn, **fields, today=today, rules_path=rules_path, owner_request=owner_request, offer=offer)
     if critic is not None:
         # The Owner's number is private (RULES.md keeps it in the env file), so the critic is told whose it is
         # instead of seeing it; without that it held the first call to the Owner as having no switch.
@@ -228,6 +247,8 @@ def execute_effect(
         description = f"{capability} via {channel} to {shown}: {message}"
         if owner_request:
             description += f" (the Owner asked: {owner_request})"
+        if offer is not None:
+            description += f" (the Owner said yes on WhatsApp to Marco's offer to call {offer.get('place_name')})"
         try:
             approved, reason = critic(description)
         except Exception as exc:

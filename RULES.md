@@ -31,7 +31,9 @@ removed. `<tool>` is the package that acts (`whatsapp`, `calls`, `logic`, `expor
 `<destination>` is a phone number in E.164 without the plus, `owner` for the
 Owner's own number (kept in the private env file, not in this repository),
 `named` for the number the Owner names in that one request (the gate lets a
-call through only when the full number is in his own words), or `*` for a
+call through only when the full number is in his own words), `places` for a
+place in the Owner's private places file that he said yes to calling in a
+WhatsApp offer (the gate checks the offer, the place and the time), or `*` for a
 tool that reaches no person. A new destination is a new line.
 
 ## Send switches
@@ -41,6 +43,7 @@ tool that reaches no person. A new destination is a new line.
     send: logic -> * ; key commands, knobs and the export dialog in the Owner's Logic ; until revoked
     send: calls -> owner ; calls from Marco's line to the Owner's own phone ; until revoked
     send: calls -> named ; calls to the number the Owner names in that request ; until revoked
+    send: calls -> places ; a call to a place in the Owner's places file, only after his yes to that exact offer on WhatsApp ; until revoked
 
 ## Read grants
 

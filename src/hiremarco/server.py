@@ -221,6 +221,71 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
     return f"brain: {decision.action}; {did}{memory}"
 
 
+def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=None, calls=None, places=None,
+              start=None, now=None) -> str | None:
+    """His yes to Marco's pending call offer: accept it once, build the brief, ask about any gap before dialing,
+    then place that one call and report how it went. None when there is no pending offer or the words are not a yes
+    (Owner 2026-10-31: "Yes to his offer calls")."""
+    import threading
+
+    from hiremarco.calls import CallError, Calls, off_brief
+    from hiremarco.calls import brief as briefs
+    from hiremarco.calls import offers
+    from hiremarco.critic import Critic
+
+    conn = conn or offers.connect()
+    reply = lambda text, tag: wa.send_text(sender, text, idempotency_key=f"{tag}:{message_id}")  # noqa: E731
+    answered = offers.asking(conn, now)
+    if answered is not None:  # his one reply to the fallback questions: it goes into the brief, then the call
+        offer = offers.record_fallbacks(conn, answered, said)
+    else:
+        if not AFFIRM.search((said or "").strip()):
+            return None
+        offer = offers.pending(conn, now)
+        if offer is None:
+            return None
+    place = offers.place_for(offer, places)
+    if place is None:
+        offers.set_status(conn, offer.id, "no such place")
+        reply("I can't find that place in your list anymore, so I'm not calling.", "offer-place")
+        return f"offer {offer.id}: place {offer.place_id} not in the places file"
+    try:
+        full = briefs.build("reservation", offers.brief_for(offer))
+    except briefs.BriefIncomplete as gap:
+        reply(offers.ask_for_gaps(gap), "offer-gap")
+        return f"offer {offer.id}: asked for {', '.join(gap.missing)} before dialing"
+    if answered is None:
+        offers.ask_fallbacks(conn, offer)
+        reply(offers.questions_text(offer), "offer-questions")
+        return f"offer {offer.id}: asked the fallback questions before dialing"
+    taken = offers.accept(conn, offer, now)
+    if taken is None:
+        return f"offer {offer.id}: already taken"
+    calls = calls or Calls()
+    try:
+        placed = calls.place("+" + place.phone.lstrip("+"), "book a table", f"offer {offer.id} to call {place.name}",
+                             critic=Critic(), brief=full, kind="reservation", offer=taken.evidence(place),
+                             idempotency_key=f"offer-call:{offer.id}")
+    except (gate.Refused, CallError) as held:
+        offers.set_status(conn, offer.id, "held")
+        reply(f"I couldn't place the call to {place.name}: {getattr(held, 'reason', held)}.", "offer-held")
+        return f"offer {offer.id}: held: {getattr(held, 'reason', held)}"
+    offers.set_status(conn, offer.id, "called")
+    reply(f"Calling {place.name} now. I'll tell you how it goes.", "offer-calling")
+
+    def report() -> None:
+        import json as _json
+
+        offers.wait_for_result(lambda: calls._json("GET", f"/convai/conversations/{placed['conversation_id']}"))
+        # saved and logged like `marco call transcript`: the cost, and what the brief did not cover, for next time
+        data = _json.loads(calls.transcript(placed["conversation_id"]).read_text())
+        wa.send_text(sender, offers.result_text(place, taken, data, off_brief(data)),
+                     idempotency_key=f"offer-result:{offer.id}")
+
+    (start or (lambda f: threading.Thread(target=f, daemon=True).start()))(report)
+    return f"offer {offer.id}: calling {place.name}, conversation {placed['conversation_id']}"
+
+
 def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None = None,
            inbox: Path | None = None, listen=None, booth=None, running=None) -> str:
     wa = wa or WhatsApp()
@@ -247,6 +312,9 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         elif message.kind != "text":
             return trace.done(f"{message.kind} noted, no handler yet")
         remember(wa.conn, "felix", said or "[an empty voice note]")
+        called = offer_yes(said, message.sender, message.id, wa) if said else None
+        if called is not None:
+            return trace.done(called)
         if said:
             try:
                 marco = marco or Marco()

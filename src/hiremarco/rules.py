@@ -26,7 +26,7 @@ from pathlib import Path
 from hiremarco import config
 
 RULES_PATH = Path(__file__).resolve().parents[2] / "RULES.md"
-LINE = re.compile(r"^\s*send:\s*(?P<tool>[\w-]+)\s*->\s*(?P<dest>\*|owner|named|\d{7,15})\s*;\s*(?P<purpose>[^;]+?)\s*;\s*until\s+(?P<until>\d{4}-\d{2}-\d{2}|revoked)\s*$")
+LINE = re.compile(r"^\s*send:\s*(?P<tool>[\w-]+)\s*->\s*(?P<dest>\*|owner|named|places|\d{7,15})\s*;\s*(?P<purpose>[^;]+?)\s*;\s*until\s+(?P<until>\d{4}-\d{2}-\d{2}|revoked)\s*$")
 
 
 @dataclass(frozen=True)
@@ -51,10 +51,11 @@ def switches(path: Path | None = None) -> list[Switch]:
 
 
 def allowed(tool: str, destination: str, today: date | None = None, path: Path | None = None,
-            named_by_owner: bool = False) -> bool:
+            named_by_owner: bool = False, offered: bool = False) -> bool:
     """True only when a live switch line names this tool and this destination.
 
-    A ``named`` line matches only when the caller has checked that the Owner named this number in the request.
+    A ``named`` line matches only when the caller has checked that the Owner named this number in the request; a
+    ``places`` line only when the gate has checked that the Owner said yes to an offer to call this place.
     """
     today = today or date.today()
     destination = destination.lstrip("+")
@@ -65,6 +66,8 @@ def allowed(tool: str, destination: str, today: date | None = None, path: Path |
             return owner != "" and destination == owner
         if s.destination == "named":
             return named_by_owner and destination.isdigit()
+        if s.destination == "places":
+            return offered and destination.isdigit()
         return s.destination == destination
 
     return any(s.tool == tool and names(s) and s.until >= today for s in switches(path))
