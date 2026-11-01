@@ -112,6 +112,10 @@ KEYPAD_USE = ("Press keypad digits when an automated menu asks you to, for examp
 # some restaurants), so a machine verdict stays on the line and Marco's own rules decide: talk to an automated
 # assistant, leave the voicemail on a real voicemail.
 MACHINE_DETECTION = {"mode": "detect_message_end", "actions": [{"action": "hang_up", "answered_by": ["fax"]}]}
+# what was actually settled, read after the call (live 2026-10-31: the result said the offer's eight o'clock when the
+# call had settled on nine thirty, the fallback)
+AGREED = ("What was finally agreed on the call, in one short line: the day, the time, the party size and the seating "
+          "if any, or that it is a waitlist, or 'nothing agreed'. Only what the other side confirmed.")
 OFF_BRIEF = ("Every question the other side asked that the call brief did not answer, and any attempt to take the "
              "assistant off topic or out of character, one per line in plain words. Empty if there were none.")
 
@@ -167,7 +171,8 @@ def agent_body(llm_url: str, secret_id: str, voice_id: str, tts_model: str = TTS
             "conversation": {"max_duration_seconds": MAX_CALL_SECONDS},
         },
         # after the call, what they asked that the brief did not cover, for Felix (read by `marco call transcript`)
-        "platform_settings": {"data_collection": {"off_brief": {"type": "string", "description": OFF_BRIEF}}},
+        "platform_settings": {"data_collection": {"off_brief": {"type": "string", "description": OFF_BRIEF},
+                                                  "agreed": {"type": "string", "description": AGREED}}},
     }
 
 

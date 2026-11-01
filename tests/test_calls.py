@@ -113,6 +113,7 @@ def test_setup_creates_agent_secret_and_stores_ids(env):
                  "Only a result inside the\nbrief; never invent one, and never push past a clear no."):
         assert rule in prompt["prompt"]
     assert body["platform_settings"]["data_collection"]["off_brief"]["type"] == "string"
+    assert body["platform_settings"]["data_collection"]["agreed"]["type"] == "string"
     assert prompt["backup_llm_config"] == {"preference": "disabled"}
     lowered = prompt["prompt"].lower()
     assert "no exclamation marks" in lowered and "never invent a date, a time, a party size or a name" in lowered

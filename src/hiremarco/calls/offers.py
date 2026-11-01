@@ -210,9 +210,12 @@ def result_text(place: Place, offer: CallOffer, data: dict, off_brief: str) -> s
     if status != "done":
         return f"The call to {place.name} didn't go through. Want me to try again later?"
     kind, last = outcome(data)
-    lead = {"booked": f"Booked: {place.name}, {offer.weekday.capitalize()} at {offer.clock()} for {offer.party_size}.",
-            "waitlisted": f"{place.name} was full; you're on their waitlist for {offer.weekday.capitalize()}.",
-            "nothing settled": f"Nothing settled with {place.name}."}[kind]
+    found = ((data.get("analysis") or {}).get("data_collection_results") or {}).get("agreed") or {}
+    agreed = str(found.get("value") or "").strip().rstrip(".")
+    # what the call settled, never the offer's own day and time, which a fallback may have replaced
+    lead = {"booked": f"Booked with {place.name}" + (f": {agreed}." if agreed else ". The details are in his last line."),
+            "waitlisted": f"{place.name} was full; you're on their waitlist" + (f": {agreed}." if agreed else "."),
+            "nothing settled": f"Nothing settled with {place.name}" + (f": {agreed}." if agreed else ".")}[kind]
     text = lead + (f' He closed with: "{last}"' if last else "")
     if off_brief:
         text += " They also asked: " + "; ".join(line.strip() for line in off_brief.splitlines() if line.strip()) + "."

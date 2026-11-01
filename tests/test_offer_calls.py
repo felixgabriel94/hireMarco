@@ -176,3 +176,15 @@ def test_the_client_never_reads_what_is_under_the_hood(world):
     assert plain("Booked at Test Kitchen, Thursday at eight.")[0] == "Booked at Test Kitchen, Thursday at eight."
     world["wa"].send_text(OWNER, "held: no send switch for calls -> 15557770000", idempotency_key="leak")
     assert world["texts"][-1] == PLAIN.lower() and "15557770000" not in world["texts"][-1]
+
+
+def test_the_result_says_what_the_call_settled_not_what_was_offered():
+    offer = offers.CallOffer(1, NOW, "test-kitchen", "thursday", "2026-11-05", 20, 4, "", "called")
+    data = {"status": "done", "transcript": [{"role": "agent", "message": "Thursday at nine thirty works."},
+                                             {"role": "agent", "message": "Thanks so much, see you Thursday. Bye."}],
+            "analysis": {"data_collection_results": {"agreed": {"value": "Thursday at 9:30 pm, four, outdoor"}}}}
+    text = offers.result_text(KITCHEN, offer, data, "")
+    assert text.startswith("Booked with Test Kitchen: Thursday at 9:30 pm, four, outdoor.")
+    assert "at eight" not in text
+    data["analysis"] = {}
+    assert offers.result_text(KITCHEN, offer, data, "").startswith("Booked with Test Kitchen. The details are in")
