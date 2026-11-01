@@ -17,7 +17,7 @@ from typing import Any
 import httpx
 
 from hiremarco import config, gate
-from hiremarco.style import casual
+from hiremarco.style import casual, plain
 from hiremarco.whatsapp.memory import remember
 
 GRAPH_URL = "https://graph.facebook.com/v25.0"
@@ -107,9 +107,20 @@ class WhatsApp:
         )
         return (data.get("messages") or [{}])[0].get("id", "")
 
+    def _plain(self, body: str) -> str:
+        """No part of the system reaches the client in words; the raw text, digits masked, goes to the job log."""
+        import re as _re
+
+        from hiremarco.joblog import JobLog, JobRow
+
+        out, raw = plain(body)
+        if raw is not None:
+            JobLog().append(JobRow(job="whatsapp-plain", ok=False, note=_re.sub(r"\d{5,}", "#", raw)[:300]))
+        return out
+
     def send_text(self, to: str, body: str, *, idempotency_key: str, critic=None,
                   now: datetime | None = None) -> str:
-        body = casual(body)
+        body = casual(self._plain(body))
         sent = self._send(to, {"type": "text", "text": {"body": body}}, text_for_gate=body,
                           idempotency_key=idempotency_key, capability="send_message", critic=critic, now=now)
         remember(self.conn, "marco", body)
@@ -119,7 +130,7 @@ class WhatsApp:
                   now: datetime | None = None) -> str:
         """A message with a button that opens the link. A plain link to an address on the home network is not
         made tappable by WhatsApp (live 2026-10-29: the Owner had to copy it out), a button is."""
-        body, label = casual(body), casual(label)
+        body, label = casual(self._plain(body)), casual(label)
         payload = {"type": "interactive", "interactive": {
             "type": "cta_url", "body": {"text": body},
             "action": {"name": "cta_url", "parameters": {"display_text": label[:20], "url": url}}}}

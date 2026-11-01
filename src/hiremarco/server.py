@@ -247,7 +247,7 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
     place = offers.place_for(offer, places)
     if place is None:
         offers.set_status(conn, offer.id, "no such place")
-        reply("I can't find that place in your list anymore, so I'm not calling.", "offer-place")
+        reply("I can't find that place in your list anymore, so I'm holding off on the call.", "offer-place")
         return f"offer {offer.id}: place {offer.place_id} not in the places file"
     if answered is None:  # the questions come first, so one reply can fill what the profile leaves open
         offers.ask_fallbacks(conn, offer)
@@ -268,7 +268,8 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
                              idempotency_key=f"offer-call:{offer.id}")
     except (gate.Refused, CallError) as held:
         offers.set_status(conn, offer.id, "held")
-        reply(f"I couldn't place the call to {place.name}: {getattr(held, 'reason', held)}.", "offer-held")
+        # the reason stays in the log line; he hears what happened and the one thing to decide
+        reply(f"I couldn't get the call to {place.name} going just now. Want me to try again?", "offer-held")
         return f"offer {offer.id}: held: {getattr(held, 'reason', held)}"
     offers.set_status(conn, offer.id, "called")
     reply(f"Calling {place.name} now. I'll tell you how it goes.", "offer-calling")

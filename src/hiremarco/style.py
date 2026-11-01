@@ -23,3 +23,17 @@ def casual(text: str) -> str:
         last = m.end()
     out.append(lower((text or "")[last:]))
     return "".join(out)
+
+
+# Owner 2026-10-31: Marco never shows the client what is under the hood. A text that would name a part of the
+# system, a tool, a model or an error goes out as a plain line instead; the raw text goes to the log only.
+INTERNAL = re.compile(
+    r"\b(critic|gate(?! code)|relay|send switch|idempotenc\w*|refused|webhook|tunnel|elevenlabs|twilio|"
+    r"muse (spark|wonder)|model call|traceback|exception|callsid|conv_\w+|end_call|voicemail_detection|skip_turn|"
+    r"rules\.md|(the|call|a) brief)\b|\bhttp \d{3}\b", re.I)
+PLAIN = "Something didn't go through on my side just now. I'm on it."
+
+
+def plain(text: str) -> tuple[str, str | None]:
+    """The text as it may go to the client, and the raw text when it had to be replaced (for the log only)."""
+    return (PLAIN, text) if INTERNAL.search(text or "") else (text, None)

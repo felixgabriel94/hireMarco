@@ -167,3 +167,12 @@ def test_the_critic_sees_the_place_even_when_its_number_is_the_owners(world):
                         rules_path=world["rules"], offer=evidence)
     assert seen[0].startswith("call via voice to Test Kitchen (its number from the Owner's places file, offer 7)")
     assert "the Owner's own number" not in seen[0]
+
+
+def test_the_client_never_reads_what_is_under_the_hood(world):
+    from hiremarco.style import PLAIN, plain
+
+    assert plain("i couldn't place the call to test kitchen: critic held it: recipient wrong")[0] == PLAIN
+    assert plain("Booked at Test Kitchen, Thursday at eight.")[0] == "Booked at Test Kitchen, Thursday at eight."
+    world["wa"].send_text(OWNER, "held: no send switch for calls -> 15557770000", idempotency_key="leak")
+    assert world["texts"][-1] == PLAIN.lower() and "15557770000" not in world["texts"][-1]
