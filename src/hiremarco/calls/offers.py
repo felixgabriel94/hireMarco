@@ -214,7 +214,7 @@ def result_text(place: Place, offer: CallOffer, data: dict, off_brief: str) -> s
     value = lambda key: str((collected.get(key) or {}).get("value") or "").strip().rstrip(".")  # noqa: E731
     # what the call settled, never the offer's own day and time, which a fallback may have replaced (live
     # 2026-10-31); facts and the next step only, no goodbye quote (Owner: the message must be useful)
-    agreed, step = value("agreed"), value("next_step")
+    agreed, step = briefs.unspell(value("agreed")), briefs.unspell(value("next_step"))
     name = briefs.load_profile().get("full_name", "").strip()
     if kind == "booked":
         text = f"Booked: {place.name}" + (f", {agreed}" if agreed else "") + (f", under {name}" if name else "") + "."

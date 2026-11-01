@@ -108,3 +108,13 @@ def build(kind: str, given: dict[str, str], profile: dict[str, str] | None = Non
 
 def render(brief: dict[str, str]) -> str:
     return "\n".join(f"- {LABELS.get(k, k.replace('_', ' '))}: {v}" for k, v in brief.items())
+
+
+def unspell(text: str, profile: dict[str, str] | None = None) -> str:
+    """Written text in the real spelling: a respelling made for speech ("Bettencourt") back to its word
+    ("Betancourt"). Everything shown or logged goes through this; only speech uses the respelling (Owner 2026-10-31)."""
+    import re
+
+    for word, spoken in say_as(profile).items():
+        text = re.sub(rf"\b{re.escape(spoken)}\b", word, text or "")
+    return text or ""

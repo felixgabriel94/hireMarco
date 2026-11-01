@@ -190,3 +190,18 @@ def test_the_result_says_what_the_call_settled_not_what_was_offered(world):
     assert "at eight" not in text and "Bye" not in text
     data["analysis"]["data_collection_results"]["next_step"] = {"value": "They will text a link to hold it with a card"}
     assert offers.result_text(KITCHEN, offer, data, "").endswith("Next: They will text a link to hold it with a card.")
+
+
+def test_written_output_keeps_the_real_spelling(world):
+    from hiremarco.calls import off_brief, transcript_lines
+
+    briefs.save_profile({**PROFILE, "full_name": "Felix Zorrilla", "say_as": "Zorrilla=Zor-illa"})
+    offer = offers.CallOffer(1, NOW, "test-kitchen", "thursday", "2026-11-05", 20, 4, "", "called")
+    data = {"status": "done", "transcript": [{"role": "agent", "time_in_call_secs": 9,
+                                              "message": "It's under Felix Zor-illa. See you Thursday."}],
+            "analysis": {"data_collection_results": {"agreed": {"value": "Thursday 9:30 pm for four, Felix Zor-illa"},
+                                                     "off_brief": {"value": "Asked how to spell Zor-illa"}}}}
+    text = offers.result_text(KITCHEN, offer, data, off_brief(data))
+    assert "Zorrilla" in text and "Zor-illa" not in text
+    assert transcript_lines(data) == ["   9s agent: It's under Felix Zorrilla. See you Thursday."]
+    assert off_brief(data) == "Asked how to spell Zorrilla"

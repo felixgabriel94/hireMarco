@@ -346,7 +346,8 @@ class Calls:
             job="call-cost", model="elevenlabs-agent", cost_usd=float(meta.get("cost_fiat") or 0.0),
             duration_ms=int(meta.get("call_duration_secs") or 0) * 1000, ok=data.get("status") == "done",
             note=f"conversation {conversation_id} status {data.get('status')}; {meta.get('cost')} credits"
-                 + (f"; off brief: {' | '.join(str(off).split(chr(10)))[:200]}" if str(off).strip() else ""),
+                 + (f"; off brief: {briefs.unspell(' | '.join(str(off).split(chr(10))))[:200]}"
+                    if str(off).strip() else ""),
         ))
         return path
 
@@ -354,9 +355,10 @@ class Calls:
 def off_brief(data: dict) -> str:
     """What the other side asked that the brief did not cover, as ElevenLabs' post-call analysis found it."""
     found = ((data.get("analysis") or {}).get("data_collection_results") or {}).get("off_brief") or {}
-    return str(found.get("value") or "").strip()
+    return briefs.unspell(str(found.get("value") or "").strip())
 
 
 def transcript_lines(data: dict) -> list[str]:
-    return [f"{t.get('time_in_call_secs', 0):>4}s {t.get('role')}: {t.get('message') or ''}".rstrip()
+    """The call as he reads it, in the real spelling (the record holds what was said aloud)."""
+    return [briefs.unspell(f"{t.get('time_in_call_secs', 0):>4}s {t.get('role')}: {t.get('message') or ''}").rstrip()
             for t in data.get("transcript") or []]
