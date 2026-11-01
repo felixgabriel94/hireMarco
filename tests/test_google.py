@@ -29,7 +29,8 @@ def test_pkce_and_auth_url():
     q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(url).query))
     assert q["scope"] == " ".join(SCOPES) and q["code_challenge_method"] == "S256"
     assert q["access_type"] == "offline" and q["state"] == "st"
-    assert "gmail.modify" not in url and "gmail.send" not in url
+    # Owner 2026-10-31: labels (gmail.modify) for sorting the inbox; sending stays out
+    assert "gmail.modify" in url and "gmail.send" not in url and "mail.google.com" not in url
 
 
 def test_body_prefers_plain_then_strips_html():

@@ -94,15 +94,14 @@ def test_read_grants_exact_address_and_domain(tmp_path):
     assert not rules.may_read("x@resy.com.evil.io", p, today)
 
 
-def test_repo_rules_file_grants_only_vendor_receipts_and_booking_confirmations():
-    """The Owner's yes of 2026-10-29: plug-in vendors' receipts, for licenses and serials; and of 2026-10-31:
-    booking confirmations for calls Marco placed, from the booking services and the places' own domains."""
+def test_repo_rules_file_grants_vendor_receipts_and_the_inbox():
+    """The Owner's yes of 2026-10-29: plug-in vendors' receipts; and of 2026-10-31: every email, to sort it into
+    Marco's labels and link it to his tasks."""
     grants = rules.read_grants()
-    assert grants and all(g.sender.startswith("@") for g in grants)
-    assert all("license receipts" in g.purpose or "booking confirmations" in g.purpose for g in grants)
-    booking = {g.sender for g in grants if "booking confirmations" in g.purpose}
-    assert booking == {"@opentable.com", "@resy.com", "@sevenrooms.com", "@exploretock.com", "@americansocialbar.com"}
-    assert rules.may_read("no-reply@opentable.com") and not rules.may_read("someone@gmail.com")
+    everything = [g for g in grants if g.sender == "*"]
+    assert len(everything) == 1 and "sort every email" in everything[0].purpose
+    assert all(g.sender == "*" or (g.sender.startswith("@") and "license receipts" in g.purpose) for g in grants)
+    assert rules.may_read("someone@gmail.com")
 
 
 def test_nothing_in_the_repo_rules_ends_on_a_date():
@@ -114,3 +113,9 @@ def test_nothing_in_the_repo_rules_ends_on_a_date():
 def test_a_read_grant_until_revoked_has_no_end_date(tmp_path):
     p = write(tmp_path, "read: mail <- @fabfilter.com ; license receipts ; until revoked\n")
     assert rules.may_read("orders@fabfilter.com", p, date(2031, 1, 1))
+
+
+def test_a_read_all_line_covers_every_sender_and_only_while_live(tmp_path):
+    p = write(tmp_path, "read: mail <- * ; sort the inbox ; until 2026-11-30\n")
+    assert rules.may_read("anyone@anywhere.com", p, date(2026, 11, 1))
+    assert not rules.may_read("anyone@anywhere.com", p, date(2026, 12, 1))

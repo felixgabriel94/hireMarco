@@ -89,7 +89,7 @@ def require(tool: str, destination: str, today: date | None = None, path: Path |
 #     read: mail <- <address or @domain> ; <purpose> ; until <YYYY-MM-DD | revoked>
 # Absent means Marco reads no mail at all.
 READ_LINE = re.compile(
-    r"^\s*read:\s*mail\s*<-\s*(?P<sender>@[\w.-]+\.\w+|[\w.+-]+@[\w.-]+\.\w+)\s*;\s*(?P<purpose>[^;]+?)\s*;"
+    r"^\s*read:\s*mail\s*<-\s*(?P<sender>\*|@[\w.-]+\.\w+|[\w.+-]+@[\w.-]+\.\w+)\s*;\s*(?P<purpose>[^;]+?)\s*;"
     r"\s*until\s+(?P<until>\d{4}-\d{2}-\d{2}|revoked)\s*$"
 )
 
@@ -116,7 +116,8 @@ def read_grants(path: Path | None = None, today: date | None = None) -> list[Rea
 
 
 def may_read(sender: str, path: Path | None = None, today: date | None = None) -> bool:
-    """True when a live read grant names this exact address or its domain."""
+    """True when a live read grant names this exact address or its domain, or a ``*`` grant (the Owner's
+    read-all line, for sorting the inbox) covers every sender."""
     sender = sender.strip().lower()
     domain = "@" + sender.rpartition("@")[2]
-    return any(g.sender in (sender, domain) for g in read_grants(path, today))
+    return any(g.sender in (sender, domain, "*") for g in read_grants(path, today))
