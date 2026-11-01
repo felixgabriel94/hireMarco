@@ -30,6 +30,7 @@ class MailItem:
     subject: str
     date: str
     text: str
+    links: tuple[str, ...] = ()  # every https link in the email, the HTML's hrefs included (Owner 2026-10-31)
 
 
 def _header(headers: list[dict], name: str) -> str:
@@ -48,6 +49,23 @@ def _strip_html(text: str) -> str:
     text = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</tr>", "\n", text)
     text = re.sub(r"<[^>]+>", " ", text)
     return re.sub(r"[ \t]+", " ", html.unescape(text)).strip()
+
+
+def body_links(payload: dict) -> tuple[str, ...]:
+    """Every https link in the email, in order, without repeats: the HTML's hrefs and any link in the plain text."""
+    found: list[str] = []
+
+    def walk(part: dict) -> None:
+        data = (part.get("body") or {}).get("data")
+        if data and part.get("mimeType", "") in ("text/plain", "text/html"):
+            raw = _decode(data)
+            found.extend(html.unescape(u) for u in re.findall(r'href=["\'](https://[^"\']+)', raw, re.I))
+            found.extend(html.unescape(u) for u in re.findall(r"https://[^\s<>\"')]+", raw))
+        for child in part.get("parts") or []:
+            walk(child)
+
+    walk(payload)
+    return tuple(dict.fromkeys(found))
 
 
 def body_text(payload: dict) -> str:
@@ -121,7 +139,7 @@ class Mail:
             items.append(MailItem(
                 id=ref["id"], sender=address.lower(), sender_name=name,
                 subject=_header(headers, "Subject"), date=_header(headers, "Date"),
-                text=body_text(full.get("payload", {})),
+                text=body_text(full.get("payload", {})), links=body_links(full.get("payload", {})),
             ))
         return items
 
