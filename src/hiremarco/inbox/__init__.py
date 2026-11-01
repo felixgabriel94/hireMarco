@@ -329,14 +329,15 @@ def seen(conn: sqlite3.Connection, message_id: str) -> bool:
 
 def sort_inbox(mail, client, conn: sqlite3.Connection, *, newer_than: str = "1d", limit: int = 300,
                dry_run: bool = False, before=None, status: dict | None = None,
-               with_tasks: bool = True) -> list[tuple[MailItem, Decision]]:
+               with_tasks: bool = True, stop=None) -> list[tuple[MailItem, Decision]]:
     """Read and sort the new mail. In a dry run nothing is recorded, labelled or linked.
 
     ``before(items)`` runs on everything read, before any model call, and returns the ids it took care of (the
     auto-trash list), which are not sorted. Mail already wearing one of the inbox's labels is left alone. When the
     daily cap or the kill switch refuses a model call, sorting stops there, ``status["capped"]`` says why, and the
     rest waits for the next run; what was sorted is kept. ``with_tasks`` false leaves the task ledger unread: the
-    always-on sweep has none, the machine that opens tasks matches them (``match_tasks``)."""
+    always-on sweep has none, the machine that opens tasks matches them (``match_tasks``). ``stop()`` returning a reason
+    stops sorting the same way, checked before each email."""
     items = mail.everything(newer_than=newer_than, limit=limit, known=None if dry_run else lambda i: seen(conn, i),
                             skip_body=lambda sender, name, subject: bool(SENSITIVE.search(f"{sender} {name} {subject}")))
     handled = set(before(items) or ()) if before else set()
@@ -346,6 +347,11 @@ def sort_inbox(mail, client, conn: sqlite3.Connection, *, newer_than: str = "1d"
     for item in items:
         if item.id in handled or ours & set(item.label_ids):
             continue
+        reason = stop() if stop else None
+        if reason:
+            if status is not None:
+                status["capped"] = reason
+            break
         try:
             pairs.append((item, classify(item, tasks, client, conn)))
         except Unread:

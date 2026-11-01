@@ -204,10 +204,16 @@ def cmd_whatsapp(args) -> int:
 
 
 def cmd_google(args) -> int:
-    from hiremarco.google.auth import signin
+    from pathlib import Path
 
-    signin()
-    print("Google signed in; refresh token stored in the secrets file")
+    from hiremarco.google.auth import GMAIL_ONLY, SCOPES, signin
+
+    if args.write_env and not args.gmail_only:
+        print("--write-env is for a --gmail-only sign-in")
+        return 2
+    target = Path(args.write_env).expanduser() if args.write_env else None
+    signin(scopes=GMAIL_ONLY if args.gmail_only else SCOPES, write_env=target)
+    print(f"Google signed in; keys written to {target}" if target else "Google signed in; refresh token stored in the secrets file")
     return 0
 
 
@@ -342,22 +348,37 @@ def _sent(send, unsent: list):
     return attempt
 
 
+SWEEP_CAP_USD = 1.0  # a day, on the sweep's own job log, far under the gate's cap for everything
+
+
 def _inbox_sweep(args, conn) -> int:
     """The always-on half: sort, label, learn, auto-trash and expire. No WhatsApp, no task ledger: it needs only the
-    Google and model keys, and tells nobody anything."""
+    Google and model keys, and tells nobody anything. The kill switch in its own state folder stops all of it, Gmail
+    moves included; at its daily cap it stops sorting, and auto-trash and expiry, which cost nothing, go on."""
+    from datetime import date
+
     from hiremarco import inbox
+    from hiremarco.gate.kill import kill_switch_on
     from hiremarco.google import Mail
     from hiremarco.inbox import cleanup
+    from hiremarco.joblog import JobLog
     from hiremarco.meta.client import MuseSpark
 
+    if kill_switch_on():
+        Trace("inbox: swept").done("stopped by the kill switch")
+        return 0
     mail, listed, moved, status = Mail(), cleanup.connect(), [], {}
+
+    def over_cap() -> str | None:
+        spent = JobLog().total_usd(date.today().isoformat())
+        return f"sweep cap {SWEEP_CAP_USD:.2f} USD a day reached" if spent >= SWEEP_CAP_USD else None
 
     def auto_trash(items):
         moved.extend(cleanup.trash_blocked(mail, listed, items))
         return moved
 
     pairs = inbox.sort_inbox(mail, MuseSpark(), conn, newer_than=f"{args.days}d", limit=args.limit, before=auto_trash,
-                             status=status, with_tasks=False)
+                             status=status, with_tasks=False, stop=over_cap)
     labelled = inbox.apply_labels(mail, conn, pairs)
     learned = inbox.learn_corrections(mail, conn)
     expired = cleanup.expire_watch(mail, listed) + cleanup.expire_reminders(mail, listed)
@@ -1517,6 +1538,8 @@ def main(argv: list[str] | None = None) -> int:
 
     gg = sub.add_parser("google")
     gg.add_argument("action", choices=["signin"])
+    gg.add_argument("--gmail-only", action="store_true", help="a sign-in with Gmail alone, no calendar")
+    gg.add_argument("--write-env", help="write the keys a sweep needs to this file, mode 600, not to the secrets file")
     gg.set_defaults(func=cmd_google)
 
     m = sub.add_parser("mail")

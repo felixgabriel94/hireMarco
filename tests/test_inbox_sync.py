@@ -204,3 +204,48 @@ def test_the_tasks_half_doesnt_ask_about_an_email_twice_or_mail_from_before_the_
 def test_the_two_halves_cant_be_asked_for_together():
     with pytest.raises(SystemExit):
         cli.main(["inbox", "sync", "--sweep", "--tasks"])
+
+
+def test_the_kill_switch_stops_the_whole_sweep_gmail_moves_included(half, tmp_path, monkeypatch):
+    run, _ = half
+    monkeypatch.setenv("HIREMARCO_STATE", str(tmp_path))
+    (tmp_path / "kill-switch").write_text("stop")
+    listed = cleanup.connect()
+    listed.execute("insert into blocked (sender, how, ts) values ('promo@shop.com', 'link', 'now')")
+    listed.commit()
+    # no Mail or model is even built
+    assert run("sweep", muse=Forbidden) == 0
+
+
+def test_the_sweep_has_its_own_daily_cap_and_auto_trash_goes_on_past_it(half, monkeypatch):
+    from hiremarco.joblog import JobLog
+
+    run, _ = half
+    monkeypatch.setattr(JobLog, "total_usd", lambda self, day=None: cli.SWEEP_CAP_USD)
+    conn = inbox.connect()
+    inbox.set_labels(conn, True)
+    listed = cleanup.connect()
+    listed.execute("insert into blocked (sender, how, ts) values ('promo@shop.com', 'link', 'now')")
+    listed.commit()
+    mail = FakeMail([mail_item("a", "x@shop.com"), mail_item("b", "promo@shop.com", "48 hours left")])
+    assert run("sweep", mail) == 0
+    assert mail.added == [] and mail.trashed == ["b"] and not inbox.seen(conn, "a")
+
+
+def test_a_gmail_only_sign_in_asks_for_gmail_alone_and_writes_only_the_file_it_was_given(tmp_path, monkeypatch):
+    import httpx
+
+    from hiremarco.google import auth
+
+    assert "calendar" not in auth.auth_url("id", "http://x", "c", "s", auth.GMAIL_ONLY)
+    assert "calendar" in auth.auth_url("id", "http://x", "c", "s")
+    home, target = tmp_path / "env", tmp_path / "mini.env"
+    home.write_text("GOOGLE_CLIENT_ID=cid\nGOOGLE_CLIENT_SECRET=sec\nGOOGLE_REFRESH_TOKEN=old\nMODEL_API_KEY=mk\nWHATSAPP_TOKEN=wt\n")
+    monkeypatch.setenv("HIREMARCO_ENV", str(home))
+    monkeypatch.setattr(auth, "_wait_for_code", lambda port, state, timeout: "code")
+    monkeypatch.setattr(auth.webbrowser, "open", lambda url: None)
+    transport = httpx.MockTransport(lambda r: httpx.Response(200, json={"refresh_token": "new"}))
+    auth.signin(transport=transport, scopes=auth.GMAIL_ONLY, write_env=target)
+    written = dict(line.split("=", 1) for line in target.read_text().splitlines())
+    assert written == {"GOOGLE_CLIENT_ID": "cid", "GOOGLE_CLIENT_SECRET": "sec", "GOOGLE_REFRESH_TOKEN": "new", "MODEL_API_KEY": "mk"}
+    assert "GOOGLE_REFRESH_TOKEN=old" in home.read_text() and oct(target.stat().st_mode)[-3:] == "600"

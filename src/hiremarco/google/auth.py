@@ -16,6 +16,7 @@ import secrets
 import threading
 import time
 import urllib.parse
+from pathlib import Path
 import webbrowser
 
 import httpx
@@ -42,12 +43,15 @@ def pkce_pair() -> tuple[str, str]:
     return verifier, challenge
 
 
-def auth_url(client_id: str, redirect_uri: str, challenge: str, state: str) -> str:
+GMAIL_ONLY = ("https://www.googleapis.com/auth/gmail.modify",)  # what a machine that only sweeps the inbox needs
+
+
+def auth_url(client_id: str, redirect_uri: str, challenge: str, state: str, scopes: tuple[str, ...] = SCOPES) -> str:
     query = {
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": "code",
-        "scope": " ".join(SCOPES),
+        "scope": " ".join(scopes),
         "code_challenge": challenge,
         "code_challenge_method": "S256",
         "access_type": "offline",
@@ -88,13 +92,16 @@ def _wait_for_code(port: int, state: str, timeout: float) -> str:
     return result["code"]
 
 
-def signin(port: int = 8765, timeout: float = 300.0, transport: httpx.BaseTransport | None = None) -> None:
+def signin(port: int = 8765, timeout: float = 300.0, transport: httpx.BaseTransport | None = None,
+           scopes: tuple[str, ...] = SCOPES, write_env: Path | None = None) -> None:
+    """The browser sign-in. The refresh token goes to the secrets file, or with ``write_env`` to that file instead,
+    with the three other keys a sweep needs, mode 600, never printed; this machine's own sign-in stays as it was."""
     client_id = config.require("GOOGLE_CLIENT_ID")
     client_secret = config.require("GOOGLE_CLIENT_SECRET")
     redirect_uri = f"http://127.0.0.1:{port}/"
     verifier, challenge = pkce_pair()
     state = secrets.token_urlsafe(16)
-    url = auth_url(client_id, redirect_uri, challenge, state)
+    url = auth_url(client_id, redirect_uri, challenge, state, scopes)
     threading.Timer(0.5, webbrowser.open, args=(url,)).start()
     code = _wait_for_code(port, state, timeout)
     with httpx.Client(transport=transport, timeout=20) as http:
@@ -107,7 +114,12 @@ def signin(port: int = 8765, timeout: float = 300.0, transport: httpx.BaseTransp
     refresh = response.json().get("refresh_token")
     if not refresh:
         raise GoogleAuthError("Google returned no refresh token")
-    config.set_value("GOOGLE_REFRESH_TOKEN", refresh)
+    if write_env is None:
+        config.set_value("GOOGLE_REFRESH_TOKEN", refresh)
+        return
+    for key, value in (("GOOGLE_CLIENT_ID", client_id), ("GOOGLE_CLIENT_SECRET", client_secret),
+                       ("GOOGLE_REFRESH_TOKEN", refresh), ("MODEL_API_KEY", config.require("MODEL_API_KEY"))):
+        config.set_value(key, value, write_env)
 
 
 class GoogleAuth:
