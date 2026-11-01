@@ -30,8 +30,6 @@ def world(tmp_path, monkeypatch):
     places.write_text(json.dumps([KITCHEN.__dict__]))
     monkeypatch.setenv("HIREMARCO_PLACES", str(places))
     briefs.save_profile(PROFILE)
-    watched = []
-    monkeypatch.setattr("hiremarco.calls.confirm.watch", lambda place, *a, **k: watched.append(place.name) or "watched")
     rules = tmp_path / "RULES.md"
     rules.write_text(f"send: whatsapp -> {OWNER} ; chat ; until revoked\n"
                      "send: calls -> places ; offers ; until revoked\n")
@@ -58,7 +56,7 @@ def world(tmp_path, monkeypatch):
     calls = Calls(transport=httpx.MockTransport(el_handler), conn=gate.connect(":memory:"),
                   joblog=JobLog(tmp_path / "j.jsonl"), rules_path=rules)
     return {"wa": wa, "calls": calls, "texts": texts, "dialed": dialed, "conn": offers.connect(":memory:"),
-            "rules": rules, "watched": watched}
+            "rules": rules}
 
 
 def yes(world, said="yes", now=None, mid="m1"):
@@ -89,7 +87,10 @@ def test_a_yes_places_one_call_and_reports_the_result(world, monkeypatch):
     result = world["texts"][-1].lower()
     assert result.startswith("test kitchen was full, so you're on their waitlist")
     assert "bye" not in result and "birthday" not in result  # no goodbye quote; what they asked stays in the log
-    assert world["watched"] == ["Test Kitchen"]  # then the confirmation email is watched for
+    from hiremarco import inbox
+
+    task = inbox.get_task(inbox.connect(), f"offer-{offer.id}")  # then the inbox watches for its proof
+    assert task.name == "Test Kitchen booking" and task.status == "open" and task.expect["place"] == "Test Kitchen"
     assert "7770000" not in " ".join(world["texts"])
     # a second yes to the same offer places nothing more
     assert yes(world, mid="m2") is None and len(world["dialed"]) == 1

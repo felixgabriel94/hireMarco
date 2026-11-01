@@ -52,7 +52,7 @@ def names_place(booking: Booking, place: Place) -> bool:
     return bool(words) and words[0] in booking.restaurant.lower()
 
 
-def best_link(item: MailItem, place: Place) -> str:
+def best_link(item: MailItem, place: Place | None) -> str:
     """The email's own link to view or manage the booking, if it has one."""
     def score(url: str) -> int:
         low = url.lower()

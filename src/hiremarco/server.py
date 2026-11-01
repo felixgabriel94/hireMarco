@@ -222,7 +222,7 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
 
 
 def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=None, calls=None, places=None,
-              start=None, now=None, watcher_mail=None, watcher_client=None) -> str | None:
+              start=None, now=None) -> str | None:
     """His yes to Marco's pending call offer: accept it once, build the brief, ask about any gap before dialing,
     then place that one call and report how it went. None when there is no pending offer or the words are not a yes
     (Owner 2026-10-31: "Yes to his offer calls")."""
@@ -273,9 +273,6 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
         return f"offer {offer.id}: held: {getattr(held, 'reason', held)}"
     offers.set_status(conn, offer.id, "called")
     reply(f"Calling {place.name} now. I'll tell you how it goes.", "offer-calling")
-    from datetime import timedelta as _td
-
-    confirm_lookback = _td(minutes=10)  # a confirmation can land while the call is still on
 
     def report() -> None:
         import json as _json
@@ -286,16 +283,15 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
         wa.send_text(sender, offers.result_text(place, taken, data, off_brief(data)),
                      idempotency_key=f"offer-result:{offer.id}")
         if data.get("status") == "done" and offers.outcome(data)[0] in ("booked", "waitlisted"):
-            # the proof: the place's confirmation email and its link, watched for up to two hours
-            from datetime import datetime as _dt
-            from datetime import timezone as _tz
+            # the proof comes from the inbox: a task in the ledger, matched by meaning against each new email
+            from hiremarco import inbox
+            from hiremarco.calls import brief as _briefs
 
-            from hiremarco.calls import confirm
-
-            confirm.watch(place, _dt.now(_tz.utc) - confirm_lookback, watcher_mail, watcher_client,
-                          lambda text: wa.send_text(sender, text, idempotency_key=f"offer-confirm:{offer.id}"),
-                          lambda text, url: wa.send_link(sender, text, url, "View booking",
-                                                         idempotency_key=f"offer-confirm:{offer.id}"))
+            collected = (data.get("analysis") or {}).get("data_collection_results") or {}
+            got = lambda key: _briefs.unspell(str((collected.get(key) or {}).get("value") or "").strip())  # noqa: E731
+            inbox.open_task(inbox.connect(), f"offer-{offer.id}", f"{place.name} booking",
+                            {"place": place.name, "agreed": got("agreed"), "next_step": got("next_step"),
+                             "name": _briefs.load_profile().get("full_name", "")})
 
     (start or (lambda f: threading.Thread(target=f, daemon=True).start()))(report)
     return f"offer {offer.id}: calling {place.name}, conversation {placed['conversation_id']}"

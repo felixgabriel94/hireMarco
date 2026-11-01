@@ -13,6 +13,10 @@
     uv run marco google signin           one Google sign-in for mail (read) and calendar
     uv run marco mail check              granted senders' mail from the last two days
     uv run marco relay token             make the call relay's token, copy it to the clipboard for ElevenLabs
+    uv run marco inbox dry-run --days 14 sort the inbox without labelling: counts and examples per label
+    uv run marco inbox sync              sort new mail, label it (once labels are on), link it to his tasks
+    uv run marco inbox labels on|off     labels in Gmail, after the Owner saw a dry run
+    uv run marco inbox digest            the morning WhatsApp: what needs a reply, what came in for tasks
     uv run marco call setup [--relay-url URL]  the "Marco (calls)" agent on ElevenLabs, made or brought up to date
     uv run marco call place --to +1... --purpose "book a table" [--details "..."]   one call, through the gate
                                          (anyone but the Owner: --owner-said "his words, with the full number")
@@ -206,6 +210,47 @@ def cmd_mail(args) -> int:
         return 0
     for item in items:
         Trace(f"mail: {item.sender_name or item.sender}").done(item.subject[:60])
+    return 0
+
+
+def cmd_inbox(args) -> int:
+    from datetime import datetime, timedelta, timezone
+
+    from hiremarco import inbox
+    from hiremarco.google import Mail
+    from hiremarco.meta.client import MuseSpark
+    from hiremarco.whatsapp import WhatsApp
+
+    conn = inbox.connect()
+    if args.action == "labels":
+        inbox.set_labels(conn, args.state == "on")
+        print(f"labels {'on' if args.state == 'on' else 'off'}")
+        return 0
+    owner = config.require("OWNER_WHATSAPP")
+    if args.action == "digest":
+        since = (datetime.now(timezone.utc) - timedelta(days=1)).isoformat()
+        text = inbox.digest(inbox.todays_reply(conn, since), inbox.closed_since(conn, since))
+        WhatsApp().send_text(owner, text, idempotency_key=f"digest:{datetime.now().date()}")
+        print("digest sent")
+        return 0
+    mail = Mail()
+    if args.action == "dry-run":
+        pairs = inbox.sort_inbox(mail, MuseSpark(), conn, newer_than=f"{args.days}d", limit=args.limit, dry_run=True)
+        if not pairs:
+            print("read nothing: the read-all line is not in RULES.md yet")
+            return 1
+        print(inbox.summary(pairs))
+        return 0
+    wa = WhatsApp()
+    pairs = inbox.sort_inbox(mail, MuseSpark(), conn, newer_than=f"{args.days}d", limit=args.limit)
+    labelled = inbox.apply_labels(mail, conn, pairs)
+    learned = inbox.learn_corrections(mail, conn)
+    closed = inbox.link_tasks(conn, pairs, lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-proof:{tid}"),
+                              lambda tid, text, url: wa.send_link(owner, text, url, "View booking",
+                                                                  idempotency_key=f"task-proof:{tid}"))
+    nudged = inbox.nudge_stale(conn, lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-nudge:{tid}"))
+    Trace("inbox: sorted").done(f"{len(pairs)} new, {labelled} labelled, {len(closed)} tasks proved, {nudged} nudged,"
+                                f" {learned} corrections learned")
     return 0
 
 
@@ -1163,6 +1208,13 @@ def main(argv: list[str] | None = None) -> int:
     m = sub.add_parser("mail")
     m.add_argument("action", choices=["check"])
     m.set_defaults(func=cmd_mail)
+
+    ib = sub.add_parser("inbox")
+    ib.add_argument("action", choices=["dry-run", "sync", "digest", "labels"])
+    ib.add_argument("state", nargs="?", choices=["on", "off"])
+    ib.add_argument("--days", type=int, default=1)
+    ib.add_argument("--limit", type=int, default=300)
+    ib.set_defaults(func=cmd_inbox)
 
     r = sub.add_parser("relay")
     r.add_argument("action", choices=["token"])
