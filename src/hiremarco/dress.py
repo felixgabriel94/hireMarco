@@ -57,7 +57,9 @@ INSTRUCTIONS = """Felix laid his clothes out and asked you to dress him. The fir
 the same photo with every piece found in it tinted and numbered; the list gives each number and what it is. Build \
 exactly three looks, A, B and C, for the day he describes, each made only of numbered pieces: a piece may be in more \
 than one look, a piece that is not numbered may not be in any. Each look has a name of at most three words, its piece \
-numbers, and one plain line on why it works for his day. Choose with his mood board in mind: it is the vibe he is \
+numbers, and one plain line on why it works for his day. Each look is one outfit for everything he names that day: \
+when he names more than one stop ("shoot first, then the studio"), every look works for all of them with no change of \
+clothes, never one look per stop. Choose with his mood board in mind: it is the vibe he is \
 going for, not his wardrobe. Then recommend one, and write the caption he reads under the board: one or two short \
 sentences in your voice, naming your pick and why, ending by asking him A, B or C. Plain words; never mention the \
 tools, the numbers' source or how you see."""

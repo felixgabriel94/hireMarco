@@ -490,3 +490,28 @@ def test_an_iphone_heic_is_read_through_sips(tmp_path):
     heic = tmp_path / "bed.heic"
     subprocess.run(["sips", "-s", "format", "heic", str(src), "--out", str(heic)], check=True, capture_output=True)
     assert Image.open(io.BytesIO(photo_bytes(heic))).size == (W, H)
+
+
+def test_every_look_is_one_outfit_for_all_his_stops(tmp_path):
+    seen = []
+    pieces = dress.find_pieces(jpeg(bed()), (W, H), find=fake_find())
+    dress.three_looks(jpeg(bed()), b"png", pieces, "Shoot first, then the studio", mood=[], facts=[],
+                      client=spark(tmp_path, seen))
+    system = seen[0]["messages"][0]["content"]
+    assert "every look works for all of them with no change of clothes, never one look per stop" in system
+
+
+def test_a_retake_with_a_new_photo_is_not_held_as_a_duplicate(tmp_path, monkeypatch):
+    wa, sent, uploads = line(tmp_path, monkeypatch, jpeg(bed()))
+    marco = Marco(spark(tmp_path, []))
+    assert "what SAM sees and the board sent" in handle(arrive(wa, "w1", kind="image", media_id="photo-1",
+                                                               caption="Marco, dress me."), wa=wa, marco=marco)
+    moved = bed()
+    ImageDraw.Draw(moved).rectangle((200, 200, 300, 300), fill=(90, 90, 90))  # the same clothes, another photo
+    second = jpeg(moved)
+    wa._http = httpx.Client(base_url=wa._http.base_url, headers=wa._http.headers, transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, content=second) if request.url.host == "lookaside.example"
+        else httpx.Response(200, json={"url": "https://lookaside.example/photo-1", "mime_type": "image/jpeg"})
+        if request.url.path.endswith("/photo-1") else httpx.Response(200, json={"id": "up", "messages": [{"id": "o"}]})))
+    out = handle(arrive(wa, "w2", kind="image", media_id="photo-1", caption="Marco, dress me."), wa=wa, marco=marco)
+    assert "what SAM sees and the board sent" in out and "held" not in out

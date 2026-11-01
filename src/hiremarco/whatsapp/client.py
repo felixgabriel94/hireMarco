@@ -9,6 +9,7 @@ so the client refuses instead.
 
 from __future__ import annotations
 
+import hashlib
 import sqlite3
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -182,7 +183,8 @@ class WhatsApp:
     def send_image(self, to: str, png: bytes, caption: str, *, idempotency_key: str, critic=None,
                    now: datetime | None = None, mime: str = "image/png") -> str:
         """A picture with a short caption: uploaded and sent inside one gated action. ``mime`` image/jpeg for a
-        photo-heavy picture, which as a PNG can pass WhatsApp's 5 MB image limit."""
+        photo-heavy picture, which as a PNG can pass WhatsApp's 5 MB image limit. The gate's duplicate check sees the
+        picture too: the same caption on a new picture is a new message (a retake of Dress me or the selects)."""
         caption = casual(caption)
         if not self._inside_window(to, now):
             raise gate.Refused("outside the 24-hour window; a template would cost money, so asking the Owner first")
@@ -194,7 +196,8 @@ class WhatsApp:
 
         data = gate.execute_effect(
             self.conn, run, tenant_id=TENANT, idempotency_key=idempotency_key, capability="send_image",
-            channel="whatsapp", target=to, message=f"image: {caption}", department="assistant",
+            channel="whatsapp", target=to, department="assistant",
+            message=f"image {hashlib.sha256(png).hexdigest()[:16]}: {caption}",
             critic=critic, rules_path=self.rules_path,
         )
         remember(self.conn, "marco", f"[picture] {caption}")
