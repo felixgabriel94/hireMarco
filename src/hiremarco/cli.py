@@ -17,6 +17,9 @@
     uv run marco inbox sync              sort new mail, label it (once labels are on), link it to his tasks
     uv run marco inbox labels on|off     labels in Gmail, after the Owner saw a dry run
     uv run marco inbox digest            the morning WhatsApp: what needs a reply, what came in for tasks
+    uv run marco inbox cleanup --list F --confirm SHA   unsubscribe and trash the senders the Owner marked
+    uv run marco inbox undo              take every email the cleanup moved back out of Trash
+    uv run marco inbox lindy-off         remove the Lindy label (not its emails) and make the Marco label
     uv run marco call setup [--relay-url URL]  the "Marco (calls)" agent on ElevenLabs, made or brought up to date
     uv run marco call place --to +1... --purpose "book a table" [--details "..."]   one call, through the gate
                                          (anyone but the Owner: --owner-said "his words, with the full number")
@@ -222,6 +225,37 @@ def cmd_inbox(args) -> int:
     from hiremarco.whatsapp import WhatsApp
 
     conn = inbox.connect()
+    if args.action in ("cleanup", "undo", "lindy-off"):
+        from pathlib import Path
+
+        from hiremarco.inbox import cleanup
+
+        mail = Mail()
+        if args.action == "lindy-off":
+            gone = mail.delete_label("Lindy")
+            mail.ensure_label("Marco", inbox.LABELS["Task"])
+            print(("Lindy label removed" if gone else "no Lindy label") + "; Marco label ready")
+            return 0
+        if args.action == "undo":
+            print(f"{cleanup.undo(mail, cleanup.connect())} emails taken back out of Trash")
+            return 0
+        if not args.list or not args.confirm:
+            print("cleanup needs --list FILE and --confirm SHA256 of that file")
+            return 1
+        try:
+            done = cleanup.run(mail, Path(args.list), args.confirm, cleanup.connect(), dry_run=args.dry_run)
+        except gate.Refused as refused:
+            print(f"not run: {refused.reason}")
+            return 1
+        b = done["blocked"]
+        print(f"one-click unsubscribes {'to send' if args.dry_run else 'sent'}: "
+              f"{done['one_click'] if args.dry_run else done['unsubscribed']}; "
+              f"{'to block' if args.dry_run else 'blocked'} (web link / email only / none): {b['link']} / {b['email']} /"
+              f" {b['none']}; {'to trash' if args.dry_run else 'trashed'}: {done['trashed']}; kept by the receipt guard:"
+              f" {done['kept_by_guard']}; no mail found: {done['skipped']}")
+        for sender, how in done["for_felix"]:
+            print(f"  web link: {sender}: {how}")
+        return 0
     if args.action == "labels":
         inbox.set_labels(conn, args.state == "on")
         print(f"labels {'on' if args.state == 'on' else 'off'}")
@@ -243,13 +277,16 @@ def cmd_inbox(args) -> int:
         return 0
     wa = WhatsApp()
     pairs = inbox.sort_inbox(mail, MuseSpark(), conn, newer_than=f"{args.days}d", limit=args.limit)
+    from hiremarco.inbox import cleanup as _cleanup
+
+    trashed = _cleanup.trash_blocked(mail, _cleanup.connect(), [item for item, _ in pairs])
     labelled = inbox.apply_labels(mail, conn, pairs)
     learned = inbox.learn_corrections(mail, conn)
     closed = inbox.link_tasks(conn, pairs, lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-proof:{tid}"),
                               lambda tid, text, url: wa.send_link(owner, text, url, "View booking",
                                                                   idempotency_key=f"task-proof:{tid}"))
     nudged = inbox.nudge_stale(conn, lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-nudge:{tid}"))
-    Trace("inbox: sorted").done(f"{len(pairs)} new, {labelled} labelled, {len(closed)} tasks proved, {nudged} nudged,"
+    Trace("inbox: sorted").done(f"{len(pairs)} new, {trashed} from blocked senders to Trash, {labelled} labelled, {len(closed)} tasks proved, {nudged} nudged,"
                                 f" {learned} corrections learned")
     return 0
 
@@ -1210,7 +1247,10 @@ def main(argv: list[str] | None = None) -> int:
     m.set_defaults(func=cmd_mail)
 
     ib = sub.add_parser("inbox")
-    ib.add_argument("action", choices=["dry-run", "sync", "digest", "labels"])
+    ib.add_argument("action", choices=["dry-run", "sync", "digest", "labels", "cleanup", "undo", "lindy-off"])
+    ib.add_argument("--list", default="", help="cleanup: the marked sender list (CSV)")
+    ib.add_argument("--confirm", default="", help="cleanup: the sha256 of that list, as the Owner confirmed it")
+    ib.add_argument("--dry-run", action="store_true", help="cleanup: count only, change nothing")
     ib.add_argument("state", nargs="?", choices=["on", "off"])
     ib.add_argument("--days", type=int, default=1)
     ib.add_argument("--limit", type=int, default=300)

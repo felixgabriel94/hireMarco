@@ -36,6 +36,7 @@ CHANNEL_TOOLS = {
     "files": "export",
     "calendar": "calendar",
     "talkback": "talkback",
+    "unsubscribe": "unsubscribe",  # a one-click unsubscribe POST to a sender the Owner marked
 }
 PERSON_CHANNELS = {"whatsapp", "voice"}
 

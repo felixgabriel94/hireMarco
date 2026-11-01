@@ -178,7 +178,7 @@ class Mail:
         return {lab["name"]: lab["id"] for lab in self._get("/labels").get("labels") or []}
 
     def ensure_label(self, name: str, colors: tuple[str, str]) -> str:
-        if not name.startswith("Marco/"):
+        if not (name == "Marco" or name.startswith("Marco/")):
             raise ValueError("Marco makes only his own labels")
         found = self.labels().get(name)
         if found:
@@ -203,6 +203,50 @@ class Mail:
                                    json={"addLabelIds": [add], "removeLabelIds": remove})
         if response.status_code >= 400:
             raise RuntimeError(f"Gmail refused the label (HTTP {response.status_code})")
+
+    def latest_from(self, sender: str):
+        """The newest email from this exact sender: its id and its unsubscribe headers, or None."""
+        page = self._get("/messages", q=f"from:{sender}", maxResults=1)
+        refs = page.get("messages") or []
+        if not refs:
+            return None
+        meta = self._get(f"/messages/{refs[0]['id']}", format="metadata",
+                         metadataHeaders=["List-Unsubscribe", "List-Unsubscribe-Post"])
+        return refs[0]["id"], {h["name"].lower(): h["value"] for h in meta.get("payload", {}).get("headers", [])}
+
+    def ids_from(self, sender: str, keep_starred: bool = True, exclude: str = "") -> list[str]:
+        """Every email from this exact sender, starred ones left out, minus what ``exclude`` (a search) names."""
+        q = f"from:{sender} -in:trash" + (" -is:starred" if keep_starred else "") + (f" {exclude}" if exclude else "")
+        out, token = [], None
+        while True:
+            page = self._get("/messages", q=q, maxResults=500, **({"pageToken": token} if token else {}))
+            out += [m["id"] for m in page.get("messages") or []]
+            token = page.get("nextPageToken")
+            if not token:
+                return out
+
+    def trash(self, message_id: str) -> None:
+        """Gmail's Trash, which Gmail empties after 30 days; there is no permanent delete in this code."""
+        response = self._http.post(f"/messages/{message_id}/trash", headers=self.auth.headers())
+        if response.status_code >= 400:
+            raise RuntimeError(f"Gmail refused the move (HTTP {response.status_code})")
+
+    def untrash(self, message_id: str) -> None:
+        response = self._http.post(f"/messages/{message_id}/untrash", headers=self.auth.headers())
+        if response.status_code >= 400:
+            raise RuntimeError(f"Gmail refused the restore (HTTP {response.status_code})")
+
+    def delete_label(self, name: str) -> bool:
+        """Remove a label (never the emails under it). Only "Lindy", by the Owner's word of 2026-10-31."""
+        if name != "Lindy":
+            raise ValueError("only the Lindy label, by the Owner's word")
+        label_id = self.labels().get(name)
+        if not label_id:
+            return False
+        response = self._http.delete(f"/labels/{label_id}", headers=self.auth.headers())
+        if response.status_code >= 400:
+            raise RuntimeError(f"Gmail refused (HTTP {response.status_code})")
+        return True
 
     def close(self) -> None:
         self._http.close()
