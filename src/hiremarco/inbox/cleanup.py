@@ -19,7 +19,7 @@ import csv
 import hashlib
 import re
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -185,24 +185,73 @@ def expire_watch(mail, conn: sqlite3.Connection, limit: int = 100) -> int:
     (Owner 2026-11-01). Gmail's search is the clock: older_than counts from when the email arrived."""
     moved = 0
     for query in WATCH_EXPIRY:
-        for message_id, sender in mail.found(query, limit=limit):
-            mail.trash(message_id)
-            _log(conn, sender, "trashed", message_id, "watch expiry")
+        for found in mail.found(query, limit=limit):
+            mail.trash(found.id)
+            _log(conn, found.sender, "trashed", found.id, "watch expiry")
             moved += 1
     return moved
 
 
-# an appointment reminder is for the days before it: past that it is noise, and the upcoming ones stay (Owner 2026-11-01)
-OLD_REMINDERS = ('{subject:"appointment reminder" subject:"appointment is coming up" subject:"upcoming appointment"}'
-                 " -is:starred older_than:14d")
+# an appointment reminder is for the days before it: once the appointment has passed it goes, and an upcoming one
+# stays (Owner 2026-11-01: "Marco should know the difference")
+REMINDERS = ('{subject:"appointment reminder" subject:"appointment is coming up" subject:"upcoming appointment"}'
+             " -is:starred older_than:1d")
+NO_DATE_DAYS = 14  # a reminder with no date to read goes at this age
+MONTHS = "jan feb mar apr may jun jul aug sep oct nov dec".split()
+NAMED_DATE = re.compile(r"\b(" + "|".join(MONTHS) + r")[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?\b(?:,?\s+(\d{4})\b)?", re.I)
+SLASH_DATE = re.compile(r"(?<![\d/])(\d{1,2})/(\d{1,2})(?:/(\d{4}|\d{2}))?(?![\d/])")
+UNCLEAR = "unclear"
 
 
-def expire_reminders(mail, conn: sqlite3.Connection, limit: int = 100) -> int:
-    """Appointment reminders two weeks old go to Trash, logged for undo. Nothing newer is touched."""
-    moved = 0
-    for message_id, sender in mail.found(OLD_REMINDERS, limit=limit):
-        mail.trash(message_id)
-        _log(conn, sender, "trashed", message_id, "old appointment reminder")
+def _on(arrived: date, month: int, day: int, year: str | None) -> date:
+    """A date with no year is its next occurrence after the email arrived. Raises ValueError for one that can't be."""
+    if year:
+        return date(int(year) + (2000 if len(year) == 2 else 0), month, day)
+    this_year = date(arrived.year, month, day)
+    return this_year if this_year >= arrived else this_year.replace(year=arrived.year + 1)
+
+
+def appointment_date(subject: str, snippet: str, arrived: date):
+    """The appointment's date from the words of its reminder: a date, None when no date is written, or UNCLEAR when
+    the words don't settle on one (two different dates, or an impossible one). The subject speaks first."""
+    for text in (subject, snippet):
+        found = set()
+        try:
+            for month, day, year in NAMED_DATE.findall(text):
+                found.add(_on(arrived, MONTHS.index(month[:3].lower()) + 1, int(day), year or None))
+            for month, day, year in SLASH_DATE.findall(text):
+                found.add(_on(arrived, int(month), int(day), year or None))
+        except ValueError:
+            return UNCLEAR
+        if re.search(r"\btoday\b", text, re.I):
+            found.add(arrived)
+        if re.search(r"\btomorrow\b", text, re.I):
+            found.add(arrived + timedelta(days=1))
+        if len(found) > 1:
+            return UNCLEAR
+        if found:
+            return found.pop()
+    return None
+
+
+def expire_reminders(mail, conn: sqlite3.Connection, limit: int = 100, today: date | None = None) -> int:
+    """Reminders of appointments that have passed go to Trash, logged for undo. With no date written, by age; when
+    the words don't settle on a date, or the arrival is unknown, the email stays."""
+    today, moved = today or date.today(), 0
+    for found in mail.found(REMINDERS, limit=limit):
+        if found.day is None:
+            continue
+        when = appointment_date(found.subject, found.snippet, found.day)
+        if when == UNCLEAR:
+            continue
+        if when is None and (today - found.day).days >= NO_DATE_DAYS:
+            detail = f"old appointment reminder, no date written, {NO_DATE_DAYS} days old"
+        elif when is not None and when < today:
+            detail = f"appointment reminder, its date {when.isoformat()} has passed"
+        else:
+            continue
+        mail.trash(found.id)
+        _log(conn, found.sender, "trashed", found.id, detail)
         moved += 1
     return moved
 

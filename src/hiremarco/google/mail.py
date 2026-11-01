@@ -11,6 +11,7 @@ import base64
 import html
 import re
 from dataclasses import dataclass
+from datetime import date, datetime
 from email.utils import parseaddr
 from pathlib import Path
 
@@ -20,6 +21,16 @@ from hiremarco import rules
 from hiremarco.google.auth import GoogleAuth
 
 GMAIL_URL = "https://gmail.googleapis.com/gmail/v1/users/me"
+
+
+@dataclass(frozen=True)
+class Found:
+    """What a Gmail search hands back about one email: headers and Gmail's snippet, never the body."""
+    id: str
+    sender: str
+    subject: str
+    snippet: str
+    day: date | None  # the day it arrived
 
 
 @dataclass(frozen=True)
@@ -183,13 +194,16 @@ class Mail:
                 break
         return items
 
-    def found(self, q: str, limit: int = 100) -> list[tuple[str, str]]:
-        """(id, sender) for the emails a Gmail search finds, up to ``limit``."""
+    def found(self, q: str, limit: int = 100) -> list[Found]:
+        """The emails a Gmail search finds, up to ``limit``."""
         page = self._get("/messages", q=q, maxResults=limit)
         out = []
         for ref in page.get("messages") or []:
-            meta = self._get(f"/messages/{ref['id']}", format="metadata", metadataHeaders=["From"])
-            out.append((ref["id"], parseaddr(_header(meta.get("payload", {}).get("headers", []), "From"))[1].lower()))
+            meta = self._get(f"/messages/{ref['id']}", format="metadata", metadataHeaders=["From", "Subject"])
+            headers = meta.get("payload", {}).get("headers", [])
+            arrived = int(meta.get("internalDate") or 0)
+            out.append(Found(ref["id"], parseaddr(_header(headers, "From"))[1].lower(), _header(headers, "Subject"),
+                             meta.get("snippet", ""), datetime.fromtimestamp(arrived / 1000).date() if arrived else None))
         return out
 
     def labels(self) -> dict[str, str]:

@@ -1,10 +1,11 @@
 import json
+from datetime import date
 
 import httpx
 import pytest
 
 from hiremarco import gate
-from hiremarco.google.mail import Mail
+from hiremarco.google.mail import Found, Mail
 from hiremarco.inbox import cleanup
 
 
@@ -121,24 +122,61 @@ def test_watch_mail_expires_read_at_30_days_unread_at_60_starred_never_and_can_b
     conn, mail = cleanup.connect(":memory:"), FakeMail({})
     asked = []
 
-    def found(q, limit=100):
+    def search(q, limit=100):
         asked.append(q)
-        return [("w1", "hello@lindy.ai")] if "is:read" in q else [("w2", "team@mail.cerebralvalley.ai")]
+        return [Found("w1", "hello@lindy.ai", "", "", None)] if "is:read" in q else [
+            Found("w2", "team@mail.cerebralvalley.ai", "", "", None)]
 
-    mail.found = found
+    mail.found = search
     assert cleanup.expire_watch(mail, conn) == 2 and mail.trashed == ["w1", "w2"]
     assert asked == ["label:Watch -is:starred is:read older_than:30d", "label:Watch -is:starred is:unread older_than:60d"]
     logged = conn.execute("select message_id, detail from cleanup where action = 'trashed' order by id").fetchall()
     assert logged == [("w1", "watch expiry"), ("w2", "watch expiry")]
 
 
-def test_only_old_appointment_reminders_expire_and_they_can_be_undone():
+D = date(2026, 11, 1)
+
+
+@pytest.mark.parametrize("subject,snippet,arrived,expected", [
+    ("Your Upcoming Appointment with Alex", "See you on Dec 10 at 3pm", D, date(2026, 12, 10)),
+    ("Appointment reminder: December 10th, 2026", "", D, date(2026, 12, 10)),
+    ("Appointment reminder for 12/10", "", D, date(2026, 12, 10)),
+    ("Appointment reminder for 12/10/27", "", D, date(2027, 12, 10)),
+    ("Appointment reminder: Jan 5", "", D, date(2027, 1, 5)),  # no year: the next one after it arrived
+    ("Hey Felix, your appointment is coming up today at 9:30am", "", D, D),
+    ("Hey Felix, your appointment is coming up tomorrow at 9:30am", "", D, date(2026, 11, 2)),
+    ("Appointment Reminder", "Please arrive 15 minutes early.", D, None),
+    ("Appointment reminder: Nov 3", "or rebook by Nov 1", D, date(2026, 11, 3)),  # the subject speaks first
+    ("Appointment reminder", "Nov 3, or rebook by Oct 30", D, cleanup.UNCLEAR),  # two dates
+    ("Appointment reminder: Feb 31", "", D, cleanup.UNCLEAR),  # no such day
+    ("Appointment reminder: 13/45", "", D, cleanup.UNCLEAR),
+])
+def test_the_appointment_date_is_read_from_the_reminders_words(subject, snippet, arrived, expected):
+    assert cleanup.appointment_date(subject, snippet, arrived) == expected
+
+
+def test_a_reminder_goes_once_its_date_has_passed_and_an_upcoming_one_stays_however_old_the_email():
     conn, mail = cleanup.connect(":memory:"), FakeMail({})
-    asked = []
-    mail.found = lambda q, limit=100: asked.append(q) or [("r1", "admin@vagaro.com")]
-    assert cleanup.expire_reminders(mail, conn) == 1 and mail.trashed == ["r1"]
-    assert "older_than:14d" in asked[0] and "-is:starred" in asked[0]
-    assert cleanup.undo(mail, conn) == 1 and mail.untrashed == ["r1"]
+    today = date(2026, 11, 1)
+    mail.found = lambda q, limit=100: [
+        Found("past", "a@x.com", "Appointment reminder: Oct 30", "", date(2026, 10, 25)),
+        Found("yesterday", "a@x.com", "your appointment is coming up tomorrow", "", date(2026, 10, 30)),
+        Found("today", "a@x.com", "your appointment is coming up today", "", today),
+        Found("far ahead", "a@x.com", "Your upcoming appointment on Dec 10", "", date(2026, 10, 1)),
+        Found("no date old", "a@x.com", "Appointment Reminder", "", date(2026, 10, 18)),
+        Found("no date new", "a@x.com", "Appointment Reminder", "", date(2026, 10, 19)),
+        Found("unclear", "a@x.com", "Appointment reminder: Feb 31", "", date(2026, 1, 1)),
+        Found("unknown arrival", "a@x.com", "Appointment reminder: Oct 30", "", None)]
+    assert cleanup.expire_reminders(mail, conn, today=today) == 3
+    assert mail.trashed == ["past", "yesterday", "no date old"]
+    details = [r[0] for r in conn.execute("select detail from cleanup where action = 'trashed' order by id")]
+    assert details[0] == "appointment reminder, its date 2026-10-30 has passed"
+    assert details[2] == "old appointment reminder, no date written, 14 days old"
+    assert cleanup.undo(mail, conn) == 3 and mail.untrashed == ["past", "yesterday", "no date old"]
+
+
+def test_the_reminder_search_leaves_starred_mail_out():
+    assert "-is:starred" in cleanup.REMINDERS and "older_than:1d" in cleanup.REMINDERS
 
 
 def test_trash_all_but_the_latest_keeps_only_the_newest_and_sends_nothing(tmp_path):
