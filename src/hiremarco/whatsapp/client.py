@@ -120,8 +120,9 @@ class WhatsApp:
         return out
 
     def send_text(self, to: str, body: str, *, idempotency_key: str, critic=None,
-                  now: datetime | None = None) -> str:
-        body = casual(self._plain(body))
+                  now: datetime | None = None, exact: bool = False) -> str:
+        """``exact`` leaves the words alone: an email's preview has to read as the email will."""
+        body = body if exact else casual(self._plain(body))
         sent = self._send(to, {"type": "text", "text": {"body": body}}, text_for_gate=body,
                           idempotency_key=idempotency_key, capability="send_message", critic=critic, now=now)
         remember(self.conn, "marco", body)

@@ -1,4 +1,4 @@
-"""The mail reader: Gmail, read only, and only from senders RULES.md grants.
+"""The mail reader and writer: Gmail, read only from senders RULES.md grants, and a draft goes out only through the gate.
 
 The search asks Gmail for granted senders only, and every message is checked
 again against the grants by its From header before Marco reads a word of it,
@@ -12,7 +12,7 @@ import html
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
-from email.utils import parseaddr
+from email.utils import getaddresses, parseaddr
 from pathlib import Path
 
 import httpx
@@ -31,6 +31,23 @@ class Found:
     subject: str
     snippet: str
     day: date | None  # the day it arrived
+
+
+@dataclass(frozen=True)
+class Source:
+    """One email Felix pointed at, to answer or forward."""
+    id: str
+    thread_id: str
+    sender: str
+    sender_line: str
+    reply_to: str
+    subject: str
+    date: str
+    to: str
+    others: tuple[str, ...]  # everyone else on it, for a reply-all he asked for
+    message_id: str
+    references: str
+    text: str
 
 
 @dataclass(frozen=True)
@@ -262,11 +279,11 @@ class Mail:
             if not token:
                 return out
 
-    def _post(self, path: str, what: str) -> None:
+    def _post(self, path: str, what: str, body: dict | None = None) -> dict:
         """A change, retried on Gmail's rate limit (429, or 403 naming a rate or quota) with a doubling wait; any
         other refusal raises with Gmail's own reason (live 2026-10-31: a 403 stopped the cleanup after 498 moves)."""
         for wait in (2, 4, 8, 16, 32, 64, None):
-            response = self._http.post(path, headers=self.auth.headers())
+            response = self._http.post(path, headers=self.auth.headers(), **({"json": body} if body is not None else {}))
             body = response.text.lower()
             limited = response.status_code == 429 or (response.status_code == 403 and (
                 "ratelimit" in body or "rate limit" in body or "quota" in body))
@@ -280,6 +297,10 @@ class Mail:
             except ValueError:
                 pass
             raise RuntimeError(f"Gmail refused the {what} (HTTP {response.status_code}{': ' + reason if reason else ''})")
+        try:
+            return response.json()
+        except ValueError:
+            return {}
 
     def trash(self, message_id: str) -> None:
         """Gmail's Trash, which Gmail empties after 30 days; there is no permanent delete in this code."""
@@ -287,6 +308,108 @@ class Mail:
 
     def untrash(self, message_id: str) -> None:
         self._post(f"/messages/{message_id}/untrash", "restore")
+
+    def archive(self, message_id: str) -> None:
+        """Out of the inbox and nothing else: still in All Mail, still labelled, unread stays unread."""
+        self._post(f"/messages/{message_id}/modify", "archive", {"removeLabelIds": ["INBOX"]})
+
+    def unarchive(self, message_id: str) -> None:
+        self._post(f"/messages/{message_id}/modify", "unarchive", {"addLabelIds": ["INBOX"]})
+
+    def _reads_all(self) -> None:
+        if not any(g.sender == "*" for g in rules.read_grants(self.rules_path)):
+            raise PermissionError("the Owner's read-all line is not in RULES.md")
+
+    def search(self, q: str, limit: int = 100) -> list[str]:
+        """The ids a Gmail search finds, newest first."""
+        self._reads_all()
+        out, token = [], None
+        while len(out) < limit:
+            page = self._get("/messages", q=q, maxResults=min(100, limit - len(out)),
+                             **({"pageToken": token} if token else {}))
+            out += [m["id"] for m in page.get("messages") or []]
+            token = page.get("nextPageToken")
+            if not token:
+                break
+        return out
+
+    def message(self, message_id: str) -> Source:
+        self._reads_all()
+        full = self._get(f"/messages/{message_id}", format="full")
+        headers = full.get("payload", {}).get("headers", [])
+        sender_line = _header(headers, "From")
+        people = [a.lower() for _, a in getaddresses([_header(headers, "To"), _header(headers, "Cc")]) if a]
+        return Source(id=message_id, thread_id=full.get("threadId", ""), sender=parseaddr(sender_line)[1].lower(),
+                      sender_line=sender_line, reply_to=parseaddr(_header(headers, "Reply-To"))[1].lower(),
+                      subject=_header(headers, "Subject"), date=_header(headers, "Date"), to=_header(headers, "To"),
+                      others=tuple(people), message_id=_header(headers, "Message-ID"),
+                      references=_header(headers, "References"), text=body_text(full.get("payload", {})))
+
+    def find_one(self, find: str) -> Source | None:
+        """The newest email his words point at, not one he sent; he sees which in the preview."""
+        if not (find or "").strip():
+            return None
+        ids = self.search(f"{find} -in:spam -in:trash -in:sent -in:drafts", limit=1)
+        return self.message(ids[0]) if ids else None
+
+    def known_addresses(self, name: str, limit: int = 25) -> list[str]:
+        """Addresses Gmail has seen for this name, most seen first, no robots and not his own."""
+        self._reads_all()
+        words = [w.lower() for w in re.findall(r"\w+", name)]
+        if not words:
+            return []
+        own, seen = self.own_address().lower(), {}
+        phrase = " ".join(words)
+        for mid in self.search(f'from:"{phrase}" OR to:"{phrase}"', limit=limit):
+            meta = self._get(f"/messages/{mid}", format="metadata", metadataHeaders=["From", "To", "Cc"])
+            lines = [_header(meta.get("payload", {}).get("headers", []), h) for h in ("From", "To", "Cc")]
+            for shown, address in getaddresses(lines):
+                address = address.lower()
+                fits = all(w in f"{shown} {address}".lower() for w in words)
+                if address and address != own and fits and not re.match(r"(no-?reply|do-?not-?reply|notifications?)\b", address):
+                    seen[address] = seen.get(address, 0) + 1
+        return sorted(seen, key=lambda a: -seen[a])
+
+    def own_address(self) -> str:
+        return self._get("/profile").get("emailAddress", "")
+
+    def replied(self, message_id: str) -> bool:
+        """True when Felix wrote in this email's thread after it arrived (his Sent mail, read for this only)."""
+        self._reads_all()
+        meta = self._get(f"/messages/{message_id}", format="minimal")
+        thread = self._get(f"/threads/{meta.get('threadId', '')}", format="minimal")
+        arrived = int(meta.get("internalDate") or 0)
+        return any("SENT" in (m.get("labelIds") or []) and int(m.get("internalDate") or 0) > arrived
+                   for m in thread.get("messages") or [])
+
+    def raw(self, message_id: str) -> bytes:
+        self._reads_all()
+        data = self._get(f"/messages/{message_id}", format="raw").get("raw", "")
+        return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
+
+    def create_draft(self, raw: bytes, thread_id: str | None = None) -> str:
+        """A draft in Gmail Drafts. Nothing goes anywhere."""
+        message = {"raw": base64.urlsafe_b64encode(raw).decode(), **({"threadId": thread_id} if thread_id else {})}
+        return self._post("/drafts", "draft", {"message": message})["id"]
+
+    def draft_raw(self, draft_id: str) -> bytes | None:
+        """The draft as Gmail holds it now, or None when it is gone."""
+        response = self._http.get(f"/drafts/{draft_id}", params={"format": "raw"}, headers=self.auth.headers())
+        if response.status_code == 404:
+            return None
+        if response.status_code >= 400:
+            raise RuntimeError(f"Gmail returned HTTP {response.status_code}")
+        data = (response.json().get("message") or {}).get("raw", "")
+        return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
+
+    def send_draft(self, draft_id: str) -> str:
+        """Only ever inside the gate's mail check: outbox._send."""
+        return self._post("/drafts/send", "send", {"id": draft_id}).get("id", "")
+
+    def delete_draft(self, draft_id: str) -> None:
+        response = self._http.delete(f"/drafts/{draft_id}", headers=self.auth.headers())
+        if response.status_code >= 400 and response.status_code != 404:
+            raise RuntimeError(f"Gmail refused (HTTP {response.status_code})")
 
     def delete_label(self, name: str) -> bool:
         """Remove a label (never the emails under it). Only "Lindy", by the Owner's word of 2026-10-31."""

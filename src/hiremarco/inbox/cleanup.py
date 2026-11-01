@@ -297,6 +297,20 @@ def expire_reminders(mail, conn: sqlite3.Connection, limit: int = 100, today: da
     return moved
 
 
+def unarchive(mail, conn: sqlite3.Connection) -> int:
+    """The last batch he archived goes back to the inbox."""
+    last = conn.execute("select detail from cleanup where action = 'archived' and undone = 0 order by id desc limit 1").fetchone()
+    if last is None:
+        return 0
+    rows = conn.execute("select id, message_id from cleanup where action = 'archived' and undone = 0 and detail = ?",
+                        last).fetchall()
+    for row_id, message_id in rows:
+        mail.unarchive(message_id)
+        conn.execute("update cleanup set undone = 1 where id = ?", (row_id,))
+    conn.commit()
+    return len(rows)
+
+
 def undo(mail, conn: sqlite3.Connection, sender: str | None = None) -> int:
     """Take the mail Marco moved to Trash back out (all of it, or one sender's)."""
     rows = conn.execute("select id, message_id from cleanup where action = 'trashed' and undone = 0"

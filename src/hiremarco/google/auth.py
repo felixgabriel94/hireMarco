@@ -26,7 +26,7 @@ AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
 SCOPES = (
     "https://www.googleapis.com/auth/gmail.readonly",
-    # labels only: Marco adds the inbox's labels and moves mail to Trash; the code sends, deletes and archives nothing
+    # labels, Trash, archive, drafts and, on the Owner's word through the gate, sending; never a permanent delete
     "https://www.googleapis.com/auth/gmail.modify",
     "https://www.googleapis.com/auth/calendar.events",
 )

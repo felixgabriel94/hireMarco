@@ -438,6 +438,17 @@ def todays_reply(conn: sqlite3.Connection, since: str) -> list[Decision]:
     return [Decision(r[0], r[1], r[2], r[3]) for r in rows]
 
 
+def unanswered(mail, decisions: list[Decision]) -> list[Decision]:
+    """To Respond mail he hasn't already answered, from his Sent mail; if Gmail can't say, it stays on the list."""
+    def open_still(d: Decision) -> bool:
+        try:
+            return not mail.replied(d.message_id)
+        except Exception:
+            return True
+
+    return [d for d in decisions if open_still(d)]
+
+
 def new_promo_senders(conn: sqlite3.Connection, since: str, is_listed) -> list[str]:
     """Promotion senders first seen since ``since`` and not on the auto-trash list (``is_listed(sender)``)."""
     rows = conn.execute("select sender from applied where label = 'Promotions' group by sender having min(ts) >= ?"

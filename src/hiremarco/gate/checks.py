@@ -37,6 +37,7 @@ CHANNEL_TOOLS = {
     "calendar": "calendar",
     "talkback": "talkback",
     "unsubscribe": "unsubscribe",  # a one-click unsubscribe POST to a sender the Owner marked
+    "mail": "mail",  # an email from the Owner's account, only on his word for the exact draft he was shown
 }
 PERSON_CHANNELS = {"whatsapp", "voice"}
 
@@ -45,7 +46,8 @@ PERSON_CHANNELS = {"whatsapp", "voice"}
 RECORDING_OPENING = "Hi, just so you know, this call is recorded."
 RECORDING_NOTICE = RECORDING_OPENING + " I'm calling to book a table for Felix."
 
-DAILY_LIMITS = {"voice": 30, "whatsapp": 100}
+DAILY_LIMITS = {"voice": 30, "whatsapp": 100, "mail": 25}
+MAIL_WORD_WINDOW = timedelta(hours=24)  # a preview older than this can't be sent on a word
 DUPLICATE_WINDOW_S = 600
 DAILY_MODEL_CAP_USD = 5.0
 
@@ -118,6 +120,7 @@ def check_outbound(
     rules_path: Path | None = None,
     owner_request: str | None = None,
     offer: dict | None = None,
+    confirmed: dict | None = None,
 ) -> None:
     """Raise ``Refused`` unless this action may happen now.
 
@@ -127,9 +130,15 @@ def check_outbound(
     ``offer`` is the evidence for a ``places`` switch: an offer the Owner said yes to on WhatsApp. It holds only
     when the target is that offer's place, the number is in his private places file, and the yes came within the
     yes window of the offer and recently.
+
+    ``confirmed`` is the evidence for an email: the digest of the draft he was shown, the digest of what is about to
+    go, when he was asked and when he said send. It holds only when the two digests match and his word came after the
+    preview, inside its day.
     """
     if kill_switch_on():
         raise Refused("kill switch is on")
+    if channel == "mail" and not mail_confirmed(confirmed):
+        raise Refused("an email goes only on the Owner's word for the exact draft he was shown")
     tool = CHANNEL_TOOLS.get(channel)
     if tool is None:
         raise Refused(f"unknown channel {channel!r}")
@@ -174,6 +183,13 @@ def check_outbound(
                 raise Refused(f"daily limit of {limit} {channel} actions reached")
     except sqlite3.Error as exc:
         raise Refused(f"gate record unreadable: {type(exc).__name__}") from exc
+
+
+def mail_confirmed(confirmed: dict | None) -> bool:
+    if not confirmed or not confirmed.get("shown") or confirmed.get("shown") != confirmed.get("sending"):
+        return False
+    asked, said = confirmed.get("asked_at"), confirmed.get("said_at")
+    return asked is not None and said is not None and timedelta(0) <= said - asked <= MAIL_WORD_WINDOW
 
 
 def offer_holds(offer: dict, target: str, now: datetime | None = None) -> bool:
@@ -229,6 +245,7 @@ def execute_effect(
     rules_path: Path | None = None,
     owner_request: str | None = None,
     offer: dict | None = None,
+    confirmed: dict | None = None,
 ) -> T:
     """Check, ask the critic if one is given, run, record.
 
@@ -239,7 +256,8 @@ def execute_effect(
         tenant_id=tenant_id, idempotency_key=idempotency_key, capability=capability, channel=channel,
         target=target, message=message, department=department, workflow_name=workflow_name,
     )
-    check_outbound(conn, **fields, today=today, rules_path=rules_path, owner_request=owner_request, offer=offer)
+    check_outbound(conn, **fields, today=today, rules_path=rules_path, owner_request=owner_request, offer=offer,
+                   confirmed=confirmed)
     if critic is not None:
         # The Owner's number is private (RULES.md keeps it in the env file), so the critic is told whose it is
         # instead of seeing it; without that it held the first call to the Owner as having no switch.

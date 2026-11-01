@@ -223,6 +223,23 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
     return f"brain: {decision.action}; {did}{memory}"
 
 
+def email_words(said: str, sender: str, message_id: str, wa: WhatsApp) -> str | None:
+    """His words about his email; None for anything else. A failure here tells him nothing went out."""
+    from hiremarco.calls import offers
+    from hiremarco.inbox import outbox
+    from hiremarco.joblog import JobLog, JobRow
+
+    try:
+        return outbox.handle_words(said, sender, message_id, wa, offer_pending=lambda: offers.pending(offers.connect()))
+    except gate.Refused:
+        raise
+    except Exception as exc:
+        JobLog().append(JobRow(job="mail", ok=False, note=type(exc).__name__))
+        wa.send_text(sender, "I couldn't do that with your email just now. Nothing was sent.",
+                     idempotency_key=f"mail-failed:{message_id}")
+        return f"mail: failed, {type(exc).__name__}"
+
+
 def digest_unsubscribe(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=None, listed=None, mail=None,
                        gate_conn=None, http=None, rules_path=None, today: str | None = None) -> str | None:
     """His one reply to the morning digest: "unsubscribe 2" or "unsubscribe all" (Owner 2026-11-01). None when his
@@ -502,6 +519,10 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         dropped = digest_unsubscribe(said, message.sender, message.id, wa) if said and message.kind != "image" else None
         if dropped is not None:
             return trace.done(dropped)
+        if said and message.kind != "image":
+            written = email_words(said, message.sender, message.id, wa)
+            if written is not None:
+                return trace.done(written)
         called = offer_yes(said, message.sender, message.id, wa) if said and message.kind != "image" else None
         if called is not None:
             return trace.done(called)
