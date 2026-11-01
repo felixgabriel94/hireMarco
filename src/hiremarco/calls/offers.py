@@ -209,16 +209,22 @@ def result_text(place: Place, offer: CallOffer, data: dict, off_brief: str) -> s
     status = data.get("status")
     if status != "done":
         return f"The call to {place.name} didn't go through. Want me to try again later?"
-    kind, last = outcome(data)
-    found = ((data.get("analysis") or {}).get("data_collection_results") or {}).get("agreed") or {}
-    agreed = str(found.get("value") or "").strip().rstrip(".")
-    # what the call settled, never the offer's own day and time, which a fallback may have replaced
-    lead = {"booked": f"Booked with {place.name}" + (f": {agreed}." if agreed else ". The details are in his last line."),
-            "waitlisted": f"{place.name} was full; you're on their waitlist" + (f": {agreed}." if agreed else "."),
-            "nothing settled": f"Nothing settled with {place.name}" + (f": {agreed}." if agreed else ".")}[kind]
-    text = lead + (f' He closed with: "{last}"' if last else "")
-    if off_brief:
-        text += " They also asked: " + "; ".join(line.strip() for line in off_brief.splitlines() if line.strip()) + "."
+    kind, _ = outcome(data)
+    collected = (data.get("analysis") or {}).get("data_collection_results") or {}
+    value = lambda key: str((collected.get(key) or {}).get("value") or "").strip().rstrip(".")  # noqa: E731
+    # what the call settled, never the offer's own day and time, which a fallback may have replaced (live
+    # 2026-10-31); facts and the next step only, no goodbye quote (Owner: the message must be useful)
+    agreed, step = value("agreed"), value("next_step")
+    name = briefs.load_profile().get("full_name", "").strip()
+    if kind == "booked":
+        text = f"Booked: {place.name}" + (f", {agreed}" if agreed else "") + (f", under {name}" if name else "") + "."
+        text += " The confirmation should come to your email."
+    elif kind == "waitlisted":
+        text = f"{place.name} was full, so you're on their waitlist" + (f": {agreed}" if agreed else "") + "."
+    else:
+        text = f"Nothing settled with {place.name}" + (f": {agreed}" if agreed else "") + ". Want me to try another time?"
+    if step:
+        text += f" Next: {step}."
     return re.sub(r"\+?\d[\d ()-]{7,}\d", lambda m: "..." + re.sub(r"\D", "", m.group())[-4:], text)
 
 

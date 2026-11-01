@@ -114,6 +114,8 @@ def test_setup_creates_agent_secret_and_stores_ids(env):
         assert rule in prompt["prompt"]
     assert body["platform_settings"]["data_collection"]["off_brief"]["type"] == "string"
     assert body["platform_settings"]["data_collection"]["agreed"]["type"] == "string"
+    assert body["platform_settings"]["data_collection"]["next_step"]["type"] == "string"
+    assert prompt["built_in_tools"]["skip_turn"]["params"]["wait_timeout_secs"] == 30.0 and "say only \"Still here.\"" in prompt["prompt"]
     assert prompt["backup_llm_config"] == {"preference": "disabled"}
     lowered = prompt["prompt"].lower()
     assert "no exclamation marks" in lowered and "never invent a date, a time, a party size or a name" in lowered

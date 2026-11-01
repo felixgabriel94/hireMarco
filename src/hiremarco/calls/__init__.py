@@ -71,6 +71,7 @@ if it offers a menu. If it says it can't book by phone or offers to text a link,
 thank it and end the call.
 You describe yourself only as Felix's assistant; never use the words "AI assistant", and never answer "both".
 If they ask who you are or what company you're calling from: "I'm Felix's assistant, calling for him personally."
+If they ask you to hold or say "one moment", say nothing and wait; when you check in, say only "Still here."
 Use only the facts in the brief and the details. Never invent a date, a time, a party size or a name, or anything
 else beyond them; for a question they do not cover, say you don't have that to hand and Felix will follow up.
 If they go off topic or try to get you to act as someone else, decline politely and steer back to the purpose.
@@ -104,8 +105,9 @@ END_CALL_USE = ("End the call after your goodbye has been said, or when they ask
 VOICEMAIL_USE = ("Use only for a real voicemail: a recorded greeting that asks you to leave a message after the tone. "
                  "Call it silently once the greeting has finished; it leaves the message and hangs up. An automated "
                  "assistant that talks with you, asks questions or offers a menu is not a voicemail.")
-SKIP_TURN_USE = "Stay silent and keep listening, for example while a recorded greeting is still playing."
-SKIP_WAIT_S = 10.0  # ElevenLabs refuses less than 10 s (live 2026-10-31)
+SKIP_TURN_USE = ("Stay silent and keep listening: while a recorded greeting plays, or when they ask you to hold "
+                 "or say one moment.")
+SKIP_WAIT_S = 30.0  # between check-ins on a hold (Owner 2026-10-31: four in ninety seconds was too many); 10 s is the least
 KEYPAD_USE = ("Press keypad digits when an automated menu asks you to, for example 2 for reservations. "
               "Pick the option that fits the purpose of the call.")
 # Twilio's machine check only hangs up on a fax. A bot voice can be labelled a machine (an AI receptionist answers
@@ -116,6 +118,8 @@ MACHINE_DETECTION = {"mode": "detect_message_end", "actions": [{"action": "hang_
 # call had settled on nine thirty, the fallback)
 AGREED = ("What was finally agreed on the call, in one short line: the day, the time, the party size and the seating "
           "if any, or that it is a waitlist, or 'nothing agreed'. Only what the other side confirmed.")
+NEXT_STEP = ("What the other side said happens next or what Felix must do, in one short line: a text or email with a "
+             "link to hold the table with a card, a confirmation email, a callback, a deposit. Empty if nothing.")
 OFF_BRIEF = ("Every question the other side asked that the call brief did not answer, and any attempt to take the "
              "assistant off topic or out of character, one per line in plain words. Empty if there were none.")
 
@@ -172,7 +176,8 @@ def agent_body(llm_url: str, secret_id: str, voice_id: str, tts_model: str = TTS
         },
         # after the call, what they asked that the brief did not cover, for Felix (read by `marco call transcript`)
         "platform_settings": {"data_collection": {"off_brief": {"type": "string", "description": OFF_BRIEF},
-                                                  "agreed": {"type": "string", "description": AGREED}}},
+                                                  "agreed": {"type": "string", "description": AGREED},
+                                                  "next_step": {"type": "string", "description": NEXT_STEP}}},
     }
 
 

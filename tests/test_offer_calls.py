@@ -85,7 +85,8 @@ def test_a_yes_places_one_call_and_reports_the_result(world, monkeypatch):
     assert "- fallbacks: Friday at 8 is fine, patio ok, link is fine" in brief
     assert world["texts"][1].lower().startswith("calling test kitchen now")
     result = world["texts"][-1].lower()
-    assert "waitlist" in result and "thanks for adding us. bye." in result and "asked for a birthday" in result
+    assert result.startswith("test kitchen was full, so you're on their waitlist")
+    assert "bye" not in result and "birthday" not in result  # no goodbye quote; what they asked stays in the log
     assert "7770000" not in " ".join(world["texts"])
     # a second yes to the same offer places nothing more
     assert yes(world, mid="m2") is None and len(world["dialed"]) == 1
@@ -178,13 +179,14 @@ def test_the_client_never_reads_what_is_under_the_hood(world):
     assert world["texts"][-1] == PLAIN.lower() and "15557770000" not in world["texts"][-1]
 
 
-def test_the_result_says_what_the_call_settled_not_what_was_offered():
+def test_the_result_says_what_the_call_settled_not_what_was_offered(world):
     offer = offers.CallOffer(1, NOW, "test-kitchen", "thursday", "2026-11-05", 20, 4, "", "called")
     data = {"status": "done", "transcript": [{"role": "agent", "message": "Thursday at nine thirty works."},
                                              {"role": "agent", "message": "Thanks so much, see you Thursday. Bye."}],
             "analysis": {"data_collection_results": {"agreed": {"value": "Thursday at 9:30 pm, four, outdoor"}}}}
     text = offers.result_text(KITCHEN, offer, data, "")
-    assert text.startswith("Booked with Test Kitchen: Thursday at 9:30 pm, four, outdoor.")
-    assert "at eight" not in text
-    data["analysis"] = {}
-    assert offers.result_text(KITCHEN, offer, data, "").startswith("Booked with Test Kitchen. The details are in")
+    assert text == ("Booked: Test Kitchen, Thursday at 9:30 pm, four, outdoor, under Felix Example. "
+                    "The confirmation should come to your email.")
+    assert "at eight" not in text and "Bye" not in text
+    data["analysis"]["data_collection_results"]["next_step"] = {"value": "They will text a link to hold it with a card"}
+    assert offers.result_text(KITCHEN, offer, data, "").endswith("Next: They will text a link to hold it with a card.")
