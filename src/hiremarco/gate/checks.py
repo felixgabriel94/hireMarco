@@ -244,6 +244,9 @@ def execute_effect(
         # instead of seeing it; without that it held the first call to the Owner as having no switch.
         owner = (config.get("OWNER_WHATSAPP") or "").lstrip("+")
         shown = "the Owner's own number" if owner and target.lstrip("+") == owner else target
+        if offer is not None:  # a places call is to the place, whatever its number (live 2026-10-31: Test Kitchen
+            # has the Owner's number for the rehearsal, and the critic held a call it read as to the Owner)
+            shown = f"{offer.get('place_name')} (its number from the Owner's places file, offer {offer.get('offer_id')})"
         description = f"{capability} via {channel} to {shown}: {message}"
         if owner_request:
             description += f" (the Owner asked: {owner_request})"

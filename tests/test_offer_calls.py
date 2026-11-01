@@ -153,3 +153,17 @@ def test_the_gate_holds_a_places_call_without_its_offer(world):
     with pytest.raises(gate.Refused, match="no send switch"):  # a number that is not in the places file
         gate.check_outbound(conn, idempotency_key="d", offer={**good, "place_phone": "15559990000"},
                             **{**fields, "target": "15559990000"})
+
+
+def test_the_critic_sees_the_place_even_when_its_number_is_the_owners(world):
+    now = datetime.now(timezone.utc)
+    seen = []
+    mine = Place("test-kitchen", "Test Kitchen", OWNER)
+    (world["rules"].parent / "places.json").write_text(json.dumps([mine.__dict__]))
+    evidence = {"offer_id": 7, "place_name": "Test Kitchen", "place_phone": OWNER, "offered_at": now, "accepted_at": now}
+    gate.execute_effect(gate.connect(":memory:"), lambda: None, tenant_id="owner", idempotency_key="k", capability="call",
+                        channel="voice", target=OWNER, message=gate.RECORDING_OPENING + " I'm calling to book a table.",
+                        department="assistant", critic=lambda d: (seen.append(d) or True, "ok"),
+                        rules_path=world["rules"], offer=evidence)
+    assert seen[0].startswith("call via voice to Test Kitchen (its number from the Owner's places file, offer 7)")
+    assert "the Owner's own number" not in seen[0]
