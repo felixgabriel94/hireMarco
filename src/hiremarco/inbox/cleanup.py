@@ -132,8 +132,11 @@ def run(mail, plan_path: Path, confirm: str, conn: sqlite3.Connection, *, gate_c
                                                department="assistant", rules_path=rules_path)
                     _log(conn, sender, "unsubscribed", detail=f"HTTP {code}")
                     done["unsubscribed"] += 1
-                except gate.Refused:
-                    raise
+                except gate.Refused as refused:
+                    if "already done" not in refused.reason:
+                        raise
+                    # a rerun after a stop: this sender was unsubscribed the first time
+                    done["already"] = done.get("already", 0) + 1
                 except Exception as exc:  # their link failed: blocked instead, nothing else changes
                     conn.execute("insert or ignore into blocked (sender, how, ts) values (?, ?, ?)",
                                  (sender, "one-click failed", datetime.now(timezone.utc).isoformat()))
@@ -145,7 +148,12 @@ def run(mail, plan_path: Path, confirm: str, conn: sqlite3.Connection, *, gate_c
             done["kept_by_guard"] += len(every) - len(movable)
             for message_id in movable:
                 if not dry_run:
-                    mail.trash(message_id)
+                    try:
+                        mail.trash(message_id)
+                    except RuntimeError as exc:  # one email Gmail won't move: logged and left, the run goes on
+                        _log(conn, sender, "not moved", message_id, str(exc))
+                        done["not_moved"] = done.get("not_moved", 0) + 1
+                        continue
                     _log(conn, sender, "trashed", message_id)
                 done["trashed"] += 1
     return done

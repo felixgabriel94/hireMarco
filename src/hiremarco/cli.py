@@ -252,7 +252,8 @@ def cmd_inbox(args) -> int:
               f"{done['one_click'] if args.dry_run else done['unsubscribed']}; "
               f"{'to block' if args.dry_run else 'blocked'} (web link / email only / none): {b['link']} / {b['email']} /"
               f" {b['none']}; {'to trash' if args.dry_run else 'trashed'}: {done['trashed']}; kept by the receipt guard:"
-              f" {done['kept_by_guard']}; no mail found: {done['skipped']}")
+              f" {done['kept_by_guard']}; no mail found: {done['skipped']}; unsubscribed before (a resume):"
+              f" {done.get('already', 0)}; emails Gmail would not move (logged): {done.get('not_moved', 0)}")
         for sender, how in done["for_felix"]:
             print(f"  web link: {sender}: {how}")
         return 0

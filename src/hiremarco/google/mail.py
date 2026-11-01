@@ -225,16 +225,31 @@ class Mail:
             if not token:
                 return out
 
+    def _post(self, path: str, what: str) -> None:
+        """A change, retried on Gmail's rate limit (429, or 403 naming a rate or quota) with a doubling wait; any
+        other refusal raises with Gmail's own reason (live 2026-10-31: a 403 stopped the cleanup after 498 moves)."""
+        for wait in (2, 4, 8, 16, 32, 64, None):
+            response = self._http.post(path, headers=self.auth.headers())
+            body = response.text.lower()
+            limited = response.status_code == 429 or (response.status_code == 403 and (
+                "ratelimit" in body or "rate limit" in body or "quota" in body))
+            if not limited or wait is None:
+                break
+            self._sleep(wait)
+        if response.status_code >= 400:
+            reason = ""
+            try:
+                reason = (response.json().get("error") or {}).get("message", "")[:160]
+            except ValueError:
+                pass
+            raise RuntimeError(f"Gmail refused the {what} (HTTP {response.status_code}{': ' + reason if reason else ''})")
+
     def trash(self, message_id: str) -> None:
         """Gmail's Trash, which Gmail empties after 30 days; there is no permanent delete in this code."""
-        response = self._http.post(f"/messages/{message_id}/trash", headers=self.auth.headers())
-        if response.status_code >= 400:
-            raise RuntimeError(f"Gmail refused the move (HTTP {response.status_code})")
+        self._post(f"/messages/{message_id}/trash", "move")
 
     def untrash(self, message_id: str) -> None:
-        response = self._http.post(f"/messages/{message_id}/untrash", headers=self.auth.headers())
-        if response.status_code >= 400:
-            raise RuntimeError(f"Gmail refused the restore (HTTP {response.status_code})")
+        self._post(f"/messages/{message_id}/untrash", "restore")
 
     def delete_label(self, name: str) -> bool:
         """Remove a label (never the emails under it). Only "Lindy", by the Owner's word of 2026-10-31."""

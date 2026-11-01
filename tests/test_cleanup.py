@@ -124,3 +124,41 @@ def test_trash_all_but_the_latest_keeps_only_the_newest_and_sends_nothing(tmp_pa
                        gate_conn=gate.connect(":memory:"), http=http, rules_path=tmp_path / "none.md")
     assert mail.trashed == ["notifications@sezzle.com-2", "notifications@sezzle.com-receipt"]
     assert done["trashed"] == 2 and posts == []
+
+
+def test_a_rerun_skips_what_was_done_and_one_refused_move_does_not_stop_it(plan):
+    path, rules = plan
+    conn, gconn = cleanup.connect(":memory:"), gate.connect(":memory:")
+    posts = []
+    http = httpx.Client(transport=httpx.MockTransport(lambda r: (posts.append(r), httpx.Response(200))[1]))
+
+    class Flaky(FakeMail):
+        def trash(self, message_id):
+            if message_id.endswith("-1"):
+                raise RuntimeError("Gmail refused the move (HTTP 403: something)")
+            super().trash(message_id)
+
+    mail = Flaky({"promo@shop.com": ONE_CLICK, "news@paper.com": ONE_CLICK})
+    first = cleanup.run(mail, path, cleanup.plan_hash(path), conn, gate_conn=gconn, http=http, rules_path=rules)
+    assert first["not_moved"] == 1 and mail.trashed == ["promo@shop.com-2"]
+    again = cleanup.run(mail, path, cleanup.plan_hash(path), conn, gate_conn=gconn, http=http, rules_path=rules)
+    assert again["already"] == 2 and len(posts) == 2      # no second unsubscribe
+
+
+def test_trash_waits_out_a_rate_limit_and_reports_another_refusal(tmp_path, monkeypatch):
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if len(calls) == 1:
+            return httpx.Response(403, json={"error": {"message": "User-rate limit exceeded"}})
+        if "bad" in request.url.path:
+            return httpx.Response(403, json={"error": {"message": "Insufficient Permission"}})
+        return httpx.Response(200, json={})
+
+    mail = Mail(auth=FakeAuth(), transport=httpx.MockTransport(handler), rules_path=tmp_path / "R.md")
+    monkeypatch.setattr(Mail, "_sleep", staticmethod(lambda s: None))
+    mail.trash("m1")
+    assert len(calls) == 2
+    with pytest.raises(RuntimeError, match="Insufficient Permission"):
+        mail.trash("bad")
