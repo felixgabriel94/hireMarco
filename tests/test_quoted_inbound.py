@@ -129,21 +129,58 @@ def test_a_quoted_yes_on_an_expired_offer_says_so_and_acts_on_no_other(line):
     old = deliver(line, "mail-old", now=long_ago)
     newer = deliver(line, "mail-new", place="bistro")
     done = quoted_reply("yes", OWNER, "in.1", old.message_ids, line["wa"], conn=line["conn"], places=[KITCHEN, BISTRO])
-    assert "nothing done" in done and "expired" in said_last(line) and "set it up again" in said_last(line)
-    assert offers.get(line["conn"], newer.id).status == "pending"  # the live one is not touched
+    assert "nothing done" in done and said_last(line) == "That was a while back, so I held off. Still want me to book it? Just say the word."
+    assert offers.get(line["conn"], old.id).status == "pending" and offers.get(line["conn"], newer.id).status == "replaced"  # no call, and the question is asked again
+    assert not [m for m in line["sent"] if "before i call" in str(m).lower()]
+
+
+def test_saying_the_word_after_that_is_a_yes_to_that_one_with_a_fresh_window(line):
+    long_ago = datetime.now(timezone.utc) - timedelta(minutes=45)
+    old = deliver(line, "mail-old", now=long_ago)
+    quoted_reply("yes", OWNER, "in.1", old.message_ids, line["wa"], conn=line["conn"], places=[KITCHEN, BISTRO])
+    again = offers.get(line["conn"], old.id)
+    assert again.offered_at > long_ago + timedelta(minutes=40) and line["sent"][-1]["id"] in again.message_ids
+    done = quoted_reply("yes", OWNER, "in.2", line["sent"][-1]["id"], line["wa"], conn=line["conn"], places=[KITCHEN, BISTRO])
+    assert "asked the fallback questions" in done
+
+
+def test_a_day_that_has_passed_is_not_offered_again(line):
+    long_ago = datetime.now(timezone.utc) - timedelta(days=2)
+    record_inbound(line["wa"].conn, "in.old", OWNER, "text", ts=datetime.now(timezone.utc))
+    old = deliver(line, "mail-old", now=long_ago)
+    line["conn"].execute("update offers set day = '2020-01-02' where id = ?", (old.id,))
+    quoted_reply("yes", OWNER, "in.1", old.message_ids, line["wa"], conn=line["conn"], places=[KITCHEN, BISTRO])
+    assert "book it" not in said_last(line) and "held off" in said_last(line)
+    assert offers.get(line["conn"], old.id).status == "pending" and offers.pending(line["conn"]) is None
+
+
+def test_old_heads_up_has_nothing_to_ask_again(line):
+    long_ago = datetime.now(timezone.utc) - timedelta(minutes=45)
+    old = deliver(line, "mail-h", kind="heads_up", now=long_ago)
+    quoted_reply("yes", OWNER, "in.1", old.message_ids, line["wa"], conn=line["conn"])
+    assert said_last(line) == "That was a while back, so I held off. Let me know if there's something you need on it."
+    assert offers.pending(line["conn"]) is None
+
+
+@pytest.mark.parametrize("line_of_his", ["expired", "offer", "draft id", "wamid"])
+def test_no_system_words_in_what_he_reads(line, line_of_his):
+    long_ago = datetime.now(timezone.utc) - timedelta(minutes=45)
+    old = deliver(line, "mail-old", now=long_ago)
+    quoted_reply("yes", OWNER, "in.1", old.message_ids, line["wa"], conn=line["conn"], places=[KITCHEN, BISTRO])
+    assert line_of_his not in said_last(line).lower()
 
 
 def test_a_quoted_yes_on_one_already_taken_says_so(line):
     done = deliver(line, "mail-1")
     offers.set_status(line["conn"], done.id, "called")
     assert "already" in quoted_reply("yes", OWNER, "in.1", done.message_ids, line["wa"], conn=line["conn"])
-    assert "already took care" in said_last(line)
+    assert said_last(line) == "Already took care of that one."
 
 
 def test_a_quoted_yes_on_a_message_from_before_they_were_kept_acts_on_nothing(line):
     live = deliver(line, "mail-1")
     assert "nothing done" in quoted_reply("yes", OWNER, "in.1", "wamid.ancient", line["wa"], conn=line["conn"])
-    assert "can't tell which" in said_last(line) and offers.get(line["conn"], live.id).status == "pending"
+    assert said_last(line) == "Not sure which one you mean. Can you tell me what you'd like me to do?" and offers.get(line["conn"], live.id).status == "pending"
 
 
 def test_a_quoted_yes_on_some_other_message_never_reaches_an_open_offer(line):
@@ -232,7 +269,7 @@ def test_an_unquoted_send_goes_to_the_newest_as_today(line, mail):
 def test_a_quoted_send_on_something_that_is_no_draft_sends_nothing(line, mail):
     mail["draft"]("a@example.com", "one")
     assert "nothing done" in mail["words"]("send", quoted="wamid.chat")
-    assert mail["drafts"].sent == [] and "isn't a draft" in said_last(line)
+    assert mail["drafts"].sent == [] and "isn't one of the emails I wrote" in said_last(line)
 
 
 def test_a_quoted_send_on_a_closed_draft_sends_nothing_and_not_the_other_one(line, mail):
@@ -240,7 +277,7 @@ def test_a_quoted_send_on_a_closed_draft_sends_nothing_and_not_the_other_one(lin
     mail["words"]("send", quoted=first)
     mail["draft"]("b@example.com", "two")
     assert "closed draft" in mail["words"]("send", quoted=first)
-    assert mail["drafts"].sent == ["d1"] and "isn't open anymore" in said_last(line)
+    assert mail["drafts"].sent == ["d1"] and "already closed" in said_last(line)
 
 
 def test_a_quoted_cancel_deletes_only_that_draft(line, mail):

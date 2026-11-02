@@ -528,13 +528,13 @@ def handle_words(said: str, sender: str, message_id: str, wa, *, conn=None, mail
         pointed = quoted_row(conn, quoted)
         acting = SEND.fullmatch(said) or CANCEL.fullmatch(said) or ARCHIVE_YES.fullmatch(said)
         if pointed is None and acting:
-            _say(wa, sender, "That message isn't a draft of mine, so I didn't do anything. Quote the draft you mean.",
+            _say(wa, sender, "That isn't one of the emails I wrote for you, so nothing went out. Which one did you mean?",
                  f"mail-not-a-draft:{message_id}")
             return "mail: quoted something that is no draft, nothing done"
         if pointed is not None:
             alive = pointed.status in ("waiting", "set aside") and (now or _now()) - pointed.asked <= PREVIEW_LIFE
             if not alive and acting:
-                _say(wa, sender, "That draft isn't open anymore, so nothing went out. Want me to write it again?",
+                _say(wa, sender, "That draft's already closed, so nothing went out. Want me to write it again?",
                      f"mail-closed:{message_id}")
                 return f"mail: quoted a closed draft ({pointed.status}), nothing done"
             row = pointed if alive else None

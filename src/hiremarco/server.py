@@ -469,6 +469,22 @@ def _text_offer(offer, sender: str, wa: WhatsApp, conn, now=None):
     return offers.mark_texted(conn, offer, now)
 
 
+def _ask_again(offer, reply, conn, when) -> str:
+    """A yes on an old question acts on nothing. It asks again, so "say the word" is true and that word has its own yes
+    window, unless the day has passed or there was nothing to accept."""
+    from hiremarco.calls import offers
+
+    still = {"table": "Still want me to book it?", "reply": "Still want me to write back?"}.get(offer.kind)
+    gone = offer.kind == "table" and offer.day and offer.day < when.astimezone(offers.MIAMI).date().isoformat()
+    if still is None or gone or offer.status not in ("pending", "replaced", "questions", "what to say"):
+        reply("That was a while back, so I held off. Let me know if there's something you need on it.", "quote-old")
+        return f"offer {offer.id}: quoted after its window, nothing done"
+    sent = reply(f"That was a while back, so I held off. {still} Just say the word.", "quote-old")
+    offers.add_message(conn, offer.id, sent)
+    offers.mark_texted(conn, offer, when)
+    return f"offer {offer.id}: quoted after its window, nothing done, asked again"
+
+
 def quoted_reply(said: str, sender: str, message_id: str, quoted: str, wa: WhatsApp, *, conn=None, calls=None, places=None,
                  start=None, calendar=None, mail=None, client=None, outbox_conn=None, now=None) -> str | None:
     """His reply that quotes one of Marco's messages about an offer goes to exactly that offer, and never to another: a
@@ -486,18 +502,20 @@ def quoted_reply(said: str, sender: str, message_id: str, quoted: str, wa: Whats
     offer = offers.by_message(conn, quoted)
     if offer is None:
         if yes and quoted_words(wa.conn, quoted) is None:
-            reply("I can't tell which one that was, so I didn't act on it. Want me to set it up again?", "quote-unknown")
+            reply("Not sure which one you mean. Can you tell me what you'd like me to do?", "quote-unknown")
             return "quoted a message from before they were kept: nothing done"
         return None
     if offers.taken(offer):
         if yes or no:
-            reply("I already took care of that one.", "quote-taken")
+            reply("Already took care of that one.", "quote-taken")
             return f"offer {offer.id}: quoted, already {offer.status}"
         return None
     if not offers.still_open(offer, when):
         if yes or no:
-            reply("That one's expired, so I didn't act on it. Want me to set it up again?", "quote-expired")
-            return f"offer {offer.id}: quoted after its window, nothing done"
+            if yes:
+                return _ask_again(offer, reply, conn, when)
+            reply("Okay, I'll leave that one with you.", "quote-off")
+            return f"offer {offer.id}: quoted no after its window"
         return None
     answering = offer.status in ("questions", "what to say")
     if no and not answering:

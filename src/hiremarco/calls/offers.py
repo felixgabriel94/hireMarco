@@ -29,7 +29,7 @@ from pathlib import Path
 
 from hiremarco import config
 from hiremarco.calls import brief as briefs
-from hiremarco.offer import NUMBER_WORDS, Place, load_places
+from hiremarco.offer import MIAMI, NUMBER_WORDS, Place, load_places
 from hiremarco.style import clock_time, times_settled_on
 
 YES_WINDOW = timedelta(minutes=30)
@@ -250,8 +250,6 @@ def open_days(calendar, now: datetime, ahead: int = 7, shown: int = 5) -> list[s
     """His open days coming up, as day names and dates only: a yes or no per day, never what an event is. Empty when
     the calendar can't be read."""
     from datetime import time as clock
-
-    from hiremarco.offer import MIAMI
 
     today, out = now.astimezone(MIAMI).date(), []
     try:
