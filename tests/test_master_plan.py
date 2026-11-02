@@ -80,6 +80,31 @@ def test_the_critic_judges_the_plan(tmp_path, track):
     assert "limiter with Pro-L 2" in heard[0] and "WhatsApp" in heard[0]
 
 
+def test_a_server_error_is_tried_again_and_a_client_error_is_not(tmp_path, track, monkeypatch):
+    reply = json.dumps({"roles": [{"role": "limiter", "plugin": "Pro-L 2", "why": "loud"}], "target_lufs": -10,
+                        "ceiling_dbtp": -1, "audit": "ok"})
+    codes = iter([503, 503, 200])
+    waited = []
+    monkeypatch.setattr(plan, "sleep", waited.append)
+
+    def handler(request):
+        code = next(codes)
+        if code != 200:
+            return httpx.Response(code, json={"error": "busy"})
+        return httpx.Response(200, json={"model": "muse-wonder-1.0", "choices": [{"message": {"content": reply},
+                              "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 10}})
+
+    client = MuseSpark(api_key="k", joblog=JobLog(tmp_path / "j.jsonl"), transport=httpx.MockTransport(handler))
+    p = plan.roles_for(track, None, {"Pro-L 2"}, client=client)
+    assert p.chain == {"limiter": "Pro-L 2"} and waited == [15.0, 45.0]
+
+    bad = MuseSpark(api_key="k", joblog=JobLog(tmp_path / "k.jsonl"),
+                    transport=httpx.MockTransport(lambda r: httpx.Response(400, json={"error": "bad"})))
+    with pytest.raises(Exception):
+        plan.roles_for(track, None, {"Pro-L 2"}, client=bad)
+    assert waited == [15.0, 45.0]                   # no retry on a 400
+
+
 def test_settings_for_reads_the_chain_and_returns_changes(tmp_path, track):
     seen = []
     reply = json.dumps({"changes": [

@@ -15,13 +15,14 @@ against the rulebook, at the same effort, before anything prints.
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass, field
 
 from hiremarco import gate
 from hiremarco.critic import Critic
 from hiremarco.master import roles as roles_
 from hiremarco.master.rules import PURPOSES, RULEBOOK, SOURCES
-from hiremarco.meta.client import MuseSpark
+from hiremarco.meta.client import MuseSpark, MuseSparkError
 from hiremarco.mix.audit import Audit, Deltas, findings, summary
 from hiremarco.studio.chain import SCHEMA as CHANGES_SCHEMA
 from hiremarco.studio.chain import Chain
@@ -31,6 +32,14 @@ TENANT = "owner"
 EFFORT = "max"
 TOKENS = 16000
 THINK_TIMEOUT = 900.0   # seconds: at max effort the plan took over two minutes live (2026-11-02), the client's 60 s cut it
+RETRY_WAITS = (15.0, 45.0)   # a 503 from the API stopped a run live (2026-11-02); a server error or a timeout is tried again
+sleep = time.sleep
+
+
+def _passing(exc: MuseSparkError) -> bool:
+    """A server-side or network failure, worth a second try; a 4xx is not."""
+    text = str(exc)
+    return "request failed" in text or any(f"HTTP {code}" in text for code in (500, 502, 503, 504, 429))
 
 AUDIT_INSTRUCTIONS = (
     "You are Marco, a mastering engineer reading a track before you touch it. You get the track's measured audit "
@@ -112,10 +121,17 @@ def audit_for_model(audit: Audit, deltas: Deltas | None) -> dict:
 def _ask(client: MuseSpark, instructions: str, payload: dict, *, job: str, schema: dict) -> dict:
     prompt = json.dumps(payload)
     gate.check_model_call(TENANT, model=MODEL, system=instructions, prompt=prompt, joblog=client.joblog)
-    reply = client.ask(prompt, developer=instructions, job=job, model=MODEL, max_completion_tokens=TOKENS,
-                       reasoning_effort=EFFORT,
-                       response_format={"type": "json_schema", "json_schema": {"name": job, "schema": schema,
-                                                                               "strict": True}})
+    for attempt in range(len(RETRY_WAITS) + 1):
+        try:
+            reply = client.ask(prompt, developer=instructions, job=job, model=MODEL, max_completion_tokens=TOKENS,
+                               reasoning_effort=EFFORT,
+                               response_format={"type": "json_schema", "json_schema": {"name": job, "schema": schema,
+                                                                                       "strict": True}})
+            break
+        except MuseSparkError as exc:
+            if attempt == len(RETRY_WAITS) or not _passing(exc):
+                raise
+            sleep(RETRY_WAITS[attempt])
     if reply.finish_reason == "length":
         raise RuntimeError(f"the {job} ran out of room before it finished")
     try:
