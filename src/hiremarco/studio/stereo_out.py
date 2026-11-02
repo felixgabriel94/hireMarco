@@ -209,12 +209,13 @@ class StereoOut:
         def run() -> str:
             front_is_logic()
             for ins in wanted:
-                self.jxa("stereo_out_bypass.js", ins.name)
+                self.jxa("stereo_out_bypass.js", ins.name, f"{ins.y:g}")   # by name and row: a name can repeat
                 self.sleep(0.2)
             return f"{'bypassed' if on else 'back in'}: " + ", ".join(i.name for i in wanted)
         self._gated(run, "bypass", f"{'bypass' if on else 'un-bypass'} {', '.join(i.name for i in wanted)} on the Stereo Out")
         after = self.read()
-        off = [i.name for i in after.inserts if i.name in {w.name for w in wanted} and i.bypassed != on]
+        rows = {(w.name, round(w.y)) for w in wanted}
+        off = [i.name for i in after.inserts if (i.name, round(i.y)) in rows and i.bypassed != on]
         if off:
             raise RuntimeError(f"bypass did not take on {', '.join(off)}")
         return after

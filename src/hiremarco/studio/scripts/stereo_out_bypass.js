@@ -1,8 +1,10 @@
 // Click the bypass checkbox of one insert on the Stereo Out strip in Logic's Mixer window, by the plugin's short
-// name as the strip shows it. Prints the checkbox's value after the click ("true" bypassed, "false" in).
-// Run: osascript -l JavaScript stereo_out_bypass.js "Gain"
+// name as the strip shows it and, when given, its vertical position (two inserts can share a name, live
+// 2026-11-02: Gain twice). Prints the checkbox's value after the click ("true" bypassed, "false" in).
+// Run: osascript -l JavaScript stereo_out_bypass.js "Gain" [y]
 function run(argv) {
   const wanted = String(argv[0] || "");
+  const wantedY = argv.length > 1 ? Number(argv[1]) : null;
   const se = Application("System Events");
   const logic = se.processes.byName("Logic Pro");
   function s(f) { try { const v = f(); return v === null || v === undefined ? "" : String(v); } catch (e) { return ""; } }
@@ -22,6 +24,7 @@ function run(argv) {
   const groups = strips[0].groups();
   for (let i = 0; i < groups.length; i++) {
     if (s(() => groups[i].description()) !== wanted) continue;
+    if (wantedY !== null && Math.abs(groups[i].position()[1] - wantedY) > 4) continue;
     const cbs = groups[i].checkboxes();
     for (let j = 0; j < cbs.length; j++) {
       if (s(() => cbs[j].description()) === "bypass") {
