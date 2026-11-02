@@ -22,7 +22,7 @@ from hiremarco.style import NAME_RULE, TIME_RULE
 from hiremarco.whatsapp import Inbound, WhatsApp, make_app, reactions
 from hiremarco.whatsapp.brain import context, decide, history
 from hiremarco.whatsapp.facts import forget, keep
-from hiremarco.whatsapp.memory import earlier_words, note_words, remember
+from hiremarco.whatsapp.memory import earlier_words, note_words, quoted_words, remember
 
 
 def _inbox() -> Path:
@@ -234,14 +234,15 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
     return f"brain: {decision.action}; {did}{memory}"
 
 
-def email_words(said: str, sender: str, message_id: str, wa: WhatsApp) -> str | None:
+def email_words(said: str, sender: str, message_id: str, wa: WhatsApp, quoted: str = "") -> str | None:
     """His words about his email; None for anything else. A failure here tells him nothing went out."""
     from hiremarco.calls import offers
     from hiremarco.inbox import outbox
     from hiremarco.joblog import JobLog, JobRow
 
     try:
-        return outbox.handle_words(said, sender, message_id, wa, offer_pending=lambda: offers.pending(offers.connect()))
+        return outbox.handle_words(said, sender, message_id, wa, offer_pending=lambda: offers.pending(offers.connect()),
+                                   **({"quoted": quoted} if quoted else {}))
     except gate.Refused:
         raise
     except Exception as exc:
@@ -293,7 +294,8 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
 
     conn = conn or offers.connect()
     reply = lambda text, tag: wa.send_text(sender, text, idempotency_key=f"{tag}:{message_id}")  # noqa: E731
-    answered = None if offer is not None else offers.asking(conn, now)
+    answered = offer if offer is not None and offer.status == "questions" else \
+        (None if offer is not None else offers.asking(conn, now))
     if answered is not None:  # his one reply to the fallback questions: it goes into the brief, then the call
         offer = offers.record_fallbacks(conn, answered, said)
     elif offer is None:
@@ -311,7 +313,7 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
         return f"offer {offer.id}: place {offer.place_id} not in the places file"
     if answered is None:  # the questions come first, so one reply can fill what the profile leaves open
         offers.ask_fallbacks(conn, offer)
-        reply(offers.questions_text(offer), "offer-questions")
+        offers.add_message(conn, offer.id, reply(offers.questions_text(offer), "offer-questions"))
         return f"offer {offer.id}: asked the fallback questions before dialing"
     try:
         full = briefs.build("reservation", offers.brief_for(offer))
@@ -377,7 +379,7 @@ def email_offer_words(said: str, sender: str, message_id: str, wa: WhatsApp, *, 
     when = now or datetime.now(timezone.utc)
     said = (said or "").strip()
     reply = lambda text, tag: wa.send_text(sender, text, idempotency_key=f"{tag}:{message_id}")  # noqa: E731
-    waiting = None if offer is not None else offers.waiting_for_words(conn, when)
+    waiting = (offer if offer.status == "what to say" else None) if offer is not None else offers.waiting_for_words(conn, when)
     if waiting is not None:
         if NEVER_MIND.match(said):
             offers.set_status(conn, waiting.id, "declined")
@@ -410,7 +412,8 @@ def email_offer_words(said: str, sender: str, message_id: str, wa: WhatsApp, *, 
     if not message_id.startswith("booth-"):
         offers.set_asked(conn, offer.id, message_id)
     days = _open_days(calendar, when)
-    reply("What should I say?" + (f" You're open {', '.join(days)}, if a day helps." if days else ""), "email-offer-say")
+    offers.add_message(conn, offer.id, reply("What should I say?" + (f" You're open {', '.join(days)}, if a day helps." if days else ""),
+                                             "email-offer-say"))
     return f"offer {offer.id}: asked what to say, {len(days)} open days offered"
 
 
@@ -458,11 +461,56 @@ def _text_offer(offer, sender: str, wa: WhatsApp, conn, now=None):
     from hiremarco.whatsapp.client import WhatsAppError
 
     try:
-        wa.send_text(sender, offer.message, idempotency_key=f"email-offer:{offer.offer_key}", now=now)
+        sent = wa.send_text(sender, offer.message, idempotency_key=f"email-offer:{offer.offer_key}", now=now)
     except (gate.Refused, WhatsAppError) as held:
         JobLog().append(JobRow(job="email-offer", ok=False, note=f"{offer.offer_key}: held, {type(held).__name__}"))
         return None
+    offers.add_message(conn, offer.id, sent)
     return offers.mark_texted(conn, offer, now)
+
+
+def quoted_reply(said: str, sender: str, message_id: str, quoted: str, wa: WhatsApp, *, conn=None, calls=None, places=None,
+                 start=None, calendar=None, mail=None, client=None, outbox_conn=None, now=None) -> str | None:
+    """His reply that quotes one of Marco's messages about an offer goes to exactly that offer, and never to another: a
+    yes, a no, or his answer to what that offer asked. A yes on one that is closed, or on a message from before these were
+    kept, is told so and acts on nothing. None sends his words on, to the brain, which sees what he quoted."""
+    from datetime import datetime, timezone
+
+    from hiremarco.calls import offers
+    from hiremarco.whatsapp.memory import quoted_words
+
+    conn, when = conn or offers.connect(), now or datetime.now(timezone.utc)
+    said = (said or "").strip()
+    yes, no = AFFIRM.search(said), NEVER_MIND.match(said)
+    reply = lambda text, tag: wa.send_text(sender, text, idempotency_key=f"{tag}:{message_id}")  # noqa: E731
+    offer = offers.by_message(conn, quoted)
+    if offer is None:
+        if yes and quoted_words(wa.conn, quoted) is None:
+            reply("I can't tell which one that was, so I didn't act on it. Want me to set it up again?", "quote-unknown")
+            return "quoted a message from before they were kept: nothing done"
+        return None
+    if offers.taken(offer):
+        if yes or no:
+            reply("I already took care of that one.", "quote-taken")
+            return f"offer {offer.id}: quoted, already {offer.status}"
+        return None
+    if not offers.still_open(offer, when):
+        if yes or no:
+            reply("That one's expired, so I didn't act on it. Want me to set it up again?", "quote-expired")
+            return f"offer {offer.id}: quoted after its window, nothing done"
+        return None
+    answering = offer.status in ("questions", "what to say")
+    if no and not answering:
+        offers.set_status(conn, offer.id, "declined")
+        reply("Okay, I'll leave that one with you.", "quote-off")
+        return f"offer {offer.id}: declined by quote"
+    if not (yes or answering):
+        return None
+    offer = offers.reopen(conn, offer)
+    if offer.kind == "table":
+        return offer_yes(said, sender, message_id, wa, conn=conn, calls=calls, places=places, start=start, now=when, offer=offer)
+    return email_offer_words(said, sender, message_id, wa, conn=conn, calendar=calendar, mail=mail, client=client,
+                             outbox_conn=outbox_conn, now=when, offer=offer)
 
 
 def receive_offer(raw: bytes, headers, *, wa: WhatsApp | None = None, conn=None, places=None, now=None,
@@ -734,8 +782,14 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
                 photo = None  # "set up my session" between frames is about the session, not the last frame
         if message.kind == "image":
             said = said or "(he sent this photo without a word)"
-        offered = email_offer_words(said, message.sender, message.id, wa) if said and message.kind != "image" else None
+        words = said and message.kind != "image"
+        if words and message.quoted:  # he pointed at one message: the offers answer only for that one, below
+            offered = quoted_reply(said, message.sender, message.id, message.quoted, wa)
+        else:
+            offered = email_offer_words(said, message.sender, message.id, wa) if words else None
         if offered is not None:
+            if ": calling " in offered:
+                reactions.react(wa, message.sender, message.id, reactions.CALLING)
             if "draft shown" in offered:
                 reactions.react(wa, message.sender, message.id, reactions.DRAFT)
             return trace.done(offered)
@@ -743,12 +797,12 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         if dropped is not None:
             return trace.done(dropped)
         if said and message.kind != "image":
-            written = email_words(said, message.sender, message.id, wa)
+            written = email_words(said, message.sender, message.id, wa, **({"quoted": message.quoted} if message.quoted else {}))
             if written is not None:
                 if "draft shown" in written:
                     reactions.react(wa, message.sender, message.id, reactions.DRAFT)
                 return trace.done(written)
-        called = offer_yes(said, message.sender, message.id, wa) if said and message.kind != "image" else None
+        called = offer_yes(said, message.sender, message.id, wa) if words and not message.quoted else None
         if called is not None:
             if ": calling " in called:
                 reactions.react(wa, message.sender, message.id, reactions.CALLING)
@@ -759,6 +813,9 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
                 earlier = earlier_words(wa.conn, message.id)
                 state = {**context(wa.conn, inbox or _inbox(), running, said),
                          "his_earlier_messages": [{"ref": ref, "says": said_then} for ref, (_, said_then) in earlier.items()]}
+                pointed = quoted_words(wa.conn, message.quoted) if message.quoted else None
+                if pointed:
+                    state["he_is_replying_to"] = {"from": pointed[0], "says": pointed[1]}
                 decision = decide(marco, said, state, turns, instructions=ENGLISH, photo=photo)
             except gate.Refused:
                 raise

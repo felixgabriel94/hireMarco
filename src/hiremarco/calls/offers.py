@@ -54,7 +54,8 @@ create table if not exists offers (
 EMAIL_COLUMNS = {"kind": "text not null default 'table'", "offer_key": "text", "source_id": "text",
                  "who": "text not null default ''", "message": "text not null default ''",
                  "yes_by": "text not null default ''", "texted_at": "text", "spoken_at": "text",
-                 "minute": "integer not null default 0", "asked_id": "text"}
+                 "minute": "integer not null default 0", "asked_id": "text",
+                 "message_ids": "text not null default ''"}
 HOLD_MAX = timedelta(hours=24)
 
 
@@ -81,6 +82,7 @@ class CallOffer:
     spoken_at: datetime | None = None
     minute: int = 0
     asked_id: str | None = None  # the message of his that said yes: its result quotes it
+    message_ids: str = ""        # Marco's messages about this offer: what he can quote to point at it
 
     def clock(self) -> str:
         """The time as he reads it: 8pm, 8:30pm, noon."""
@@ -124,7 +126,7 @@ def _when(text: str | None) -> datetime | None:
 
 def _row(r) -> CallOffer:
     return CallOffer(r[0], datetime.fromisoformat(r[1]), r[2], r[3], r[4], r[5], r[6], r[7], r[8], _when(r[9]),
-                     r[10] or "", r[11], r[12], r[13], r[14], r[15], r[16], _when(r[17]), _when(r[18]), r[19], r[20])
+                     r[10] or "", r[11], r[12], r[13], r[14], r[15], r[16], _when(r[17]), _when(r[18]), r[19], r[20], r[21])
 
 
 def record_offer(conn: sqlite3.Connection, place: Place, *, weekday: str, day: str, hour: int, party_size: int,
@@ -182,6 +184,38 @@ def mark_texted(conn: sqlite3.Connection, offer: CallOffer, now: datetime | None
 
 def held(conn: sqlite3.Connection) -> list[CallOffer]:
     return [_row(r) for r in conn.execute("select * from offers where status = 'held' order by id").fetchall()]
+
+
+def add_message(conn: sqlite3.Connection, offer_id: int, message_id: str | None) -> None:
+    if message_id:
+        conn.execute("update offers set message_ids = trim(message_ids || ' ' || ?) where id = ?", (message_id, offer_id))
+        conn.commit()
+
+
+def by_message(conn: sqlite3.Connection, message_id: str) -> CallOffer | None:
+    """The offer one of Marco's messages was about, for a reply that quotes it."""
+    r = conn.execute("select * from offers where instr(' ' || message_ids || ' ', ?) > 0 order by id desc limit 1",
+                     (f" {message_id} ",)).fetchone()
+    return _row(r) if r else None
+
+
+def still_open(offer: CallOffer, now: datetime | None = None) -> bool:
+    """He can still answer it: inside its yes window, and not taken. A newer offer replacing it only moved the plain yes
+    along; quoting it points at it anyway."""
+    now = now or datetime.now(timezone.utc)
+    since = offer.accepted_at if offer.status == "what to say" and offer.accepted_at else offer.offered_at
+    return offer.status in ("pending", "replaced", "questions", "what to say") and now - since <= YES_WINDOW
+
+
+def taken(offer: CallOffer) -> bool:
+    return offer.status in ("accepted", "called", "held", "drafting", "drafted", "answered", "declined", "test done")
+
+
+def reopen(conn: sqlite3.Connection, offer: CallOffer) -> CallOffer:
+    """He quoted an offer a newer one had replaced: it is the one in question again, beside the newer one."""
+    conn.execute("update offers set status = 'pending' where id = ? and status = 'replaced'", (offer.id,))
+    conn.commit()
+    return get(conn, offer.id)
 
 
 def set_asked(conn: sqlite3.Connection, offer_id: int, message_id: str) -> None:

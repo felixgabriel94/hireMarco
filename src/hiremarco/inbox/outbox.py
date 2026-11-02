@@ -114,6 +114,9 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.executescript(SQL)
+    if not any(row[1] == "preview_ids" for row in conn.execute("pragma table_info(outbox)")):
+        conn.execute("alter table outbox add column preview_ids text not null default ''")
+        conn.commit()
     return conn
 
 
@@ -284,13 +287,27 @@ def resolve(field: str, said: str, mail) -> tuple[list[str], str]:
 
 # the steps
 
-def _say(wa, sender: str, text: str, tag: str, exact: bool = False) -> None:
-    wa.send_text(sender, text, idempotency_key=tag, **({"exact": True} if exact else {}))
+def _say(wa, sender: str, text: str, tag: str, exact: bool = False) -> str | None:
+    return wa.send_text(sender, text, idempotency_key=tag, **({"exact": True} if exact else {}))
+
+
+def _keep_ids(conn, row_id: int, ids) -> None:
+    """Marco's messages showing this draft or question: what Felix can quote to point at exactly it."""
+    kept = " ".join(i for i in ids if i)
+    if kept:
+        conn.execute("update outbox set preview_ids = trim(preview_ids || ' ' || ?) where id = ?", (kept, row_id))
+        conn.commit()
+
+
+def quoted_row(conn: sqlite3.Connection, message_id: str) -> Row | None:
+    row = conn.execute(f"select {COLUMNS} from outbox where instr(' ' || preview_ids || ' ', ?) > 0 order by id desc limit 1",
+                       (f" {message_id} ",)).fetchone()
+    return Row(*row) if row else None
 
 
 def _show(conn, wa, sender: str, message_id: str, row_id: int, content: Content, source_line: str = "") -> None:
-    for n, part in enumerate(chunks(preview_text(content, source_line))):
-        _say(wa, sender, part, f"mail-preview:{message_id}:{row_id}:{n}", exact=True)
+    _keep_ids(conn, row_id, [_say(wa, sender, part, f"mail-preview:{message_id}:{row_id}:{n}", exact=True)
+                             for n, part in enumerate(chunks(preview_text(content, source_line)))])
 
 
 def _make_draft(conn, mail, wa, sender: str, message_id: str, *, kind: str, to: str, cc: str, subject: str, body: str,
@@ -491,20 +508,38 @@ def _ask_archive(intent, sender, message_id, wa, conn, mail, listed) -> str:
     if len(ids) <= ARCHIVE_ASK_ABOVE:
         return _archive(ids, sender, message_id, wa, mail, listed)
     conn.execute("update outbox set status = 'set aside', done_at = ? where status = 'waiting'", (_now().isoformat(),))
-    conn.execute("insert into outbox (kind, status, query, count, asked_at) values ('archive', 'waiting', ?, ?, ?)",
-                 (query, len(ids), _now().isoformat()))
+    cur = conn.execute("insert into outbox (kind, status, query, count, asked_at) values ('archive', 'waiting', ?, ?, ?)",
+                       (query, len(ids), _now().isoformat()))
     conn.commit()
-    _say(wa, sender, f"That's {len(ids)}{' or more' if len(ids) == ARCHIVE_MOST else ''} emails ({find}). "
-         'Say "archive" and I\'ll do them all.', f"mail-count:{message_id}")
+    _keep_ids(conn, cur.lastrowid, [_say(wa, sender, f"That's {len(ids)}{' or more' if len(ids) == ARCHIVE_MOST else ''} emails ({find}). "
+                                         'Say "archive" and I\'ll do them all.', f"mail-count:{message_id}")])
     return f"mail: archive, asked about {len(ids)}"
 
 
 def handle_words(said: str, sender: str, message_id: str, wa, *, conn=None, mail=None, client=None, listed=None,
-                 gate_conn=None, rules_path=None, now: datetime | None = None, offer_pending=None) -> str | None:
-    """Felix's WhatsApp words, if they are about his email. None sends them on to the brain as usual."""
+                 gate_conn=None, rules_path=None, now: datetime | None = None, offer_pending=None,
+                 quoted: str = "") -> str | None:
+    """Felix's WhatsApp words, if they are about his email. None sends them on to the brain as usual. ``quoted`` is the
+    message he replied to: a "send" that quotes one applies to that preview and no other, whatever else is waiting."""
     said = said or ""
     conn = conn or connect()
     row = waiting(conn, now)
+    if quoted:
+        pointed = quoted_row(conn, quoted)
+        acting = SEND.fullmatch(said) or CANCEL.fullmatch(said) or ARCHIVE_YES.fullmatch(said)
+        if pointed is None and acting:
+            _say(wa, sender, "That message isn't a draft of mine, so I didn't do anything. Quote the draft you mean.",
+                 f"mail-not-a-draft:{message_id}")
+            return "mail: quoted something that is no draft, nothing done"
+        if pointed is not None:
+            alive = pointed.status in ("waiting", "set aside") and (now or _now()) - pointed.asked <= PREVIEW_LIFE
+            if not alive and acting:
+                _say(wa, sender, "That draft isn't open anymore, so nothing went out. Want me to write it again?",
+                     f"mail-closed:{message_id}")
+                return f"mail: quoted a closed draft ({pointed.status}), nothing done"
+            row = pointed if alive else None
+        else:
+            row = None  # he is talking about something else: none of the steps below are his answer to a draft
     if row is None and not ABOUT_EMAIL.search(said):
         return None
 

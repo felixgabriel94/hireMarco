@@ -493,8 +493,8 @@ def cmd_call(args) -> int:
         offer = offers.record_offer(offers.connect(), place, weekday=args.day, day=day.isoformat(), hour=args.hour,
                                     minute=args.minute, party_size=args.party)
         try:
-            WhatsApp().send_text(config.require("OWNER_WHATSAPP"), offer.text(place),
-                                 idempotency_key=f"offer:{offer.id}")
+            offers.add_message(offers.connect(), offer.id, WhatsApp().send_text(
+                config.require("OWNER_WHATSAPP"), offer.text(place), idempotency_key=f"offer:{offer.id}"))
         except gate.Refused as refused:
             print(f"offer {offer.id} not sent: {refused.reason}")
             return 1

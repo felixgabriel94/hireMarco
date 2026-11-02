@@ -61,3 +61,24 @@ def earlier_words(conn: sqlite3.Connection, but: str, limit: int = 6) -> dict[st
     rows = conn.execute("select wa_message_id, said from his_words where wa_message_id != ? order by ts desc limit ?",
                         (but, limit)).fetchall()
     return {"abcdef"[n]: row for n, row in enumerate(reversed(rows))}
+
+
+def note_sent(conn: sqlite3.Connection, message_id: str, said: str) -> None:
+    """What Marco sent under its message id, so a message of his that Felix quotes can be read back."""
+    if not message_id:
+        return
+    conn.execute("create table if not exists marco_words (wa_message_id text primary key, ts text not null, said text not null)")
+    conn.execute("insert or ignore into marco_words (wa_message_id, ts, said) values (?, ?, ?)",
+                 (message_id, datetime.now(timezone.utc).isoformat(), said))
+    conn.commit()
+
+
+def quoted_words(conn: sqlite3.Connection, message_id: str) -> tuple[str, str] | None:
+    """(who, words) for a message Felix quoted; None for one sent before these were kept."""
+    conn.execute("create table if not exists marco_words (wa_message_id text primary key, ts text not null, said text not null)")
+    conn.execute("create table if not exists his_words (wa_message_id text primary key, ts text not null, said text not null)")
+    for who, table in (("marco", "marco_words"), ("felix", "his_words")):
+        row = conn.execute(f"select said from {table} where wa_message_id = ?", (message_id,)).fetchone()
+        if row:
+            return who, row[0]
+    return None

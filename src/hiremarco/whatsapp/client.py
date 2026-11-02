@@ -19,7 +19,7 @@ import httpx
 
 from hiremarco import config, gate
 from hiremarco.style import plain, written
-from hiremarco.whatsapp.memory import remember
+from hiremarco.whatsapp.memory import note_sent, remember
 
 GRAPH_URL = "https://graph.facebook.com/v25.0"
 WINDOW = timedelta(hours=24)
@@ -151,6 +151,7 @@ class WhatsApp:
         sent = self._send_quoted(to, {"type": "text", "text": {"body": body}}, self._quote(to, quote), text_for_gate=body,
                                  idempotency_key=idempotency_key, capability="send_message", critic=critic, now=now)
         remember(self.conn, "marco", body)
+        note_sent(self.conn, sent, body)
         return sent
 
     def send_link(self, to: str, body: str, url: str, label: str, *, idempotency_key: str, critic=None,
@@ -164,6 +165,7 @@ class WhatsApp:
         sent = self._send_quoted(to, payload, self._quote(to, quote), text_for_gate=f"{body} {url}",
                                  idempotency_key=idempotency_key, capability="send_message", critic=critic, now=now)
         remember(self.conn, "marco", f"{body} [button: {label}]")
+        note_sent(self.conn, sent, body)
         return sent
 
     def upload_media(self, data: bytes, mime_type: str, filename: str) -> str:

@@ -70,6 +70,8 @@ did his part), money (money came in), big_win (a rare big win), laugh (his joke 
 A reaction replaces the text only when nothing needs saying: then leave reply empty, with action reply, and never add \
 "noted" or "you're welcome". If he asked something, or you have anything to say or ask, write it in reply. Only one reaction.
 
+If he_is_replying_to is there, he quoted that message: his words are about it, not about the latest thing said.
+
 Quoting. Leave quote empty. Fill it only when your text asks about one specific earlier message of his, from \
 his_earlier_messages, and he would not know which you mean; then give that message's ref. Never for his latest message.
 
