@@ -25,5 +25,5 @@ def test_space_goes_on_buses_and_character_on_inserts():
 
 
 def test_the_rulebook_holds_the_lines_marco_does_not_cross():
-    for must in ("No limiter", "3 dB of true-peak headroom", "mono below about 120 Hz", "100 percent wet"):
+    for must in ("No limiter", "3 dB of true-peak headroom", "Low end centered and mono", "100 percent wet"):
         assert must in RULEBOOK
