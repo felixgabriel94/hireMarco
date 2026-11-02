@@ -83,10 +83,20 @@ def run_live(song: str | None = None, end_bar: int | None = None, *, purpose: st
         def deliver(path: Path, caption: str) -> str:
             return f"{path} ({caption})"
 
+    def select_track() -> None:
+        # the tall Mixer window sits over the track headers (live 2026-11-02: the click landed on the Mixer and
+        # selected nothing), so the Tracks window comes to the front first
+        subprocess.run(["osascript", "-e", 'tell application "Logic Pro" to activate'], check=False, timeout=10)
+        time.sleep(0.3)
+        subprocess.run(["osascript", "-e", 'tell application "System Events" to tell process "Logic Pro"\n'
+                        'repeat with w in (every window)\nif (name of w) ends with " - Tracks" then perform action '
+                        '"AXRaise" of w\nend repeat\nend tell'], check=False, timeout=15)
+        time.sleep(0.5)
+        BeatLoader().select(track)
+
     job = jobs.Job(song, end_bar, (bounces or BOUNCES / song), purpose=purpose, direction=direction,
                    stock_only=stock_only, references=references)
     return jobs.run(job, strip=StereoOut(conn=conn), bouncer=Bouncer(conn=conn), channel=Channel(conn=conn, strip="output"),
-                    locators=live_arranger(conn).locators, toggle_cycle=toggle_cycle,
-                    select_track=lambda: BeatLoader().select(track),
+                    locators=live_arranger(conn).locators, toggle_cycle=toggle_cycle, select_track=select_track,
                     critic=Critic(effort="max", tokens=4000, timeout=600.0),
                     deliver=deliver, log=log)
