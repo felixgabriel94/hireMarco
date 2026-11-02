@@ -18,6 +18,8 @@ import json
 import os
 import math
 import time
+
+import soundfile as sf
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
@@ -72,6 +74,7 @@ class Result:
     hearing_master: dict | None = None
     manifest: list[dict] = field(default_factory=list)   # every insert on the output: yours, planned or stray
     verdict: object | None = None                   # the master against the mix (mix.verify.Verdict)
+    bench: list[dict] = field(default_factory=list)      # each insert with and without, measured; what earned its place
 
     @property
     def caption(self) -> str:
@@ -82,6 +85,11 @@ class Result:
             return "No master printed."
         verified = (self.verdict.text().splitlines()[0] if self.verdict is not None
                     else "not verified against the mix (no tempo to check the pumping)")
+        if self.bench:
+            kept = [b["name"] for b in self.bench if b["earned"]]
+            gone = [b["name"] for b in self.bench if not b["earned"]]
+            verified += (f". Each insert earned its place with and without it: kept {', '.join(kept) or 'none'}"
+                         + (f"; taken off {', '.join(gone)}" if gone else ""))
         return (f"Master, {p.purpose}: {am.base.lufs} LUFS integrated, true peak {am.base.true_peak_db} dBTP, "
                 f"loudness range {am.loudness_range} LU, {am.sample_rate} Hz {am.subtype}. "
                 f"Target was {p.target_lufs} LUFS under {p.ceiling_dbtp} dBTP. {verified[0].upper() + verified[1:]}.")
@@ -180,6 +188,66 @@ def prove_chain(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cy
         ensure_range(bouncer, job.end_bar, toggle_cycle, log)
 
 
+EARN_DB = 0.3            # an insert earns its place when its absence moves level, crest or a band this much
+EARN_TILT = 0.1          # or the tilt this much, dB per octave
+
+
+def run_bench(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycle, job: Job, log,
+              ledger: list[dict]) -> list[dict]:
+    """Every one of Marco's inserts on the output printed with and without over the check range, after the
+    settings: the full chain once, then each insert bypassed in turn. The difference its absence makes (level,
+    crest, tilt, the widest band move) is the reason it stays; one that moves nothing is taken off and the record
+    says so. Returns one row per insert."""
+    folder = Path(job.bounces).expanduser() / "checks"
+    folder.mkdir(parents=True, exist_ok=True)
+    marcos = {row["name"] for row in ledger}
+
+    def short_print(label: str) -> Path:
+        name = bouncing.free_name(folder, bouncing.print_name(job.song, label, job.today))
+        return bouncer.print(bouncing.MASTER, folder, name).path
+
+    def measure(path: Path) -> dict:
+        audio, rate = sf.read(str(path), dtype="float32", always_2d=True)
+        a = auditing.audit_audio(audio, rate, path.stem)
+        return {"lufs": a.base.lufs, "crest": a.base.crest_db, "tilt": a.tilt_db_per_octave,
+                "bands": verifying.band_levels(audio, rate)}
+
+    rows: list[dict] = []
+    locators(*CHECK_RANGE)
+    ensure_range(bouncer, CHECK_RANGE[1], toggle_cycle, log)
+    try:
+        full = measure(short_print("bench full chain"))
+        for ins in [i for i in strip.read().inserts if i.marcos and i.name in marcos and not i.bypassed]:
+            strip.bypass(True, rows=[ins.y])
+            try:
+                without = measure(short_print(f"bench without {ins.name}"))
+            finally:
+                strip.bypass(False, rows=[ins.y])
+            band_moves = {k: round(full["bands"][k] - without["bands"][k], 1) for k in full["bands"]
+                          if not math.isnan(full["bands"][k]) and not math.isnan(without["bands"][k])}
+            widest = max(band_moves.items(), key=lambda kv: abs(kv[1])) if band_moves else ("", 0.0)
+            effect = {"level_db": round(full["lufs"] - without["lufs"], 1), "crest_db": round(full["crest"] - without["crest"], 1),
+                      "tilt_db_per_octave": round(full["tilt"] - without["tilt"], 2), "widest_band": widest[0], "band_db": widest[1]}
+            earned = bool(abs(effect["level_db"]) >= EARN_DB or abs(effect["crest_db"]) >= EARN_DB
+                          or abs(effect["tilt_db_per_octave"]) >= EARN_TILT or abs(effect["band_db"]) >= EARN_DB)
+            rows.append({"name": ins.name, "y": round(ins.y), "earned": earned, **effect})
+            if earned:
+                log(f"   {ins.name} earns its place: without it level {-effect['level_db']:+.1f} dB, crest "
+                    f"{-effect['crest_db']:+.1f} dB, tilt {-effect['tilt_db_per_octave']:+.2f}, {widest[0]} {-widest[1]:+.1f} dB")
+            else:
+                log(f"   {ins.name} changes nothing measurable here (level {effect['level_db']:+.1f}, crest "
+                    f"{effect['crest_db']:+.1f}, {widest[0]} {widest[1]:+.1f} dB): taken off")
+                try:
+                    strip.remove(ins.name, ins.y)
+                except Exception as exc:   # noqa: BLE001
+                    log(f"   could not remove {ins.name} ({str(exc)[-100:]}); bypassed instead")
+                    strip.bypass(True, rows=[ins.y])
+    finally:
+        locators(1, job.end_bar)
+        ensure_range(bouncer, job.end_bar, toggle_cycle, log)
+    return rows
+
+
 def role_filled(role: str, names: list[str], claimed: set[str] | None = None, room: set[str] | None = None) -> str | None:
     """The strip name of a plugin already there that can fill the role (a run that stopped after its insert), not
     one another role has claimed: Pro-Q 3 counts once, for the EQ role it was put in for. A candidate outside the
@@ -221,7 +289,7 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
         client=None, critic=None, deliver: Callable[[Path, str], str] | None = None, log: Callable[[str], None] = print,
         sleep=time.sleep, mark_plugin: Callable[[str, str, str], None] | None = mark_in_ledger,
         look_at_face: Callable[[], object] | None = None,
-        listen: Callable[..., dict | None] | None = None) -> Result:
+        listen: Callable[..., dict | None] | None = None, bench: bool = False) -> Result:
     result = Result()
     bounces = Path(job.bounces).expanduser()
     bounces.mkdir(parents=True, exist_ok=True)
@@ -230,7 +298,7 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     try:
         return _run(job, result, bounces, room, strip=strip, bouncer=bouncer, channel=channel, locators=locators,
                     toggle_cycle=toggle_cycle, select_track=select_track, client=client, critic=critic, deliver=deliver,
-                    log=log, sleep=sleep, mark_plugin=mark_plugin, look_at_face=look_at_face, listen=listen)
+                    log=log, sleep=sleep, mark_plugin=mark_plugin, look_at_face=look_at_face, listen=listen, bench=bench)
     finally:
         release_lock(lock)
 
@@ -285,7 +353,7 @@ def release_lock(path: Path | None) -> None:
 
 
 def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, bouncer, channel, locators, toggle_cycle,
-         select_track, client, critic, deliver, log, sleep, mark_plugin, look_at_face, listen) -> Result:
+         select_track, client, critic, deliver, log, sleep, mark_plugin, look_at_face, listen, bench) -> Result:
 
     # 1. the mix as it stands: Marco's own inserts bypassed, the artist's untouched
     log("1. the mix print")
@@ -355,6 +423,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
     claimed_rows: set[tuple[str, int]] = set()   # the exact rows that fill a role: a third Pro-Q 3 is not one of them
     plugin_of: dict[str, str] = {}   # the strip's short name -> the plan's plugin, for the ledger
     kept_out: set[tuple[str, int]] = set()   # rows a face notice put out: never brought back in
+    faced: set[tuple[str, int]] = set()      # rows whose face was read at insert time this run
     for role, plugin in result.plan.chain.items():
         if role == "meter":
             continue  # meters are read by the audit, not by eye; nothing to insert for the print
@@ -392,6 +461,10 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
                 claimed_rows.add((new_rows[-1].name, round(new_rows[-1].y)))
             plugin_of[landed[-1]] = candidate
             face = seen_face[0] if seen_face else None
+            if face is not None:
+                for i in after.inserts:
+                    if (i.name, round(i.y)) not in seen:
+                        faced.add((i.name, round(i.y)))
             if face is None or face.licensed:
                 if candidate != plugin:
                     for entry in result.plan.roles:   # the record names what landed, not what was planned
@@ -432,6 +505,36 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
                 row["bypassed"] = True
     for row in result.manifest:
         log(f"   {row['name']}: {row['status']}" + (" (bypassed)" if row["bypassed"] else ""))
+    # every planned insert that was already on the strip gets its face read too (Owner 2026-11-02: an unowned
+    # Shadow Hills sat in the chain with START DEMO on its window because only new inserts were faced)
+    if look_at_face is not None and hasattr(strip, "open_insert"):
+        for row in [r for r in result.manifest if r["status"] == "planned" and (r["name"], r["y"]) not in faced]:
+            try:
+                strip.open_insert(row["name"], row["y"])
+                face = look_at_face()
+            except Exception as exc:   # noqa: BLE001
+                log(f"   {row['name']}: its face could not be read ({type(exc).__name__}); the audio check stands")
+                continue
+            finally:
+                strip.close_windows()
+            if face is None:
+                continue
+            if face.licensed:
+                log(f"   {row['name']}: its face reads licensed")
+                continue
+            plugin = plugin_of.get(row["name"], row["name"])
+            log(f"   {row['name']} shows {face.notice!r} on its face: not owned, taken off the strip")
+            try:
+                strip.remove(row["name"], row["y"])
+            except Exception as exc:   # noqa: BLE001
+                log(f"   could not remove it ({str(exc)[-100:]}); bypassed instead")
+                strip.bypass(True, rows=[row["y"]])
+            if mark_plugin is not None:
+                mark_plugin(plugin, "not_owned", f"its window said {face.notice!r} on {job.today}")
+            room.discard(plugin)
+            result.dead.append(plugin)
+            row["status"] = "not owned, removed"
+        result.manifest = verifying.manifest(strip.read().inserts, marcos_inserts(job.song), planned, same_plugin)
 
     # 4b. the chain proves it passes audio before anything is set or printed for real
     log("4b. the chain check")
@@ -460,6 +563,14 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             break
         result.settings += settings.changes
         log(f"   {settings.said}")
+
+        if bench and round_no == 1:
+            # 5b. the bench: each insert printed with and without over the same bars, now that it is set; what
+            # changes nothing comes off (Owner 2026-11-02: every decision earns its place with a measured reason)
+            log("5b. the bench")
+            result.bench = run_bench(strip, bouncer, locators, toggle_cycle, job, log, marcos_inserts(job.song))
+            if any(not row["earned"] for row in result.bench):
+                chain = channel.read(fresh=True)
 
         # 6. the master print, read back
         log(f"6. the master print (round {round_no})")
@@ -506,6 +617,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
         "deltas": deltas.as_dict() if deltas else None, "references": [r.base.name for r in refs],
         "hearing": result.hearing, "hearing_master": result.hearing_master,
         "manifest": result.manifest, "verdict": (result.verdict.__dict__ if result.verdict is not None else None),
+        "bench": result.bench,
     }, indent=1, default=str))
     if deliver is not None and result.master is not None and not result.stopped:
         log("7. the delivery")

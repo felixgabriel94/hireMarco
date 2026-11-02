@@ -273,6 +273,13 @@ class StereoOut:
         self.sleep(0.3)
         return int(out or 0)
 
+    def open_insert(self, name: str, row: float) -> None:
+        """One insert's own window opened from the Mixer strip, by its short name and row, so its face can be read;
+        closed by ``close_windows`` after. A read of the window, not a change to the session, so not gated."""
+        self.close_windows()
+        self.jxa("stereo_out_open.js", name, f"{row:g}")
+        self.sleep(0.5)
+
     def remove(self, name: str, row: float) -> Strip:
         """One insert taken off the output strip, by its short name and row: the slot's own menu opened from its
         "list" button, then by keyboard, never the mouse (mapped live 2026-11-02 on a stray Kickstart 2): Tab leaves

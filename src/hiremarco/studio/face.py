@@ -27,10 +27,11 @@ TENANT = "owner"
 
 INSTRUCTIONS = (
     "This is a screenshot of an audio plug-in window inside Logic Pro. Say whether the plug-in shows any notice "
-    "that it is not licensed or not fully working: words like 'subscription not active', 'license', 'activate', "
-    "'trial', 'demo', 'expired', 'not authorized', 'purchase', 'register', or a banner, overlay or dialog asking "
-    "the user to sign in or buy. A plug-in that simply shows its controls is licensed. Quote the notice exactly as "
-    "printed when there is one; otherwise leave it empty. Do not guess from the plug-in's name."
+    "that it is not owned, not licensed or not fully working: words or buttons like 'START DEMO', 'BUY', 'INFO' "
+    "beside them, 'subscription not active', 'license', 'activate', 'trial', 'demo', 'expired', 'not authorized', "
+    "'purchase', 'register', or a banner, overlay, bar or dialog asking the user to sign in, demo or buy, anywhere "
+    "on the window including its bottom edge. A plug-in that simply shows its controls is licensed. Quote the "
+    "notice exactly as printed when there is one; otherwise leave it empty. Do not guess from the plug-in's name."
 )
 
 SCHEMA = {

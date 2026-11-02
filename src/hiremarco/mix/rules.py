@@ -120,6 +120,12 @@ Level and dynamics:
 - Changes are small: EQ moves of 1-4 dB, a few dB of gain reduction, fader moves of 1-3 dB. Large moves are a sign
   the problem is earlier in the chain [start].
 
+What every decision owes (the Owner's rule, 2026-11-02):
+- Only plug-ins the artist owns: a window that says Start Demo, Buy, Trial, Activate or Subscription means not
+  owned, and the plug-in comes off and out of the room; a demo may be started and reported, never a purchase.
+- Every insert and every move earns its place with a measured reason, compared with and without it; nothing is
+  added out of habit, and a role is never filled because it is a role.
+
 Leaving the mix for mastering (the line Marco does not cross):
 - No limiter or loudness maximizer on the stereo output; mastering decides final loudness [mastering rulebook].
 - At least 3 dB of true-peak headroom, ideally about 6 dB. No clipping anywhere in the chain [mastering rulebook].

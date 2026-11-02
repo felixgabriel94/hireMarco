@@ -54,6 +54,14 @@ class FakeStrip:
             look()
         return self.read()
 
+    def remove(self, name, row):
+        self.log.append(("remove", name))
+        self.inserts = [i for i in self.inserts if not (i.name == name and abs(i.y - row) < 4)]
+        return self.read()
+
+    def close_windows(self):
+        return 0
+
 
 class FakeBouncer:
     def __init__(self, folder, lufs_per_print):
@@ -71,7 +79,7 @@ class FakeBouncer:
     def print(self, spec, folder, name, timeout_s=None):
         from hiremarco.mix.ears import lufs
 
-        rng = np.random.default_rng(len(self.prints))
+        rng = np.random.default_rng(1)   # the same noise every print, as an offline bounce of the same bars is the same
         level = next(self.levels)
         audio = rng.standard_normal((4 * RATE, 2)) * 0.05
         audio *= 10 ** ((level - lufs(audio, RATE)) / 20)      # lands exactly on the loudness asked for
@@ -366,3 +374,24 @@ def test_the_caption_says_verified_when_the_master_passes(tmp_path, monkeypatch)
     result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
                       toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2"}, log=lambda s: None)
     assert result.master is not None and "Verified: no new modulation; every band within reach." in result.caption
+
+
+def test_the_bench_keeps_what_moves_the_sound_and_takes_off_what_does_not(tmp_path, monkeypatch):
+    from hiremarco import config
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+    strip = FakeStrip()
+    # prints: mix, chain check, bench full, bench without Gain (6 dB lower: Gain earns its place), bench without
+    # Pro-L 2 (the same: it changes nothing), the master
+    bouncer, channel = FakeBouncer(tmp_path, [-30.0, -20.0, -20.0, -26.0, -20.0, -12.0]), FakeChannel()
+    plan = MasterPlan([{"role": "gain", "plugin": "Gain", "why": "8 dB"}, {"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}],
+                      -12.0, -1.0, "ok", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings([], ""))
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+                      toggle_cycle=lambda: None, select_track=lambda: None, room={"Gain", "Pro-L 2"}, log=lambda s: None,
+                      bench=True)
+    assert [(b["name"], b["earned"]) for b in result.bench] == [("Gain", True), ("Pro-L 2", False)]
+    assert ("remove", "Pro-L 2") in strip.log and [i.name for i in strip.inserts] == ["Console Re", "Gain"]
+    assert "kept Gain; taken off Pro-L 2" in result.caption and json.loads(result.record.read_text())["bench"][1]["earned"] is False

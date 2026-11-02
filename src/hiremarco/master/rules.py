@@ -41,6 +41,12 @@ MASTERING RULEBOOK (Marco, mastering engineer; the artist directs, the craft bel
 each line names its source in brackets, see SOURCES)
 
 What mastering is:
+- Only plug-ins the artist owns. A window that says Start Demo, Buy, Trial, Activate or Subscription means not
+  owned: the plug-in comes off, the ledger marks it, and it is out of the room until he buys it or says to demo it;
+  a demo may be started and reported, never a purchase [Owner 2026-11-02].
+- Every insert earns its place with a measured reason: printed with and without it over the same bars after it is
+  set, and kept only when the difference is heard in the numbers (level, crest, tone, range); a role is never
+  filled because it is a role, and a decision made by habit is a defect [Owner 2026-11-02].
 - Enhancement of a finished mix, not its correction; the mix's intent stands. On a strong mix the work is "the final
   2%" [Becker]; "the listener has no idea that we did anything" [MC2023, Lurssen]; "more about the vibe of the music
   than technically being perfect" [Leonard].
