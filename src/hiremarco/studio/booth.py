@@ -45,6 +45,7 @@ COUNT_IN_SECONDS = float(os.environ.get("HIREMARCO_COUNT_IN_SECONDS", "0"))  # L
 TUNE_CENTER, TUNE_DRIFT = 80.0, 30.0  # a first pass that still sounds like the artist; the last 20% is theirs
 FLEX_REFERENCE_LIMIT = 5.0  # cents off 440 beyond which Flex Pitch is skipped for the session (Owner 2026-10-29)
 AUTO_NOTE_SECONDS = 8  # a take this long or longer gets his note when it stops; shorter is a test or a false start
+BOOTH_YES = re.compile(r"yes please|yes|yeah|yep|go ahead|go for it|do it|please do|sure|book it|call them|draft it")
 FRAGMENT_WORDS = 3  # a line this short with no name, that he cannot place, is not for him
 MIC_TALKING = 0.01  # the mic level (RMS) above which the artist is taken to be talking, as Barge.FLOOR
 QUIET_MAX, QUIET_READ, QUIET_READS = 1.2, 0.05, 3  # he waits this long at most, and for this many quiet reads
@@ -157,6 +158,8 @@ class Booth:
     voice_takes: dict = field(default_factory=dict)   # track name -> (its last take's audio, its take_start)
     harmony: object | None = None                     # studio.harmony.Stack over the last take's line
     auto_note: bool = False                           # a note after every take of AUTO_NOTE_SECONDS or more
+    email_offers: object | None = None                # an email offer he texted: one line after a take, a spoken yes
+    _offer_line: str = ""                             # his line about it, while it is still the last thing he said
     _implied: bool = False                            # this line came without his name, inside the awake window
     mic_level: Callable[[], float] | None = None      # the mic right now: he holds his line while the artist talks
     _beat_region: str = ""                            # the beat region last read, for Logic's own tempo reading
@@ -284,6 +287,56 @@ class Booth:
                     return True
         return False
 
+    def _mention_email_offer(self) -> None:
+        """One short line, once per offer, when a take has ended and no question of his is open (Owner 2026-11-02).
+        The details stay in the text: only who, so nothing else of the email is said or goes to the Writer."""
+        if self.email_offers is None or self.rolling or self.pending_punch:
+            return
+        try:
+            offer = self.email_offers.to_mention()
+        except Exception as exc:  # the take comes first: an offer never gets in its way
+            self.log(f"   (email offer not read: {type(exc).__name__})")
+            return
+        if offer is None:
+            return
+        first = (offer.who.split() or ["Someone"])[0]
+        plain = f"Heads up, {first} emailed. I texted you."
+        line = plain if self.writer is None else self.writer.line(
+            "someone emailed and you already texted the artist the details; tell him in one short line, name them, "
+            "say you texted him, and give no details", {"who": first}, plain)
+        line = line if first.lower() in line.lower() else plain
+        self.email_offers.mentioned(offer)
+        self._speak(line)
+        self._offer_line = line
+
+    def _yes_to_email_offer(self, line: str, started: float) -> str | None:
+        """A spoken yes to the offer he mentioned. A bare yes counts while his mention is still the last thing he
+        said; after other talk it has to say what it is about, so "yes" to "Lead or double?" never reaches a phone."""
+        if self.email_offers is None or self.rolling:
+            return None
+        try:
+            offer = self.email_offers.spoken()
+        except Exception as exc:
+            self.log(f"   (email offer not read: {type(exc).__name__})")
+            return None
+        if offer is None:
+            return None
+        words = " ".join(_words(strip_wake(line) if strip_wake(line) is not None else line))
+        first = re.escape((offer.who.split() or ["-"])[0].lower())
+        bare = BOOTH_YES.fullmatch(words) and self._offer_line and self.last_said == self._offer_line
+        named = re.search(rf"\b(?:{BOOTH_YES.pattern})\b.*\b(?:email|text|offer|table|dinner|reply|{first})\b", words)
+        if not (bare or named):
+            return None
+        self.email_offers.yes(offer)
+        self.awake_at = time.monotonic()
+        self._offer_line = ""
+        plain = "On it."
+        said = plain if self.writer is None else self.writer.line(
+            "the artist just said yes to what you texted him; say you're on it, in two or three words, nothing else",
+            {}, plain)
+        self._speak(said)
+        return self._done(f"heard: {line}", f"yes to email offer {offer.id}", started)
+
     def _wait_for_quiet(self) -> None:
         """A sentence can close on a pause while the artist is still going (live 2026-11-01: "What you trying", then
         "trying to"). A line waits for the mic to go quiet, up to QUIET_MAX, so he can be late but never gagged."""
@@ -309,6 +362,9 @@ class Booth:
         if self._echo(line):
             self.log(f"   (his own voice, not answered: {line})")
             return None
+        answered = self._yes_to_email_offer(line, started)
+        if answered is not None:
+            return answered
         # Once you have his attention, he stays with you: no "Marco" needed until a take starts or the two of you
         # go quiet for AWAKE seconds (Owner 2026-10-29: having to say the name every time is what he dislikes in
         # Siri). The take ends it, so nothing sung is taken for a command.
@@ -1311,6 +1367,7 @@ class Booth:
                 self.pending_punch = note.punch_where if note.punch else ""
                 self._speak(note.spoken)
                 result = f"{result}; take note: {note.spoken}"
+            self._mention_email_offer()
         return result
 
 
@@ -1572,7 +1629,13 @@ def run_booth(*, dry_run: bool = False) -> int:
         print(start_surface())
     from hiremarco.studio import flex, mcu
     from hiremarco.studio.console import Console
+    def email_offers():
+        from hiremarco.calls.offers import BoothOffers
+
+        return BoothOffers()
+
     booth = Booth(understand=lambda line: understand(line, context=[booth.session_facts(), *booth.history]),
+                  email_offers=None if dry_run else email_offers(),
                   logic=logic.do, auto_note=not dry_run, say=say, feedback=how_was_that_take, tape=Tape(48000),
                   tracks=tracks, session=session,
                   show=None if dry_run else __import__("hiremarco.studio.show", fromlist=["show"]).show,

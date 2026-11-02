@@ -6,14 +6,20 @@ too, and Meta's signature is still checked on the MacBook). While the MacBook do
 packet goes to the broadcast and to the MacBook every 2 s, and only the connect is retried, up to a ceiling; then
 503, and Meta retries. Nothing is stored here, and the log holds one line per request with no bodies and no numbers.
 Live 2026-10-30: the MacBook dark-wakes on the packet over Wi-Fi (45 to 96 s, screen off).
+
+The public tunnel forwards every path through 8787, so that listener refuses /internal/*. A job on the Mini reaches
+Marco's own routes through a second listener bound to 127.0.0.1 only (default 8789), which passes on /internal/* and
+nothing else, waking the MacBook the same way. What such a job sends is signed; the route checks it on the MacBook.
 """
 
 from __future__ import annotations
 
 import asyncio
 import os
+import re
 import socket
 import time
+from urllib.parse import unquote
 
 import httpx
 
@@ -22,6 +28,7 @@ TARGETS = [t for t in os.environ.get("HIREMARCO_WAKE_TO", "192.168.7.255:9,192.1
 UPSTREAM = os.environ.get("HIREMARCO_UPSTREAM", "http://192.168.5.196:8787")
 CEILING_S = float(os.environ.get("HIREMARCO_WAKE_CEILING", "30"))
 EVERY_S = 2.0
+INTERNAL_PORT = int(os.environ.get("HIREMARCO_INTERNAL_PORT", "8789"))
 HOP = {"connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer",
        "transfer-encoding", "upgrade", "content-length"}
 
@@ -63,14 +70,25 @@ def _why(exc: BaseException) -> str:
     return f"{type(exc).__name__}: {str(exc)[:80]}"
 
 
+def is_internal(path: str) -> bool:
+    """Any spelling of /internal: a dot segment, a double slash, another case, or percent-encoding."""
+    return "internal" in (s.lower() for s in re.split(r"[/\\\\]+", unquote(unquote(path))))
+
+
 def make_app(*, upstream: str = UPSTREAM, ceiling_s: float = CEILING_S, wake=send_wake, transport=None,
-             log=print, clock=time.monotonic, nap=asyncio.sleep):
+             log=print, clock=time.monotonic, nap=asyncio.sleep, internal: bool = False):
+    """``internal`` false is the public listener, which refuses /internal/*; true is the loopback one, which takes a
+    POST to /internal/* and refuses everything else."""
     from starlette.applications import Starlette
     from starlette.requests import Request
     from starlette.responses import PlainTextResponse, Response
     from starlette.routing import Route
 
     async def forward(request: Request) -> Response:
+        inside = is_internal(request.url.path)
+        if inside != internal or (internal and (request.method != "POST" or ".." in unquote(request.url.path))):
+            log(f"relay {request.method} -> 404, {'not a route here' if internal else 'internal path on the public port'}")
+            return PlainTextResponse("not found", status_code=404)
         started = clock()
         body = await request.body()
         headers = [(k, v) for k, v in request.headers.items() if k.lower() not in HOP]
@@ -100,3 +118,13 @@ def make_app(*, upstream: str = UPSTREAM, ceiling_s: float = CEILING_S, wake=sen
         return Response(reply.content, status_code=reply.status_code, headers=dict(out))
 
     return Starlette(routes=[Route("/{path:path}", forward, methods=["GET", "POST"])])
+
+
+async def serve_both(public_port: int = 8787, internal_port: int = INTERNAL_PORT) -> None:
+    """The two listeners in one process, each on 127.0.0.1: the tunnel's port and the Mini's own."""
+    import uvicorn
+
+    def server(app, port: int):
+        return uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning"))
+
+    await asyncio.gather(server(make_app(), public_port).serve(), server(make_app(internal=True), internal_port).serve())

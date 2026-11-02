@@ -193,23 +193,31 @@ class Mail:
             for ref in page.get("messages") or []:
                 if known and known(ref["id"]):
                     continue
-                meta = self._get(f"/messages/{ref['id']}", format="metadata",
-                                 metadataHeaders=["From", "Subject", "Date", "List-Unsubscribe"])
-                headers = meta.get("payload", {}).get("headers", [])
-                name, address = parseaddr(_header(headers, "From"))
-                subject = _header(headers, "Subject")
-                text, links = "", ()
-                if not (skip_body and skip_body(address.lower(), name, subject)):
-                    full = self._get(f"/messages/{ref['id']}", format="full")
-                    text, links = body_text(full.get("payload", {})), body_links(full.get("payload", {}))
-                items.append(MailItem(id=ref["id"], sender=address.lower(), sender_name=name, subject=subject,
-                                      date=_header(headers, "Date"), text=text, links=links,
-                                      label_ids=tuple(meta.get("labelIds") or ()),
-                                      unsubscribe=bool(_header(headers, "List-Unsubscribe"))))
+                items.append(self._item(ref["id"], skip_body))
             token = page.get("nextPageToken")
             if not token:
                 break
         return items
+
+    def _item(self, message_id: str, skip_body=None) -> MailItem:
+        meta = self._get(f"/messages/{message_id}", format="metadata",
+                         metadataHeaders=["From", "Subject", "Date", "List-Unsubscribe"])
+        headers = meta.get("payload", {}).get("headers", [])
+        name, address = parseaddr(_header(headers, "From"))
+        subject = _header(headers, "Subject")
+        text, links = "", ()
+        if not (skip_body and skip_body(address.lower(), name, subject)):
+            full = self._get(f"/messages/{message_id}", format="full")
+            text, links = body_text(full.get("payload", {})), body_links(full.get("payload", {}))
+        return MailItem(id=message_id, sender=address.lower(), sender_name=name, subject=subject,
+                        date=_header(headers, "Date"), text=text, links=links,
+                        label_ids=tuple(meta.get("labelIds") or ()),
+                        unsubscribe=bool(_header(headers, "List-Unsubscribe")))
+
+    def item(self, message_id: str, skip_body=None) -> MailItem:
+        """One email by id, under the Owner's read-all line; ``skip_body`` as in ``everything``."""
+        self._reads_all()
+        return self._item(message_id, skip_body)
 
     def found(self, q: str, limit: int = 100) -> list[Found]:
         """The emails a Gmail search finds, up to ``limit``."""

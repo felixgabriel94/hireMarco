@@ -17,6 +17,7 @@
     uv run marco inbox sync              sort new mail, label it (once labels are on), link it to his tasks
     uv run marco inbox sync --sweep      the always-on half: sort, label, auto-trash, expire; only Google and model keys
     uv run marco inbox sync --tasks      the half beside serve: match mail to open tasks; nothing read when none is open
+    uv run marco inbox offers            a direct email becomes one WhatsApp to him, an offer or a heads-up; --dry-run sends nothing
     uv run marco inbox labels on|off     labels in Gmail, after the Owner saw a dry run
     uv run marco inbox digest            the morning WhatsApp: what needs a reply, what came in for tasks
     uv run marco inbox cleanup --list F --confirm SHA   unsubscribe and trash the senders the Owner marked
@@ -153,9 +154,14 @@ def cmd_wake_relay(args) -> int:
     """On the always-on Mini (D-0048): Meta's calls in, a magic packet to the MacBook, the call on to Marco."""
     import uvicorn
 
-    from hiremarco.wake_relay import make_app
+    from hiremarco.wake_relay import make_app, serve_both
 
-    uvicorn.run(make_app(), host="127.0.0.1", port=args.port, log_level="warning")
+    if args.internal_port == 0:
+        uvicorn.run(make_app(), host="127.0.0.1", port=args.port, log_level="warning")
+        return 0
+    import asyncio
+
+    asyncio.run(serve_both(args.port, args.internal_port))
     return 0
 
 
@@ -230,6 +236,8 @@ def cmd_mail(args) -> int:
 
 
 def cmd_inbox(args) -> int:
+    if args.action == "offers":
+        return _inbox_offers(args)
     from datetime import datetime, timedelta, timezone
 
     from hiremarco import inbox
@@ -358,6 +366,34 @@ def _sweep_killed() -> bool:
         return False
     Trace("inbox: swept").done("stopped by the kill switch")
     return True
+
+
+def _inbox_offers(args) -> int:
+    """The kill switch first, before any state opens or any model call. The log line carries counts only; --dry-run
+    prints ids and kinds, and the words he would get only with --show, on his own terminal."""
+    from hiremarco.gate.kill import kill_switch_on
+
+    if kill_switch_on():
+        Trace("inbox: offers").done("stopped by the kill switch")
+        return 0
+    from hiremarco.google import Mail
+    from hiremarco.inbox import offers_job
+    from hiremarco.meta.client import MuseSpark
+    from hiremarco.offer import load_places
+
+    if not args.dry_run and not config.get("HIREMARCO_OFFER_TOKEN"):
+        Trace("inbox: offers").done("no HIREMARCO_OFFER_TOKEN in the env file, so nothing read or handed off")
+        return 1
+    state = config.STATE_DIR / "inbox-offers.sqlite"
+    conn = offers_job.connect(state if not args.dry_run or state.exists() else ":memory:")
+    counts, would = offers_job.run(Mail(), MuseSpark(), conn, places=load_places(), dry_run=args.dry_run,
+                                   limit=min(args.limit, 50))
+    for row in would:
+        print(f"would hand off: id {row['id']}, read as {row['read_as']}, sends as {row['kind']}"
+              + (f": {row['line']}" if args.show else ""))
+    Trace("inbox: offers" + (" (dry run, nothing sent)" if args.dry_run else "")).done(
+        (f"{len(would)} to hand off; " if args.dry_run else "") + offers_job.summary(counts))
+    return 0
 
 
 SWEEP_CAP_USD = 1.0  # a day, on the sweep's own job log, far under the gate's cap for everything
@@ -1555,10 +1591,12 @@ def main(argv: list[str] | None = None) -> int:
     m.set_defaults(func=cmd_mail)
 
     ib = sub.add_parser("inbox")
-    ib.add_argument("action", choices=["dry-run", "sync", "digest", "labels", "cleanup", "undo", "lindy-off"])
+    ib.add_argument("action", choices=["dry-run", "sync", "digest", "labels", "cleanup", "undo", "lindy-off",
+                                               "offers"])
     ib.add_argument("--list", default="", help="cleanup: the marked sender list (CSV)")
     ib.add_argument("--confirm", default="", help="cleanup: the sha256 of that list, as the Owner confirmed it")
-    ib.add_argument("--dry-run", action="store_true", help="cleanup: count only, change nothing")
+    ib.add_argument("--dry-run", action="store_true", help="cleanup, offers: count only, change nothing, send nothing")
+    ib.add_argument("--show", action="store_true", help="offers --dry-run: print the words he would get")
     ib.add_argument("state", nargs="?", choices=["on", "off"])
     split = ib.add_mutually_exclusive_group()
     split.add_argument("--sweep", action="store_true", help="sync only: sort, label, auto-trash and expire; no WhatsApp, no tasks")
@@ -1765,6 +1803,7 @@ def main(argv: list[str] | None = None) -> int:
 
     wr = sub.add_parser("wake-relay", help="on the always-on Mini: wake the MacBook and pass Meta's calls on")
     wr.add_argument("--port", type=int, default=8787)
+    wr.add_argument("--internal-port", type=int, default=8789, help="loopback only: a Mini job's /internal/* calls; 0 is off")
     wr.set_defaults(func=cmd_wake_relay)
 
     lb = sub.add_parser("load-beat", help="a beat onto the Beat track of a new session from the template")

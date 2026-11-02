@@ -44,11 +44,13 @@ class JobLog:
             return []
         return [json.loads(line) for line in self.path.read_text().splitlines() if line.strip()]
 
-    def total_usd(self, day: str | None = None) -> float:
-        """Spend in USD, all time or for one local date ``YYYY-MM-DD``."""
+    def total_usd(self, day: str | None = None, job: str | None = None) -> float:
+        """Spend in USD, all time or for one local date ``YYYY-MM-DD``, for every job or just the one named."""
         rows = self.rows()
         if day:
             rows = [r for r in rows if r["ts"].startswith(day)]
+        if job:
+            rows = [r for r in rows if r.get("job") == job]
         return round(sum(r.get("cost_usd", 0.0) for r in rows), 6)
 
     def summary(self) -> str:

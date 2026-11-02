@@ -319,16 +319,32 @@ def _draft_reply(said, intent, sender, message_id, wa, conn, mail, client) -> st
     if found is None:
         _say(wa, sender, "I couldn't find that email. Who is it from, or what's it about?", f"mail-find:{message_id}")
         return "mail: reply, no such email"
-    # the reply goes to whoever the email says to answer: its Reply-To, else its sender, and he sees it in the preview
-    to = found.reply_to or found.sender
     cc, question = resolve(intent["cc"], said, mail)
     if question:
         _say(wa, sender, question, f"mail-who:{message_id}")
         return "mail: reply, asked who"
     if intent["reply_all"]:
         cc = list(dict.fromkeys(cc + [a for a in found.others if a.lower() != mail.own_address().lower()]))
+    return _write_reply(found, cc, intent["instructions"] or said, sender, message_id, wa, conn, mail, client)
+
+
+def draft_reply_to(source_id: str, words: str, sender: str, message_id: str, wa, *, conn=None, mail=None, client=None,
+                   days: list[str] = ()) -> str:
+    """His yes to a reply offer, then his words: a draft answering that exact email, shown and sent like any other.
+    ``days`` are his open days, a help the writer uses only if his words call for them."""
+    from hiremarco.google import Mail
+    from hiremarco.meta.client import MuseSpark
+
+    conn, mail, client = conn or connect(), mail or Mail(), client or MuseSpark()
+    asked = words + (f"\nHis open days, to use only if his words call for days: {', '.join(days)}" if days else "")
+    return _write_reply(mail.message(source_id), [], asked, sender, message_id, wa, conn, mail, client)
+
+
+def _write_reply(found, cc: list[str], words: str, sender, message_id, wa, conn, mail, client) -> str:
+    # the reply goes to whoever the email says to answer: its Reply-To, else its sender, and he sees it in the preview
+    to = found.reply_to or found.sender
     # he asked to answer this one, so its text goes to the model as data, sensitive mail included (his word covers it)
-    body = write_body(client, intent["instructions"] or said, original=found.text)
+    body = write_body(client, words, original=found.text)
     if not body:
         _say(wa, sender, "I couldn't write that one just now. Nothing was saved. Want to try again?", f"mail-empty:{message_id}")
         return "mail: reply, the model gave nothing"
@@ -336,8 +352,7 @@ def _draft_reply(said, intent, sender, message_id, wa, conn, mail, client) -> st
     raw = build(to, ", ".join(cc), subject, body, in_reply_to=found.message_id, references=found.references)
     line = f"Answering: {found.sender_line}, {found.date}"
     return _make_draft(conn, mail, wa, sender, message_id, kind="reply", to=to, cc=", ".join(cc), subject=subject,
-                       body=body, words=intent["instructions"] or said, raw=raw, thread_id=found.thread_id,
-                       source_id=found.id, source_line=line)
+                       body=body, words=words, raw=raw, thread_id=found.thread_id, source_id=found.id, source_line=line)
 
 
 def _draft_forward(said, intent, sender, message_id, wa, conn, mail, client) -> str:

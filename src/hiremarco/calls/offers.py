@@ -10,6 +10,11 @@ to call Corner Bistro to book Thursday at eight for four?"), so his yes is to on
 built from the offer and the profile, and a gap is asked about on WhatsApp before dialing, never mid-call. The
 place's number comes only from the private places file. The gate lets the call through the ``places`` switch
 only with the accepted offer as its evidence. After the call, one WhatsApp tells him how it went.
+
+Owner 2026-11-02: an email can start an offer too, of three kinds: table (the flow above), reply (his yes, then what to
+say, then the outbox's draft and his "send") and heads_up (nothing to accept: it never takes a yes away from a table or a
+reply). A message WhatsApp's window refuses is held, and goes out after his next text if it is under a day old. In the
+booth, Marco says one short line about it after a take, once; a spoken yes counts as the yes to that exact text.
 """
 
 from __future__ import annotations
@@ -45,6 +50,11 @@ create table if not exists offers (
 );
 """
 
+EMAIL_COLUMNS = {"kind": "text not null default 'table'", "offer_key": "text", "source_id": "text",
+                 "who": "text not null default ''", "message": "text not null default ''",
+                 "yes_by": "text not null default ''", "texted_at": "text", "spoken_at": "text"}
+HOLD_MAX = timedelta(hours=24)
+
 
 @dataclass(frozen=True)
 class CallOffer:
@@ -59,6 +69,14 @@ class CallOffer:
     status: str
     accepted_at: datetime | None = None
     fallbacks: str = ""
+    kind: str = "table"
+    offer_key: str | None = None
+    source_id: str | None = None
+    who: str = ""
+    message: str = ""
+    yes_by: str = ""
+    texted_at: datetime | None = None
+    spoken_at: datetime | None = None
 
     def clock(self) -> str:
         hour = self.hour - 12 if self.hour > 12 else self.hour
@@ -71,7 +89,8 @@ class CallOffer:
     def evidence(self, place: Place) -> dict:
         """What the gate checks for the places switch: this offer, its place's number, when it was offered and taken."""
         return {"offer_id": self.id, "place_name": place.name, "place_phone": place.phone.lstrip("+"),
-                "offered_at": self.offered_at, "accepted_at": self.accepted_at}
+                "offered_at": self.offered_at, "accepted_at": self.accepted_at,
+                "yes_by": self.yes_by or "whatsapp", "texted_at": self.texted_at}
 
 
 def connect(path: Path | str | None = None) -> sqlite3.Connection:
@@ -80,19 +99,29 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.executescript(SCHEMA)
+    have = {row[1] for row in conn.execute("pragma table_info(offers)")}
+    for name, kind in EMAIL_COLUMNS.items():  # a file from before email offers keeps its rows
+        if name not in have:
+            conn.execute(f"alter table offers add column {name} {kind}")
+    conn.execute("create unique index if not exists offers_key on offers(offer_key) where offer_key is not null")
+    conn.commit()
     return conn
 
 
+def _when(text: str | None) -> datetime | None:
+    return datetime.fromisoformat(text) if text else None
+
+
 def _row(r) -> CallOffer:
-    return CallOffer(r[0], datetime.fromisoformat(r[1]), r[2], r[3], r[4], r[5], r[6], r[7], r[8],
-                     datetime.fromisoformat(r[9]) if r[9] else None, r[10] or "")
+    return CallOffer(r[0], datetime.fromisoformat(r[1]), r[2], r[3], r[4], r[5], r[6], r[7], r[8], _when(r[9]),
+                     r[10] or "", r[11], r[12], r[13], r[14], r[15], r[16], _when(r[17]), _when(r[18]))
 
 
 def record_offer(conn: sqlite3.Connection, place: Place, *, weekday: str, day: str, hour: int, party_size: int,
                  occasion: str = "", now: datetime | None = None) -> CallOffer:
     now = now or datetime.now(timezone.utc)
     # a newer offer replaces any still pending, so a yes answers the latest question only
-    conn.execute("update offers set status = 'replaced' where status = 'pending'")
+    conn.execute("update offers set status = 'replaced' where status = 'pending' and kind != 'heads_up'")
     cur = conn.execute(
         "insert into offers (offered_at, place_id, weekday, day, hour, party_size, occasion, status)"
         " values (?, ?, ?, ?, ?, ?, ?, 'pending')",
@@ -106,13 +135,129 @@ def get(conn: sqlite3.Connection, offer_id: int) -> CallOffer:
 
 
 def pending(conn: sqlite3.Connection, now: datetime | None = None) -> CallOffer | None:
-    """The latest offer still waiting for his word, and only inside the yes window."""
+    """The latest offer still waiting for his word, and only inside the yes window. A yes goes to a table or a reply
+    before a heads-up, which asks nothing."""
     now = now or datetime.now(timezone.utc)
-    r = conn.execute("select * from offers where status = 'pending' order by id desc limit 1").fetchone()
+    for kinds in ("kind != 'heads_up'", "kind = 'heads_up'"):
+        r = conn.execute(f"select * from offers where status = 'pending' and {kinds} order by id desc limit 1").fetchone()
+        if r is not None and now - _row(r).offered_at <= YES_WINDOW:
+            return _row(r)
+    return None
+
+
+def record_email_offer(conn: sqlite3.Connection, key: str, kind: str, message: str, data: dict,
+                       now: datetime | None = None) -> CallOffer | None:
+    """An offer from an email, held until the text goes out. None when this key was already taken: a replay is a no-op."""
+    now = now or datetime.now(timezone.utc)
+    cur = conn.execute(
+        "insert or ignore into offers (offered_at, place_id, weekday, day, hour, party_size, occasion, status, kind,"
+        " offer_key, source_id, who, message) values (?, ?, ?, ?, ?, ?, ?, 'held', ?, ?, ?, ?, ?)",
+        (now.isoformat(), data.get("place_id") or "", str(data.get("weekday") or "").lower(), data.get("day") or "",
+         int(data.get("hour") or 0), int(data.get("party_size") or 0), data.get("occasion") or "", kind, key,
+         data.get("message_id") or "", data.get("who") or "", message))
+    conn.commit()
+    return get(conn, cur.lastrowid) if cur.rowcount == 1 else None
+
+
+def mark_texted(conn: sqlite3.Connection, offer: CallOffer, now: datetime | None = None) -> CallOffer:
+    """The text went out: its yes window starts now, and it replaces any older question of its class."""
+    stamp = (now or datetime.now(timezone.utc)).isoformat()
+    same = "kind = 'heads_up'" if offer.kind == "heads_up" else "kind != 'heads_up'"
+    conn.execute(f"update offers set status = 'replaced' where status = 'pending' and {same} and id != ?", (offer.id,))
+    conn.execute("update offers set status = 'pending', offered_at = ?, texted_at = ? where id = ?",
+                 (stamp, stamp, offer.id))
+    conn.commit()
+    return get(conn, offer.id)
+
+
+def held(conn: sqlite3.Connection) -> list[CallOffer]:
+    return [_row(r) for r in conn.execute("select * from offers where status = 'held' order by id").fetchall()]
+
+
+def set_yes_by(conn: sqlite3.Connection, offer_id: int, how: str) -> CallOffer:
+    conn.execute("update offers set yes_by = ? where id = ?", (how, offer_id))
+    conn.commit()
+    return get(conn, offer_id)
+
+
+def ask_what_to_say(conn: sqlite3.Connection, offer: CallOffer, now: datetime | None = None) -> None:
+    conn.execute("update offers set status = 'what to say', accepted_at = ? where id = ?",
+                 ((now or datetime.now(timezone.utc)).isoformat(), offer.id))
+    conn.commit()
+
+
+def waiting_for_words(conn: sqlite3.Connection, now: datetime | None = None) -> CallOffer | None:
+    """The reply offer he said yes to, waiting for what to say, inside the yes window of that yes."""
+    now = now or datetime.now(timezone.utc)
+    r = conn.execute("select * from offers where status = 'what to say' order by id desc limit 1").fetchone()
     if r is None:
         return None
     offer = _row(r)
-    return offer if now - offer.offered_at <= YES_WINDOW else None
+    return offer if offer.accepted_at and now - offer.accepted_at <= YES_WINDOW else None
+
+
+def open_days(calendar, now: datetime, ahead: int = 7, shown: int = 5) -> list[str]:
+    """His open days coming up, as day names and dates only: a yes or no per day, never what an event is. Empty when
+    the calendar can't be read."""
+    from datetime import time as clock
+
+    from hiremarco.offer import MIAMI
+
+    today, out = now.astimezone(MIAMI).date(), []
+    try:
+        for n in range(1, ahead + 1):
+            day = today + timedelta(days=n)
+            if calendar.is_clear(datetime.combine(day, clock(10), MIAMI), datetime.combine(day, clock(19), MIAMI)):
+                out.append(f"{day.strftime('%A %B')} {day.day}")
+    except Exception:
+        return []
+    return out[:shown]
+
+
+def voice_yes_on(path: Path | None = None) -> bool:
+    """A spoken yes can lead to a call only once the Owner's calls -> places line says so; absent means off."""
+    from hiremarco import rules
+
+    return any(s.tool == "calls" and s.destination == "places" and "by voice" in s.purpose for s in rules.switches(path))
+
+
+class BoothOffers:
+    """What the booth may know of an email offer: that one was texted, and who from. It says so once after a take; a
+    spoken yes inside the yes window is his yes to that exact text."""
+
+    def __init__(self, conn: sqlite3.Connection | None = None, *, yes: Callable[[CallOffer], None] | None = None,
+                 now: Callable[[], datetime] | None = None, rules_path: Path | None = None):
+        self.conn = conn or connect()
+        self.rules_path = rules_path
+        self._yes = yes
+        self._now = now or (lambda: datetime.now(timezone.utc))
+
+    def _live(self, spoken: str) -> CallOffer | None:
+        r = self.conn.execute(f"select * from offers where status = 'pending' and offer_key is not null and {spoken}"
+                              " order by id desc limit 1").fetchone()
+        return _row(r) if r is not None and self._now() - _row(r).offered_at <= YES_WINDOW else None
+
+    def to_mention(self) -> CallOffer | None:
+        return self._live("spoken_at is null")
+
+    def mentioned(self, offer: CallOffer) -> None:
+        self.conn.execute("update offers set spoken_at = ? where id = ?", (self._now().isoformat(), offer.id))
+        self.conn.commit()
+
+    def spoken(self) -> CallOffer | None:
+        offer = self._live("spoken_at is not null")
+        return None if offer and offer.kind == "table" and not voice_yes_on(self.rules_path) else offer
+
+    def yes(self, offer: CallOffer) -> None:
+        import threading
+
+        if self._yes is not None:
+            self._yes(offer)
+            return
+        from hiremarco import config
+        from hiremarco.server import offer_yes_by_voice
+
+        threading.Thread(target=offer_yes_by_voice, args=(offer, config.require("OWNER_WHATSAPP")), daemon=True).start()
 
 
 def asking(conn: sqlite3.Connection, now: datetime | None = None) -> CallOffer | None:

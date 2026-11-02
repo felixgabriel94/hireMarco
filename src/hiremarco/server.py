@@ -269,10 +269,10 @@ def digest_unsubscribe(said: str, sender: str, message_id: str, wa: WhatsApp, *,
 
 
 def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=None, calls=None, places=None,
-              start=None, now=None) -> str | None:
+              start=None, now=None, offer=None) -> str | None:
     """His yes to Marco's pending call offer: accept it once, build the brief, ask about any gap before dialing,
     then place that one call and report how it went. None when there is no pending offer or the words are not a yes
-    (Owner 2026-10-31: "Yes to his offer calls")."""
+    (Owner 2026-10-31: "Yes to his offer calls"). ``offer`` is the exact one a yes was already matched to."""
     import threading
 
     from hiremarco.calls import CallError, Calls, off_brief
@@ -282,14 +282,14 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
 
     conn = conn or offers.connect()
     reply = lambda text, tag: wa.send_text(sender, text, idempotency_key=f"{tag}:{message_id}")  # noqa: E731
-    answered = offers.asking(conn, now)
+    answered = None if offer is not None else offers.asking(conn, now)
     if answered is not None:  # his one reply to the fallback questions: it goes into the brief, then the call
         offer = offers.record_fallbacks(conn, answered, said)
-    else:
+    elif offer is None:
         if not AFFIRM.search((said or "").strip()):
             return None
         offer = offers.pending(conn, now)
-        if offer is None:
+        if offer is None or offer.kind != "table":  # a reply or a heads-up has its own words (email_offer_words)
             return None
     place = offers.place_for(offer, places)
     if place is None:
@@ -342,6 +342,198 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
 
     (start or (lambda f: threading.Thread(target=f, daemon=True).start()))(report)
     return f"offer {offer.id}: calling {place.name}, conversation {placed['conversation_id']}"
+
+
+OFFER_TOKEN = "HIREMARCO_OFFER_TOKEN"
+NEVER_MIND = re.compile(r"^(?:no|nope|nah|never ?mind|skip it|forget it|don'?t|not now)\b", re.I)
+
+
+def email_offer_words(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=None, calendar=None, mail=None,
+                      client=None, outbox_conn=None, now=None, offer=None) -> str | None:
+    """His words on an offer that came from an email and is no table: what to say on a reply he said yes to, or his yes
+    itself. None sends his words on as usual (a table's yes goes to ``offer_yes``). Sent only on his "send" for the
+    preview, by the outbox; a draft isn't a send. A failure tells him nothing went out."""
+    from datetime import datetime, timezone
+
+    from hiremarco.calls import offers
+    from hiremarco.inbox import outbox
+    from hiremarco.joblog import JobLog, JobRow
+
+    conn = conn or offers.connect()
+    when = now or datetime.now(timezone.utc)
+    said = (said or "").strip()
+    reply = lambda text, tag: wa.send_text(sender, text, idempotency_key=f"{tag}:{message_id}")  # noqa: E731
+    waiting = None if offer is not None else offers.waiting_for_words(conn, when)
+    if waiting is not None:
+        if NEVER_MIND.match(said):
+            offers.set_status(conn, waiting.id, "declined")
+            reply("Okay, I'll leave that one with you.", "email-offer-off")
+            return f"offer {waiting.id}: reply declined"
+        offers.set_status(conn, waiting.id, "drafting")
+        try:
+            done = outbox.draft_reply_to(waiting.source_id, said, sender, message_id, wa, conn=outbox_conn, mail=mail,
+                                         client=client, days=_open_days(calendar, when))
+        except gate.Refused:
+            raise
+        except Exception as exc:
+            JobLog().append(JobRow(job="email-offer", ok=False, note=f"{waiting.offer_key}: {type(exc).__name__}"))
+            offers.set_status(conn, waiting.id, "draft failed")
+            reply("I couldn't write that one just now. Nothing was sent.", "email-offer-failed")
+            return f"offer {waiting.id}: draft failed, {type(exc).__name__}"
+        offers.set_status(conn, waiting.id, "drafted")
+        return f"offer {waiting.id}: {done}"
+    if offer is None:
+        if not AFFIRM.search(said):
+            return None
+        offer = offers.pending(conn, when)
+    if offer is None or offer.kind == "table":
+        return None
+    if offer.kind == "heads_up":
+        offers.set_status(conn, offer.id, "answered")
+        reply("What do you need on it?", "email-offer-help")
+        return f"offer {offer.id}: asked what he needs"
+    offers.ask_what_to_say(conn, offer, when)
+    days = _open_days(calendar, when)
+    reply("What should I say?" + (f" You're open {', '.join(days)}, if a day helps." if days else ""), "email-offer-say")
+    return f"offer {offer.id}: asked what to say, {len(days)} open days offered"
+
+
+def _open_days(calendar, when) -> list[str]:
+    """Days only, read on this machine after his yes (R3): the other machine has no calendar and needs none."""
+    from hiremarco.calls import offers
+
+    try:
+        if calendar is None:
+            from hiremarco.google.calendar import Calendar
+
+            calendar = Calendar()
+    except Exception:
+        return []
+    return offers.open_days(calendar, when)
+
+
+def offer_yes_by_voice(offer, sender: str, wa: WhatsApp | None = None, *, conn=None, calls=None, places=None, start=None,
+                       calendar=None, now=None) -> str | None:
+    """A spoken yes in the booth to the exact offer he was texted: the same steps as his yes on WhatsApp, the same
+    what-if questions by text; he hears "on it" in the booth and the rest comes by text."""
+    from hiremarco.calls import offers
+
+    if offer.kind == "table" and not offers.voice_yes_on():
+        return f"offer {offer.id}: a spoken yes can't lead to a call until RULES.md says so"
+    wa, conn = wa or WhatsApp(), conn or offers.connect()
+    offer = offers.set_yes_by(conn, offer.id, "booth")
+    message_id = f"booth-yes-{offer.id}"
+    try:
+        if offer.kind == "table":
+            return offer_yes("yes", sender, message_id, wa, conn=conn, calls=calls, places=places, start=start, now=now,
+                             offer=offer)
+        return email_offer_words("yes", sender, message_id, wa, conn=conn, calendar=calendar, now=now, offer=offer)
+    except gate.Refused as held:
+        from hiremarco.joblog import JobLog, JobRow
+
+        JobLog().append(JobRow(job="email-offer", ok=False, note=f"{offer.offer_key}: voice yes held: {held.reason}"))
+        return f"offer {offer.id}: voice yes held"
+
+
+def _text_offer(offer, sender: str, wa: WhatsApp, conn, now=None):
+    """Send one offer's text and start its yes window. A refusal (WhatsApp's 24 hours, a hiccup) keeps it held."""
+    from hiremarco.calls import offers
+    from hiremarco.joblog import JobLog, JobRow
+    from hiremarco.whatsapp.client import WhatsAppError
+
+    try:
+        wa.send_text(sender, offer.message, idempotency_key=f"email-offer:{offer.offer_key}", now=now)
+    except (gate.Refused, WhatsAppError) as held:
+        JobLog().append(JobRow(job="email-offer", ok=False, note=f"{offer.offer_key}: held, {type(held).__name__}"))
+        return None
+    return offers.mark_texted(conn, offer, now)
+
+
+def receive_offer(raw: bytes, headers, *, wa: WhatsApp | None = None, conn=None, places=None, now=None,
+                  rules_path=None) -> tuple[int, dict]:
+    """The reader's handoff: checked, recorded once, texted to the Owner only. (HTTP status, what to answer). Accepting
+    it is the reader's "delivered"; what becomes of the text afterwards is this side's to log and to hold."""
+    import json
+    from datetime import datetime, timezone
+
+    from hiremarco import offer as reader
+    from hiremarco import rules
+    from hiremarco.calls import offers
+    from hiremarco.gate.kill import kill_switch_on
+
+    when = now or datetime.now(timezone.utc)
+    stamp, key = headers.get(reader.HEADER_TIME, ""), headers.get(reader.HEADER_OFFER, "")
+    fault = reader.signature_fault(config.get(OFFER_TOKEN) or "", stamp, key, raw, headers.get(reader.HEADER_SIGNATURE, ""),
+                                   when.timestamp())
+    if fault:
+        return 401, {"status": fault}
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return 400, {"status": "bad json"}
+    if data.get("offer_id") != key or data.get("kind") not in ("table", "reply", "heads_up"):
+        return 400, {"status": "bad offer"}
+    if kill_switch_on():
+        return 503, {"status": "stopped"}
+    owner = config.require("OWNER_WHATSAPP")  # the one recipient, whatever a body says
+    if not rules.allowed("email-offers", owner, path=rules_path):
+        return 403, {"status": "no send switch"}
+    conn = conn or offers.connect()
+    kind, line = reader.offer_line(data, offers.load_places() if places is None else places)
+    if not reader.plain_enough(line):
+        line = f"Heads up. {reader.name_of(data.get('who', ''))} emailed. Let me know if I can help."
+        kind = "heads_up"
+        line = line if reader.plain_enough(line) else "Heads up. An email came in that needs you. Let me know if I can help."
+    offer = offers.record_email_offer(conn, key, kind, line, data, when)
+    if offer is None:
+        return 200, {"status": "duplicate"}
+    sent = _text_offer(offer, owner, wa or WhatsApp(), conn, when)
+    return 200, {"status": "sent" if sent is not None else "held"}
+
+
+def send_held_offers(sender: str, wa: WhatsApp | None = None, *, conn=None, now=None) -> int:
+    """After his text opens WhatsApp's window: what was held goes out if it is under a day old; older is dropped and
+    logged by id. Run after his message is handled, so his words can't be read as a yes to something he hasn't seen."""
+    from datetime import datetime, timezone
+
+    from hiremarco.calls import offers
+    from hiremarco.joblog import JobLog, JobRow
+
+    conn, when, sent = conn or offers.connect(), now or datetime.now(timezone.utc), 0
+    for offer in offers.held(conn):
+        if when - offer.offered_at > offers.HOLD_MAX:
+            offers.set_status(conn, offer.id, "dropped")
+            JobLog().append(JobRow(job="email-offer", ok=False, note=f"{offer.offer_key}: dropped after a day held"))
+            continue
+        wa = wa or WhatsApp()
+        sent += _text_offer(offer, sender, wa, conn, when) is not None
+    return sent
+
+
+def with_held_offers(handler):
+    def run(message):
+        try:
+            return handler(message)
+        finally:
+            try:
+                send_held_offers(message.sender)
+            except Exception as exc:  # his own message was already handled; the log says what broke
+                Trace("held offers").done(f"error: {type(exc).__name__}")
+    return run
+
+
+def make_offer_route():
+    from starlette.concurrency import run_in_threadpool
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse
+
+    async def route(request: Request):
+        raw, headers = await request.body(), request.headers
+        status, answer = await run_in_threadpool(awake_while(lambda _: receive_offer(raw, headers)), None)
+        Trace(f"offer: {headers.get('x-marco-offer', '')[:40]}").done(f"{status} {answer.get('status')}")
+        return JSONResponse(answer, status_code=status)
+
+    return route
 
 
 SETTLE_S = 20.0  # a photo with no words waits this long for the words he sends after it
@@ -516,6 +708,9 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
                 photo = None  # "set up my session" between frames is about the session, not the last frame
         if message.kind == "image":
             said = said or "(he sent this photo without a word)"
+        offered = email_offer_words(said, message.sender, message.id, wa) if said and message.kind != "image" else None
+        if offered is not None:
+            return trace.done(offered)
         dropped = digest_unsubscribe(said, message.sender, message.id, wa) if said and message.kind != "image" else None
         if dropped is not None:
             return trace.done(dropped)
@@ -590,10 +785,11 @@ def build_app(*, reply: bool = True):
     from hiremarco.relay import make_relay
 
     return make_app(
-        awake_while(handle) if reply else listen_only,
+        awake_while(with_held_offers(handle)) if reply else listen_only,
         verify_token=config.require("WHATSAPP_VERIFY_TOKEN"),
         app_secret=config.require("WHATSAPP_APP_SECRET"),
         owner=config.require("OWNER_WHATSAPP"),
         conn_factory=gate.connect,
-        extra_routes=[Route("/llm/v1/chat/completions", make_relay(), methods=["POST"])],
+        extra_routes=[Route("/llm/v1/chat/completions", make_relay(), methods=["POST"]),
+                      Route("/internal/offer", make_offer_route(), methods=["POST"])],
     )
