@@ -212,6 +212,31 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
         release_lock(lock)
 
 
+def inserts_ledger(song: str) -> Path:
+    from hiremarco import config
+
+    folder = Path(config.STATE_DIR) / "inserts"
+    folder.mkdir(parents=True, exist_ok=True)
+    safe = "".join(c if c.isalnum() or c in " -_" else "-" for c in song).strip() or "song"
+    return folder / f"{safe}.json"
+
+
+def marcos_inserts(song: str) -> list[dict]:
+    """What Marco has put on this song's output strip, run after run: name as the strip shows it, the plan's
+    plugin, when, and whether it was a stray (a menu misfire). The artist's own inserts are never in here."""
+    path = inserts_ledger(song)
+    try:
+        return list(json.loads(path.read_text())) if path.exists() else []
+    except ValueError:
+        return []
+
+
+def remember_insert(song: str, name: str, plugin: str, *, stray: bool = False) -> None:
+    rows = marcos_inserts(song)
+    rows.append({"name": name, "plugin": plugin, "at": time.strftime("%Y-%m-%d %H:%M:%S %Z"), "stray": stray})
+    inserts_ledger(song).write_text(json.dumps(rows, indent=1))
+
+
 def hold_lock(job: Job) -> Path | None:
     """One master job at a time on this Mac, whichever path started it (the CLI, the booth, WhatsApp, the nightly):
     a lock file in the state folder with the job's name and time; a lock under two hours old refuses the job."""
@@ -321,8 +346,18 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
         candidates = [plugin] + [c for c in roles.CANDIDATES.get(role, ()) if c in room and c != plugin and c not in result.dead]
         for candidate in candidates:
             seen_face: list = []
-            after = strip.insert(candidate, look=(lambda: seen_face.append(look_at_face())) if look_at_face else None)
+            try:
+                after = strip.insert(candidate, look=(lambda: seen_face.append(look_at_face())) if look_at_face else None)
+            except RuntimeError as exc:
+                # a misfire: the strip was read and whatever landed is bypassed (studio.stereo_out); it is written
+                # down as a stray so no later run takes it for the artist's and brings it back in
+                log(f"   {candidate} did not go in: {str(exc)[-160:]}")
+                if "landed" in str(exc):
+                    stray_name = str(exc).split(" landed", 1)[0].split("; ")[-1].strip()
+                    remember_insert(job.song, stray_name, candidate, stray=True)
+                continue
             landed = [i.name for i in after.inserts if i.name not in names] or [candidate]
+            remember_insert(job.song, landed[-1], candidate)
             names = [i.name for i in after.inserts]
             claimed.add(landed[-1])
             plugin_of[landed[-1]] = candidate
@@ -344,8 +379,12 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             kept_out.add((landed[-1], round(row.y)))
         else:
             log(f"   nothing licensed in the room for {role}; the chain goes on without it")
+    # an insert Marco put there himself that fills no role in this plan, or a stray, stays out; the artist's own
+    # inserts (never in the ledger) come back exactly as they were
+    marcos = {row["name"] for row in marcos_inserts(job.song)}
     back_in = [i.y for i in strip.read().inserts
                if i.marcos and (i.name, round(i.y)) not in kept_out
+               and not (i.name in marcos and i.name not in claimed)
                and ((i.name, round(i.y)) in was_in or (i.name, round(i.y)) not in seen or i.name in claimed)]
     if back_in:
         strip.bypass(False, rows=back_in)

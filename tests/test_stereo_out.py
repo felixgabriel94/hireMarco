@@ -106,3 +106,11 @@ def test_dry_run_plans_the_insert():
     so = stereo_out.StereoOut(jxa=lambda *a: "", osa=lambda s: "", click=lambda x, y: None, dry_run=True)
     so.insert("Pro-L 2")
     assert so.planned == ["insert Pro-L 2 on the Stereo Out"]
+
+
+def test_a_wrong_plugin_landing_is_bypassed_and_named():
+    from hiremarco.studio.stereo_out import same_plugin
+
+    assert same_plugin("UAD Shadow Hills Mastering Comp", "UAD Shadow") and same_plugin("Pro-Q 3", "Pro-Q 3")
+    assert same_plugin("Shadow Hills Mastering Compress", "UAD Shadow")   # the cousin the search lands first
+    assert not same_plugin("Gain", "Kickstart ") and not same_plugin("Pro-L 2", "Pro-Q 3")

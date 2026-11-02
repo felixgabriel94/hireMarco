@@ -284,3 +284,23 @@ def test_one_master_job_at_a_time_on_this_mac(tmp_path, monkeypatch):
         jobs.hold_lock(job)
     jobs.release_lock(lock)
     assert not lock.exists() and jobs.hold_lock(job) is not None
+
+
+def test_a_stray_insert_marco_made_stays_out_and_the_artists_come_back(tmp_path, monkeypatch):
+    from hiremarco import config
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+    jobs.remember_insert("song", "Kickstart ", "Gain", stray=True)
+    strip = FakeStrip()
+    strip.inserts += [Insert("Ozone 11 Ma", False, 585, 180),   # the artist's own, not in the ledger
+                      Insert("Kickstart ", True, 585, 197), Insert("Pro-L 2", False, 585, 214)]
+    bouncer, channel = FakeBouncer(tmp_path, [-30.0, -20.0, -12.0]), FakeChannel()
+    plan = MasterPlan([{"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}], -12.0, -1.0, "ok", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings([], ""))
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+             toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2"}, log=lambda s: None)
+    states = {i.name: i.bypassed for i in strip.inserts}
+    assert states["Kickstart "] is True and states["Ozone 11 Ma"] is False and states["Pro-L 2"] is False
+    assert [r["name"] for r in jobs.marcos_inserts("song")] == ["Kickstart "]

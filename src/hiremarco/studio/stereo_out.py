@@ -82,6 +82,17 @@ def parse_strip(report: str) -> Strip:
                  str(data.get("name") or "Stereo Out"))
 
 
+def same_plugin(wanted: str, shown: str) -> bool:
+    """The strip's short name against the name asked for: compared plain, one a prefix of the other, at least six
+    characters ("UAD Shadow" for "UAD Shadow Hills Mastering Comp"; "Kickstart" for "Gain" is not)."""
+    plain = lambda t: "".join(c for c in t.lower() if c.isalnum())   # noqa: E731
+    a, b = plain(wanted), plain(shown)
+    n = min(len(a), len(b), 6)
+    # a search can land a cousin ("UAD Shadow" for the Shadow Hills asked for, live 2026-11-02): the first six
+    # plain characters of either name found anywhere in the other is the same family, and the job's roles decide
+    return n > 0 and (a[:n] in b or b[:n] in a)
+
+
 def front_is_logic() -> None:
     name = _osa('tell application "System Events" to get name of first process whose frontmost is true')
     if name != "Logic Pro":
@@ -198,11 +209,22 @@ class StereoOut:
                     self.osa('tell application "System Events" to key code 53')
                     self.sleep(0.4)
             return f"{name} picked"
-        self._gated(run, "insert", f"insert {name} on the Stereo Out")
+        try:
+            self._gated(run, "insert", f"insert {name} on the Stereo Out")
+        except Exception as exc:
+            # the menu misfired: whatever landed in the slot anyway is bypassed and named (live 2026-11-02: a
+            # "Gain" insert reported as failed had put Kickstart 2 on the output, and it pumped the master)
+            stray = self._stray(before, name)
+            raise RuntimeError(f"{exc}" + (f"; {stray} landed in the slot instead and was bypassed" if stray else "")) from exc
         after = self.read()
         if len(after.inserts) != len(before.inserts) + 1:
             self._snapshot(f"{name} did not land")
             raise RuntimeError(f"{name} did not land on the Stereo Out (reads {[i.name for i in after.inserts]})")
+        landed = [i for i in after.inserts if (i.name, round(i.y)) not in {(b.name, round(b.y)) for b in before.inserts}]
+        if landed and not same_plugin(name, landed[-1].name):
+            self.close_windows()
+            self.bypass(True, rows=[landed[-1].y])
+            raise RuntimeError(f"{landed[-1].name} landed on the Stereo Out instead of {name} and was bypassed")
         if look is not None:
             try:
                 look()
@@ -211,6 +233,25 @@ class StereoOut:
         else:
             self.close_windows()
         return after
+
+    def _stray(self, before: Strip, wanted: str) -> str | None:
+        """After a failed insert: an insert that landed anyway is bypassed and its name returned."""
+        try:
+            self.close_windows()
+            after = self.read()
+        except Exception:
+            return None
+        if len(after.inserts) <= len(before.inserts):
+            return None
+        was = {(b.name, round(b.y)) for b in before.inserts}
+        new = [i for i in after.inserts if (i.name, round(i.y)) not in was]
+        if not new:
+            return None
+        try:
+            self.bypass(True, rows=[i.y for i in new])
+        except Exception:
+            pass
+        return ", ".join(i.name for i in new)
 
     def _snapshot(self, why: str) -> None:
         """The screen as it was when a step failed, kept in the state folder so the failure can be read later."""
