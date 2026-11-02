@@ -103,6 +103,12 @@ def on_strip(plugin: str, names: list[str]) -> bool:
     return False
 
 
+def uad_dsp(name: str) -> bool:
+    """A plug-in that runs on the Apollo's DSP, as Logic lists it: 'UAD ' first. Console Recall is the one UAD
+    plug-in that printed fine offline (live 2026-11-02), so it is not counted."""
+    return name.startswith("UAD ") and not name.startswith("UAD Console")
+
+
 def role_filled(role: str, names: list[str], claimed: set[str] | None = None) -> str | None:
     """The strip name of a plugin already there that can fill the role (a run that stopped after its insert), not
     one another role has claimed: Pro-Q 3 counts once, for the EQ role it was put in for."""
@@ -190,7 +196,9 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
 
     # 4. the chain on the Stereo Out, in the rulebook's order
     log("4. the chain")
-    names = [i.name for i in strip.read().inserts]
+    # what counts as on the strip: the artist's inserts and Marco's that were in before the job (everything of his
+    # is bypassed right now for the mix print); one he left bypassed earlier is not a filled role
+    names = [i.name for i in before.inserts if not i.marcos or (i.name, round(i.y)) in was_in]
     claimed: set[str] = set()
     for role, plugin in result.plan.chain.items():
         if role == "meter":
@@ -221,7 +229,14 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
                                          client=client)
         for c in settings.changes:
             log(f"   slot {c['slot']} {c['parameter']} = {c['value']:g} {c['unit']}: {c['why']}")
-        channel.apply_changes(settings.changes, chain=chain)
+        try:
+            channel.apply_changes(settings.changes, chain=chain)
+        except Exception as exc:
+            if round_no == 1:
+                raise
+            log(f"   the second pass gave nothing usable ({str(exc)[-120:]}); the first print stands")
+            result.rounds = round_no - 1
+            break
         result.settings += settings.changes
         log(f"   {settings.said}")
 
@@ -229,7 +244,14 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
         log(f"6. the master print (round {round_no})")
         name = bouncing.free_name(bounces, bouncing.print_name(job.song, "master" if round_no == 1 else f"master v{round_no}",
                                                                job.today))
-        master = bouncer.print(bouncing.MASTER, bounces, name)
+        spec = bouncing.MASTER
+        dsp = [i.name for i in strip.read().inserts if not i.bypassed and uad_dsp(i.name)]
+        if dsp:
+            # a UAD DSP plug-in on the strip prints silence offline (live 2026-11-02: the Manley on the Stereo Out
+            # gave a -120 LUFS master while the mix printed fine); the master then prints in real time
+            spec = bouncing.Spec(bits=bouncing.MASTER.bits, mode="Realtime")
+            log(f"   {', '.join(dsp)} on the strip: printing in real time")
+        master = bouncer.print(spec, bounces, name)
         result.master = master.path
         result.audit_master = auditing.audit_file(master.path)
         am = result.audit_master

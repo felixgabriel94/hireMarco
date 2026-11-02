@@ -33,6 +33,7 @@ EFFORT = "max"
 TOKENS = 16000
 THINK_TIMEOUT = 900.0   # seconds: at max effort the plan took over two minutes live (2026-11-02), the client's 60 s cut it
 RETRY_WAITS = (15.0, 45.0)   # a 503 from the API stopped a run live (2026-11-02); a server error or a timeout is tried again
+TARGET_PLAY = 1.5            # LU the plan may move the loudness target from the purpose's (or the references') anchor
 sleep = time.sleep
 
 
@@ -181,8 +182,14 @@ def roles_for(audit: Audit, deltas: Deltas | None, room: set[str], *, purpose: s
     if not kept:
         raise RuntimeError("the plan named no role the room can fill")
     ceiling = min(float(data.get("ceiling_dbtp", PURPOSES[purpose]["ceiling_dbtp"])), PURPOSES[purpose]["ceiling_dbtp"])
-    plan = MasterPlan(kept, float(data.get("target_lufs", PURPOSES[purpose]["lufs"] or -14.0)), ceiling,
-                      str(data.get("audit", "")).strip(), purpose, stock_only)
+    # the loudness target is the purpose's, moved only toward the references and by at most TARGET_PLAY (live
+    # 2026-11-02: a plan answered -18 LUFS for a demo master whose purpose says -10)
+    anchor = float(PURPOSES[purpose]["lufs"] or -14.0)
+    if deltas is not None:
+        anchor = audit.base.lufs - deltas.lufs   # the references' mean loudness
+    asked = float(data.get("target_lufs", anchor))
+    target = min(max(asked, anchor - TARGET_PLAY), anchor + TARGET_PLAY)
+    plan = MasterPlan(kept, round(target, 1), ceiling, str(data.get("audit", "")).strip(), purpose, stock_only)
     if critic is not None:
         plan.critic = critic(f"a mastering plan for the Owner's own session, purpose {purpose}: "
                              + "; ".join(f"{r['role']} with {r['plugin']}" for r in kept)

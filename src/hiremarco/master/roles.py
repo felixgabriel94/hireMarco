@@ -29,7 +29,8 @@ CANDIDATES: dict[str, list[str]] = {
     "glue": ["Shadow Hills Mastering Compress", "UAD Shadow Hills Mastering Comp", "AMEK Mastering Compressor",
              "UAD elysia alpha master", "UAD Manley Variable Mu", "UAD API 2500", "SSL Native Bus Compressor 2",
              "Ozone 11 Vintage Compressor", "Compressor"],
-    "tonal_eq": ["UAD Manley Massive Passive MST", "UAD Pultec EQP-1A", "AMEK EQ 250", "Pro-Q 3", "Ozone 11 Vintage EQ",
+    # native plug-ins before the UAD DSP ones: a DSP plug-in on the Stereo Out prints only in real time (2026-11-02)
+    "tonal_eq": ["AMEK EQ 250", "Pro-Q 3", "Ozone 11 Vintage EQ", "UAD Manley Massive Passive MST", "UAD Pultec EQP-1A",
                  "Vintage Tube EQ", "Channel EQ"],
     "color": ["Kiive Tape Face", "UAD Ampex ATR-102", "Black Box Analog Design HG-2MS", "Saturn 2",
               "SSL Fusion Vintage Drive", "Ozone 11 Vintage Tape", "UAD Oxford Inflator", "Phat FX"],
