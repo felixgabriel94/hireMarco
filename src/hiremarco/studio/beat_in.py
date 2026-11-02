@@ -500,6 +500,15 @@ class BeatLoader:
         self.conn, self.rules_path, self.wait_s = conn, rules_path, wait_s  # Logic opening cold takes over a minute
         self.wake, self.notices, self.asking = wake, notices, asking
 
+    def clear_windows(self) -> None:
+        """Every plug-in window closed, so nothing floats over the track headers."""
+        try:
+            subprocess.run(["osascript", "-l", "JavaScript",
+                            str(Path(__file__).parent / "scripts" / "close_plugin_windows.js")],
+                           capture_output=True, text=True, timeout=60)
+        except (OSError, subprocess.SubprocessError):
+            pass
+
     def _in_front(self) -> None:
         if self.front() != "Logic Pro":
             raise LoadError(f"Logic is not the app in front ({self.front() or 'nothing'}); nothing was clicked")
@@ -553,6 +562,7 @@ class BeatLoader:
         if target.focus:
             return
         self._in_front()
+        self.clear_windows()   # a plug-in window left floating over the headers takes the click (live 2026-11-02)
         self.click(target.x + target.w * 0.85, target.middle)  # the name area, clear of the buttons
         self.sleep(0.5)
         after = self._header(name)

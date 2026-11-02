@@ -137,6 +137,17 @@ class StereoOut:
             # Single view: the selected track's flow ending at the output, on screen whatever the session's size
             strips = self.jxa("mixer_single.js")
             self.sleep(0.4)
+            # a stack selected shows every member in Single view and pushes the output off the window's right
+            # edge, where a click lands on nothing (live 2026-11-02, run 30, VOCALS selected: 43 strips)
+            try:
+                window = json.loads(placed)
+                right = float(window["position"][0]) + float(window["size"][0])
+                strip = self.read()
+                if strip.slot is not None and strip.slot[0] > right:
+                    raise RuntimeError(f"the output strip sits at x {strip.slot[0]:g}, past the Mixer window's right edge "
+                                       f"{right:g}: the selected track's signal flow is too wide (select a plain track first)")
+            except (ValueError, KeyError, TypeError):
+                pass
             return f"mixer window {placed}, single view {strips}"
         self._gated(run, "mixer_window", "open the Mixer window, tall")
 

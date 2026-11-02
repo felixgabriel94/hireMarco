@@ -374,6 +374,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
 
     # 1. the mix as it stands: Marco's own inserts bypassed, the artist's untouched
     log("1. the mix print")
+    select_track()   # a plain track first: a stack selected makes the Mixer's Single view too wide to click
     strip.open_mixer()
     before = strip.read()
     # what was in and what was out before the job: an insert the artist or an earlier run left bypassed stays so
