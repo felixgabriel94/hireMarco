@@ -24,7 +24,7 @@ import sqlite3
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from hiremarco import config
@@ -246,9 +246,9 @@ def waiting_for_words(conn: sqlite3.Connection, now: datetime | None = None) -> 
     return offer if offer.accepted_at and now - offer.accepted_at <= YES_WINDOW else None
 
 
-def open_days(calendar, now: datetime, ahead: int = 7, shown: int = 5) -> list[str]:
-    """His open days coming up, as day names and dates only: a yes or no per day, never what an event is. Empty when
-    the calendar can't be read."""
+def open_days(calendar, now: datetime, ahead: int = 7, shown: int = 5) -> list[date]:
+    """His open days coming up, as dates only: a yes or no per day, never what an event is. Empty when the calendar
+    can't be read. style.days_span says them."""
     from datetime import time as clock
 
     today, out = now.astimezone(MIAMI).date(), []
@@ -256,7 +256,7 @@ def open_days(calendar, now: datetime, ahead: int = 7, shown: int = 5) -> list[s
         for n in range(1, ahead + 1):
             day = today + timedelta(days=n)
             if calendar.is_clear(datetime.combine(day, clock(10), MIAMI), datetime.combine(day, clock(19), MIAMI)):
-                out.append(f"{day.strftime('%A %B')} {day.day}")
+                out.append(day)
     except Exception:
         return []
     return out[:shown]

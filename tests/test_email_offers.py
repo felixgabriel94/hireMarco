@@ -502,14 +502,31 @@ def test_a_reply_yes_asks_what_to_say_with_open_days_then_shows_a_draft_and_send
     box = outbox.connect(":memory:")
     said = email_offer_words("yes", OWNER, "w1", serve["wa"], conn=serve["conn"], calendar=days, now=NOON)
     assert "asked what to say" in said
-    assert "What should I say?" in serve["sent"][-1][1] and "Tuesday November 3" in serve["sent"][-1][1]
+    assert serve["sent"][-1][1] == "What should I say? You're open Tuesday, November 3rd, and Thursday, November 5th."
     assert days.asked == 7
     done = email_offer_words("say tuesday works", OWNER, "w2", serve["wa"], conn=serve["conn"], calendar=days, mail=mail, client=writes,
                              outbox_conn=box, now=NOON + timedelta(minutes=1))
     assert "reply draft shown" in done and len(mail.made) == 1
     assert b"To: pat@publisher.example" in mail.made[0]
-    assert outbox.waiting(box).kind == "reply" and "Tuesday November 3" in writes.prompts[0]
+    assert outbox.waiting(box).kind == "reply"
+    assert "call for days: Tuesday, November 3rd, and Thursday, November 5th" in writes.prompts[0]
     assert 'say "send"' in serve["sent"][-1][1].lower() and offers.waiting_for_words(serve["conn"], NOON + timedelta(minutes=2)) is None
+
+
+def test_a_week_of_open_days_is_one_range_when_he_is_asked_and_when_the_draft_is_written(serve, tmp_path):
+    from hiremarco.inbox import outbox
+
+    class Open(Days):
+        def is_clear(self, start, end):
+            return True
+
+    serve["deliver"](REPLY)
+    mail, writes = Drafts(), Writes(tmp_path)
+    email_offer_words("yes", OWNER, "w1", serve["wa"], conn=serve["conn"], calendar=Open(), now=NOON)
+    assert serve["sent"][-1][1] == "What should I say? You're open Tuesday, November 3rd, to Saturday, November 7th."
+    email_offer_words("say any of those work", OWNER, "w2", serve["wa"], conn=serve["conn"], calendar=Open(), mail=mail,
+                      client=writes, outbox_conn=outbox.connect(":memory:"), now=NOON + timedelta(minutes=1))
+    assert "call for days: Tuesday, November 3rd, to Saturday, November 7th" in writes.prompts[0]
 
 
 def test_a_draft_comes_only_after_the_yes(serve):

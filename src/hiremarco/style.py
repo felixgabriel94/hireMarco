@@ -5,6 +5,8 @@ Capitals are his brand, like his tie and his logo, so nothing here changes a let
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
+from datetime import date, timedelta
 
 NAME_RULE = "Spell hireMarco exactly that way, with that capital M and a small h, even at the start of a sentence."
 _NAME = re.compile(r"(?<![\w./@-])hiremarco(?!\.\w|[\w@-])", re.I)
@@ -88,10 +90,88 @@ def times_settled_on(text: str, pm: bool) -> str:
     return re.sub(r"(\bat\s+)(\d{1,2})(?::(\d{2}))?\b(?![:\w]|\s*[ap]\.?m)", digits, text, flags=re.I)
 
 
+# Owner 2026-11-02: open days read as a range, not a roll call: a list of every day was clutter on his phone.
+DAYS_RULE = ("Write a day as weekday, month and ordinal: Tuesday, November 3rd. Say days in a row as one range: Tuesday, "
+             "November 3rd, to Saturday, November 7th. Separate days: Tuesday, November 3rd, and Thursday, November 5th. "
+             "Never list each day of a run, and never say every single day.")
+_WEEKDAY = "Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday"
+MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November",
+          "December")
+_A_DAY = rf"(?:(?:{_WEEKDAY}),? )?(?:{'|'.join(MONTHS)}) \d{{1,2}}(?:st|nd|rd|th)?\b"
+_ONE_DAY = re.compile(rf"(?:({_WEEKDAY}),? )?({'|'.join(MONTHS)}) (\d{{1,2}})")
+_DAY_LIST = re.compile(rf"{_A_DAY}(?:(?:, (?:(?:and|or) )?| (?:and|or) ){_A_DAY}){{2,}}")
+_EVERY_DAY = re.compile(rf"(?i:every(?: single)? day(?: from| between)?) ({_A_DAY}),? (?i:to|through|until|and) ({_A_DAY})")
+
+
+def ordinal(n: int) -> str:
+    """3rd, 11th, 22nd."""
+    return f"{n}{'th' if 10 <= n % 100 <= 20 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+
+
+def spelled_day(day: date) -> str:
+    """A day as Marco writes it: Tuesday, November 3rd."""
+    return f"{day.strftime('%A, %B')} {ordinal(day.day)}"
+
+
+def _runs(days: Iterable[date]) -> list[list[date]]:
+    runs: list[list[date]] = []
+    for day in sorted(set(days)):
+        if runs and day - runs[-1][-1] == timedelta(days=1):
+            runs[-1].append(day)
+        else:
+            runs.append([day])
+    return runs
+
+
+def days_span(days: Iterable[date]) -> str:
+    """Days as one phrase, every channel's one way of saying them: days in a row become a range and the rest stand alone.
+    Tuesday, November 3rd, to Thursday, November 5th, and Saturday, November 7th."""
+    parts = [spelled_day(r[0]) if len(r) == 1 else f"{spelled_day(r[0])}, to {spelled_day(r[-1])}" for r in _runs(days)]
+    return ", ".join(parts[:-1]) + ", and " + parts[-1] if len(parts) > 1 else "".join(parts)
+
+
+def _read_days(text: str, today: date) -> list[date] | None:
+    """The days a phrase names, in the year nearest today. None when one can't be a date or its weekday doesn't fit the
+    date: a wrong date is not this guard's to tidy up."""
+    days = []
+    for m in _ONE_DAY.finditer(text):
+        try:
+            years = [date(today.year + n, MONTHS.index(m[2]) + 1, int(m[3])) for n in (-1, 0, 1)]
+        except ValueError:
+            return None
+        day = min(years, key=lambda d: abs(d - today))
+        if m[1] and day.strftime("%A") != m[1]:
+            return None
+        days.append(day)
+    return days
+
+
+def written_days(text: str, today: date | None = None) -> str:
+    """A run of three or more listed days, or "every single day from November 3rd to November 7th", put as a range. It
+    reads only full month names; days in another shape stay as they are and the writers' rule is what covers them. Words
+    inside quotes stay, as with times."""
+    today = today or date.today()
+
+    def listed(m: re.Match) -> str:
+        days = _read_days(m[0], today)
+        if not days or days != sorted(set(days)) or max(map(len, _runs(days))) < 3:
+            return m[0]
+        return days_span(days)
+
+    def every(m: re.Match) -> str:
+        ends = _read_days(f"{m[1]} {m[2]}", today)
+        if not ends or len(ends) != 2 or ends[0] >= ends[1]:
+            return m[0]
+        return days_span(ends[0] + timedelta(days=n) for n in range((ends[1] - ends[0]).days + 1))
+
+    return "".join(piece if i % 2 else _DAY_LIST.sub(listed, _EVERY_DAY.sub(every, piece))
+                   for i, piece in enumerate(_QUOTED.split(text or "")))
+
+
 def written(text: str) -> str:
-    """Marco's text as it goes out on WhatsApp: times exact, and his company's name as it is spelled, wherever it stands.
-    A link or an address with the name in it stays as it is."""
-    return _NAME.sub("hireMarco", written_times(text))
+    """Marco's text as it goes out on WhatsApp: times exact, runs of days as ranges, and his company's name as it is
+    spelled, wherever it stands. A link or an address with the name in it stays as it is."""
+    return _NAME.sub("hireMarco", written_days(written_times(text)))
 
 
 # Owner 2026-10-31: Marco never shows the client what is under the hood. A text that would name a part of the

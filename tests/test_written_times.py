@@ -1,7 +1,7 @@
 """A time Marco writes is exact, because "eight" could be morning or night (Owner 2026-11-02). What the voice says on a
 call is not this: the brief and the call's own words stay as they were."""
 
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 import pytest
 
@@ -9,7 +9,8 @@ from hiremarco.calls import offers
 from hiremarco.calls.confirm import confirmed_text
 from hiremarco.offer import Place, offer_line
 from hiremarco.proof import Booking
-from hiremarco.style import NAME_RULE, TIME_RULE, clock_time, times_settled_on, written, written_times
+from hiremarco.style import (DAYS_RULE, NAME_RULE, TIME_RULE, clock_time, days_span, ordinal, spelled_day, times_settled_on,
+                             written, written_days, written_times)
 
 KITCHEN = Place("kitchen", "Test Kitchen", "15557770000")
 
@@ -114,7 +115,8 @@ def test_every_writer_gets_the_rule():
 
     assert all(TIME_RULE in text for text in (ENGLISH, READ_INSTRUCTIONS, WRITER))
     assert all(NAME_RULE in text for text in (ENGLISH, WRITER))
-    assert "{" not in TIME_RULE  # the email writer's prompt goes through format
+    assert all(DAYS_RULE in text for text in (ENGLISH, WRITER))
+    assert "{" not in TIME_RULE + DAYS_RULE  # the email writer's prompt goes through format
 
 
 def test_nothing_on_the_way_out_changes_a_letter_case():
@@ -123,3 +125,66 @@ def test_nothing_on_the_way_out_changes_a_letter_case():
     assert not hasattr(hiremarco.style, "casual")
     line = 'Heads up. Tim Hale emailed about "Contract Questions". Let me know if I can help.'
     assert written(line) == line
+
+
+NOV = lambda *days: [date(2026, 11, d) for d in days]  # noqa: E731
+TODAY = date(2026, 11, 2)
+
+
+@pytest.mark.parametrize("days, said", [
+    (NOV(3), "Tuesday, November 3rd"),
+    (NOV(3, 5), "Tuesday, November 3rd, and Thursday, November 5th"),
+    (NOV(3, 4), "Tuesday, November 3rd, to Wednesday, November 4th"),
+    (NOV(3, 4, 5, 6, 7), "Tuesday, November 3rd, to Saturday, November 7th"),
+    (NOV(3, 4, 5, 7), "Tuesday, November 3rd, to Thursday, November 5th, and Saturday, November 7th"),
+    (NOV(3, 5, 7), "Tuesday, November 3rd, Thursday, November 5th, and Saturday, November 7th"),
+    (NOV(7, 3, 4, 4), "Tuesday, November 3rd, to Wednesday, November 4th, and Saturday, November 7th"),
+    ([date(2026, 11, 30), date(2026, 12, 1)], "Monday, November 30th, to Tuesday, December 1st"),
+    ([], ""),
+])
+def test_days_read_as_ranges(days, said):
+    assert days_span(days) == said
+
+
+def test_a_day_is_written_with_its_ordinal():
+    assert [ordinal(n) for n in (1, 2, 3, 4, 11, 12, 13, 21, 22, 23, 30, 31)] == [
+        "1st", "2nd", "3rd", "4th", "11th", "12th", "13th", "21st", "22nd", "23rd", "30th", "31st"]
+    assert spelled_day(date(2026, 11, 22)) == "Sunday, November 22nd"
+
+
+@pytest.mark.parametrize("before, after", [
+    ("You're open Tuesday November 3, Wednesday November 4, Thursday November 5, Friday November 6, Saturday November 7.",
+     "You're open Tuesday, November 3rd, to Saturday, November 7th."),
+    ("Open Tuesday, November 3rd, Wednesday, November 4th, and Thursday, November 5th, if that works.",
+     "Open Tuesday, November 3rd, to Thursday, November 5th, if that works."),
+    ("November 3, November 4 and November 5 are open.", "Tuesday, November 3rd, to Thursday, November 5th are open."),
+    ("Tuesday November 3, Wednesday November 4, Thursday November 5, Saturday November 7 work.",
+     "Tuesday, November 3rd, to Thursday, November 5th, and Saturday, November 7th work."),
+    ("You're open every single day from November 3rd to November 7th.",
+     "You're open Tuesday, November 3rd, to Saturday, November 7th."),
+    ("Every day between November 3 and November 5 works.", "Tuesday, November 3rd, to Thursday, November 5th works."),
+    ("Monday December 28, Tuesday December 29, Wednesday December 30, Thursday December 31, Friday January 1.",
+     "Monday, December 28th, to Friday, January 1st."),
+])
+def test_a_run_of_listed_days_goes_out_as_a_range(before, after):
+    assert written_days(before, TODAY) == after
+
+
+@pytest.mark.parametrize("line", [
+    "Tuesday November 3 and Thursday November 5 work.",  # two days aren't a run to tidy
+    "Tuesday November 3, Thursday November 5, Saturday November 7.",  # three, but none in a row
+    "Saturday November 3, Sunday November 4, Monday November 5.",  # the weekdays don't fit: not the guard's to fix
+    "November 5, November 4, November 3.",  # out of order
+    "Booked \"November 3, November 4, November 5\" as the title.",  # someone else's words
+    "Every day from November 7 to November 3 is wrong.",
+    "The session is November 3. The mix is November 4. The master is November 5.",
+])
+def test_what_is_not_a_run_of_days_is_left_alone(line):
+    assert written_days(line, TODAY) == line
+
+
+def test_the_whatsapp_guard_collapses_a_run_it_is_handed():
+    start = date.today() + timedelta(days=1)
+    days = [start + timedelta(days=n) for n in range(3)]
+    listed = ", ".join(f"{d.strftime('%A %B')} {d.day}" for d in days)
+    assert written(f"You're open {listed}.") == f"You're open {days_span(days)}."

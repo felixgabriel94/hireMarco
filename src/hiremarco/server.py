@@ -13,12 +13,13 @@ booth puts it on the Beat track of a new session.
 from __future__ import annotations
 
 import re
+from datetime import date
 from pathlib import Path
 
 from hiremarco import config, gate
 from hiremarco.livelog import Trace
 from hiremarco.marco import Marco
-from hiremarco.style import NAME_RULE, TIME_RULE
+from hiremarco.style import DAYS_RULE, NAME_RULE, TIME_RULE, days_span
 from hiremarco.whatsapp import Inbound, WhatsApp, make_app, reactions
 from hiremarco.whatsapp.brain import context, decide, history
 from hiremarco.whatsapp.facts import forget, keep
@@ -74,7 +75,7 @@ def voice_text(message: Inbound, wa: WhatsApp, listen=None) -> str:
 
 
 ENGLISH = ("Reply in English, even when he writes a word, a name or a song title in Spanish or another language. "
-           "Answer in another language only when he asks you to. " + TIME_RULE + " " + NAME_RULE)
+           "Answer in another language only when he asks you to. " + TIME_RULE + " " + DAYS_RULE + " " + NAME_RULE)
 AFFIRM = re.compile(r"^(?:yes|yeah|yep|yup|sure|ok|okay|go|go ahead|do it|please do|let'?s go|start it|si|sí|dale)\b",
                     re.I)
 STATUS = re.compile(r"\b(?:did|have|has|is|are|was)\b.*\b(?:session|start(?:ed)?|set ?up|ready|done|loaded|logic)\b"
@@ -256,8 +257,6 @@ def digest_unsubscribe(said: str, sender: str, message_id: str, wa: WhatsApp, *,
                        gate_conn=None, http=None, rules_path=None, today: str | None = None) -> str | None:
     """His one reply to the morning digest: "unsubscribe 2" or "unsubscribe all" (Owner 2026-11-01). None when his
     words are anything else, and the brain answers as usual."""
-    from datetime import date
-
     from hiremarco import inbox as mailbox
     from hiremarco.google import Mail
     from hiremarco.inbox import cleanup
@@ -421,12 +420,12 @@ def email_offer_words(said: str, sender: str, message_id: str, wa: WhatsApp, *, 
     if not message_id.startswith("booth-"):
         offers.set_asked(conn, offer.id, message_id)
     days = _open_days(calendar, when)
-    offers.add_message(conn, offer.id, reply("What should I say?" + (f" You're open {', '.join(days)}, if a day helps." if days else ""),
+    offers.add_message(conn, offer.id, reply("What should I say?" + (f" You're open {days_span(days)}." if days else ""),
                                              "email-offer-say"))
     return f"offer {offer.id}: asked what to say, {len(days)} open days offered"
 
 
-def _open_days(calendar, when) -> list[str]:
+def _open_days(calendar, when) -> list[date]:
     """Days only, read on this machine after his yes (R3): the other machine has no calendar and needs none."""
     from hiremarco.calls import offers
 
