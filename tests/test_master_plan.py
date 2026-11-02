@@ -52,6 +52,8 @@ def test_roles_for_keeps_only_roles_the_room_fills_in_order(tmp_path, track):
     body = json.loads(sent["messages"][-1]["content"])
     assert body["purpose"] == "demo" and "MASTERING RULEBOOK" in body["rulebook"]
     assert body["audit"]["base"]["name"] == "song mix" and body["room"]["candidates"]["limiter"] == ["Pro-L 2", "Adaptive Limiter"]
+    # the handbook: white noise at -10 dBFS sits under the demo target, so the level situation rides along by ID
+    assert "[S-MASTER-04]" in body["handbook"] and "S-MASTER-04" in p.situations and p.as_dict()["situations"] == p.situations
 
 
 def test_stock_only_swaps_a_premium_pick_for_the_stock_one(tmp_path, track):

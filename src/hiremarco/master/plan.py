@@ -64,7 +64,10 @@ AUDIT_INSTRUCTIONS = (
     "loudness, true-peak ceiling) for the purpose, adjusted to the references when there are any; and the audit in "
     "your own words, six to ten short sentences the artist reads: what the track is, what it needs, what you will "
     "leave alone, and why, naming its numbers. No plugin outside the room. Plain words, no jargon the artist would "
-    "not use."
+    "not use. Under handbook you get the situations this track's own findings picked from the handbook, each with "
+    "an ID (S-MASTER-NN), its threshold, why, when it applies and when it does not, the move in real units and how "
+    "it is verified, with the sourced claims behind it (R-AUD-NNNN): a reason that rests on one names its ID in why, "
+    "and its numbers are the start of your reasoning, never the number you quote as measured."
 )
 
 AUDIT_SCHEMA = {
@@ -113,6 +116,7 @@ class MasterPlan:
     purpose: str
     stock_only: bool = False
     critic: tuple[bool, str] | None = None
+    situations: list[str] = field(default_factory=list)   # the handbook situations the audit picked, by ID
 
     @property
     def chain(self) -> dict[str, str]:
@@ -121,7 +125,7 @@ class MasterPlan:
     def as_dict(self) -> dict:
         return {"roles": self.roles, "target_lufs": self.target_lufs, "ceiling_dbtp": self.ceiling_dbtp,
                 "audit": self.audit_text, "purpose": self.purpose, "stock_only": self.stock_only,
-                "critic": list(self.critic) if self.critic else None}
+                "critic": list(self.critic) if self.critic else None, "situations": list(self.situations)}
 
 
 @dataclass
@@ -190,7 +194,7 @@ def track_numbers(payload: dict) -> set[str]:
             return
         if isinstance(value, dict):
             for k, v in value.items():
-                if k in ("rulebook", "sources", "room"):
+                if k in ("rulebook", "sources", "room", "handbook"):
                     continue
                 walk(v)
         elif isinstance(value, (list, tuple)):
@@ -225,9 +229,12 @@ def roles_for(audit: Audit, deltas: Deltas | None, room: set[str], *, purpose: s
     if purpose not in PURPOSES:
         raise ValueError(f"no purpose {purpose!r}; one of {', '.join(PURPOSES)}")
     client = client or MuseSpark(timeout=THINK_TIMEOUT)
+    from hiremarco.master import handbook
+
+    situations = handbook.pick(findings(audit), handbook.measures_of(audit.as_dict(), PURPOSES[purpose]["lufs"]))
     payload = {"purpose": purpose, "purpose_targets": PURPOSES[purpose], "direction": direction,
                "stock_only": stock_only, "audit": audit_for_model(audit, deltas, hearing), "room": roles_.for_model(room),
-               "rulebook": RULEBOOK, "sources": SOURCES}
+               "rulebook": RULEBOOK, "sources": SOURCES, "handbook": handbook.text(situations)}
     data = _ask(client, AUDIT_INSTRUCTIONS, payload, job="master_audit", schema=AUDIT_SCHEMA)
     known = track_numbers(payload)
     if not grounded(data, known):
@@ -263,7 +270,8 @@ def roles_for(audit: Audit, deltas: Deltas | None, room: set[str], *, purpose: s
         anchor = audit.base.lufs - deltas.lufs   # the references' mean loudness
     asked = float(data.get("target_lufs", anchor))
     target = min(max(asked, anchor - TARGET_PLAY), anchor + TARGET_PLAY)
-    plan = MasterPlan(kept, round(target, 1), ceiling, str(data.get("audit", "")).strip(), purpose, stock_only)
+    plan = MasterPlan(kept, round(target, 1), ceiling, str(data.get("audit", "")).strip(), purpose, stock_only,
+                      situations=[s.id for s in situations])
     if critic is not None:
         plan.critic = critic(f"a mastering plan for the Owner's own session, purpose {purpose}: "
                              + "; ".join(f"{r['role']} with {r['plugin']}" for r in kept)

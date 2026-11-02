@@ -1,0 +1,17 @@
+# Claims
+One line per claim; the file is the record.
+- R-AUD-0001: Loudness and true peak are measured by ITU-R BS.1770 (primary, proven)
+- R-AUD-0002: EBU R 128: programme loudness -23.0 LUFS, true peak not above -1 dBTP, loudness range per Tech 3342 (primary, proven)
+- R-AUD-0003: Spotify normalises to -14 LUFS and asks for true peak under -1 dBTP, under -2 dBTP for louder masters (institutional, proven)
+- R-AUD-0004: Mastering works on the stereo mixdown as the finished product; mixing balances the separate tracks (institutional, proven)
+- R-AUD-0005: A mastering move is gentle and sympathetic to the mix; mastering is not a remix (practitioner, promising)
+- R-AUD-0006: Dynamic EQ in Pro-Q 3 moves a band's gain with the band's own level: compression or expansion of one frequency range (primary, proven)
+- R-AUD-0007: Pro-Q 3's nine shapes, slopes, Q, gain and frequency ranges, and note entry (primary, proven)
+- R-AUD-0008: Pro-L 2's Gain slider raises the threshold of limiting and the output gain together (primary, proven)
+- R-AUD-0009: Pro-L 2's eight limiting styles and what each suits (primary, proven)
+- R-AUD-0010: Pro-L 2's lookahead, attack, release and channel linking: the trade between loudness and cleanliness (primary, proven)
+- R-AUD-0011: True peaks are inter-sample peaks; true peak limiting with 4x oversampling and 0.1 ms lookahead keeps them within 0.1 dB (primary, proven)
+- R-AUD-0012: Loudness meter targets and the loudness range reading in Pro-L 2 (primary, proven)
+- R-AUD-0013: Dither when reducing bit depth; truncation causes quantization distortion (primary, proven)
+- R-AUD-0014: soothe2's depth, sharpness and selectivity: how much, how narrow, and how choosy the resonance suppression is (primary, proven)
+- R-AUD-0015: The Manley Variable Mu is a variable-gain tube compressor made for the mix bus, with linked stereo and mid/side operation (primary, proven)
