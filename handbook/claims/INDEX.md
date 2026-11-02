@@ -19,3 +19,4 @@ One line per claim; the file is the record.
 - R-AUD-0017: Pro-DS: threshold and range, the trigger band between 2 and 20 kHz, Single Vocal against Allround, wide band against split band (primary, proven)
 - R-AUD-0018: Pro-G: threshold, ratio and range of a gate or expander; the styles, with Vocal for breaths and bleed; side-chain filters (primary, proven)
 - R-AUD-0019: Auto-Tune Realtime X: key and scale set the target notes; Retune Speed in ms, Flex-Tune, Humanize and Detune (primary, proven)
+- R-AUD-0020: Waves JJP Vocals: a type per voice, sensitivity set on the loudest section, a main section of dynamics and EQ with center faders as aux returns (primary, proven)
