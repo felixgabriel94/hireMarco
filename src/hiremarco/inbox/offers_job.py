@@ -6,7 +6,8 @@ from Felix, mail he already answered and mail it already read are skipped; one m
 
 It holds no WhatsApp key. It hands each offer, signed, to the Mini's relay on a loopback-only port, which wakes the
 MacBook if it must and passes it to serve; "delivered" means serve accepted it. Between 11 pm and 8 am New York time
-nothing is read and nothing is handed off, so nothing wakes the MacBook; what waits goes after 8. A failed handoff is
+nothing is read and nothing is handed off, so nothing wakes the MacBook, and what waits goes after 8, unless
+HIREMARCO_OFFER_QUIET_HOURS is off. A failed handoff is
 tried three times quickly, then at most hourly, twelve attempts a day in all, and given up after 24 hours.
 
 Its log carries counts and ids, never a sender, a subject or a body. The kill switch is checked by the caller before
@@ -56,6 +57,12 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.executescript(SQL)
     return conn
+
+
+def quiet_hours_on() -> bool:
+    """HIREMARCO_OFFER_QUIET_HOURS=off lifts the overnight hold, in the process or the env file (Owner 2026-11-02: to
+    test at night). Off, a run reads and hands off at any hour and wakes the MacBook if it must; its log says so."""
+    return (config.get("HIREMARCO_OFFER_QUIET_HOURS") or "").strip().lower() != "off"
 
 
 def quiet(now: datetime) -> bool:
@@ -196,15 +203,14 @@ def hand_over(conn, mail, post: Callable[[dict], int], *, now: datetime, nap: Ca
 
 def run(mail, client, conn, *, places: list[Place], post: Callable[[dict], int] | None = None,
         now: datetime | None = None, dry_run: bool = False, nap: Callable[[float], None] = time.sleep,
-        joblog: JobLog | None = None, limit: int = 50, no_quiet: bool = False) -> tuple[dict, list[dict]]:
+        joblog: JobLog | None = None, limit: int = 50) -> tuple[dict, list[dict]]:
     """One pass. (counts, what a dry run would hand off). A dry run ignores the quiet hours, says it would have held,
-    records nothing and sends nothing. ``no_quiet`` is the Owner's own test at night (Owner 2026-11-02): this one run
-    reads and hands off anyway, wakes the MacBook if it must, and says so in its log."""
+    records nothing and sends nothing."""
     now = now or datetime.now(timezone.utc)
     joblog = joblog or JobLog()
     counts: dict = {}
-    if quiet(now) and no_quiet:
-        counts["quiet hours overridden"] = True
+    if quiet(now) and not quiet_hours_on():
+        counts["quiet hours off"] = True
     elif quiet(now):
         if not dry_run:
             return {"quiet hours": True}, []

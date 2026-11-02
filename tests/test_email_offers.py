@@ -211,16 +211,38 @@ def test_what_waited_overnight_goes_at_eight(tmp_path):
     assert [h["offer_id"] for h in handed] == ["mail-m2"]
 
 
-def test_the_owners_night_test_reads_and_hands_off_and_says_so(tmp_path):
+def test_quiet_hours_off_reads_and_hands_off_at_night_and_says_so(tmp_path, monkeypatch):
     late = datetime(2026, 11, 3, 5, 15, tzinfo=timezone.utc)  # 12:15 am in New York
+    monkeypatch.setenv("HIREMARCO_OFFER_QUIET_HOURS", "off")
     client, _ = scripted(tmp_path, answer("reply", "Pat wants a session."))
     handed = []
     counts, _ = offers_job.run(Mailbox(SESSION), client, offers_job.connect(":memory:"), places=PLACES,
-                               post=lambda p: handed.append(p) or 200, now=late, joblog=client.joblog, no_quiet=True)
-    assert [h["offer_id"] for h in handed] == ["mail-m2"] and counts["quiet hours overridden"] is True
-    assert "quiet hours overridden" in client.joblog.rows()[-1]["note"]
-    held, _, handed, _, seen = job(tmp_path, Mailbox(SESSION), post=lambda p: pytest.fail("the default still holds"), now=late)
-    assert held == {"quiet hours": True} and seen == []  # without the flag the night is still quiet
+                               post=lambda p: handed.append(p) or 200, now=late, joblog=client.joblog)
+    assert [h["offer_id"] for h in handed] == ["mail-m2"] and counts["quiet hours off"] is True
+    assert "quiet hours off" in client.joblog.rows()[-1]["note"]
+
+
+def test_quiet_hours_stay_on_unless_the_setting_says_off(tmp_path, monkeypatch):
+    late = datetime(2026, 11, 3, 5, 15, tzinfo=timezone.utc)
+    monkeypatch.setenv("HIREMARCO_ENV", str(tmp_path / "none"))
+    for value in (None, "", "on", "of", "false"):
+        monkeypatch.delenv("HIREMARCO_OFFER_QUIET_HOURS", raising=False)
+        if value is not None:
+            monkeypatch.setenv("HIREMARCO_OFFER_QUIET_HOURS", value)
+        assert offers_job.quiet_hours_on(), value
+    monkeypatch.delenv("HIREMARCO_OFFER_QUIET_HOURS", raising=False)
+    held, _, _, _, seen = job(tmp_path, Mailbox(SESSION), post=lambda p: pytest.fail("the default still holds"), now=late)
+    assert held == {"quiet hours": True} and seen == []
+    monkeypatch.setenv("HIREMARCO_OFFER_QUIET_HOURS", " OFF ")
+    assert not offers_job.quiet_hours_on()
+
+
+def test_the_env_file_can_turn_quiet_hours_off(tmp_path, monkeypatch):
+    env = tmp_path / "env"
+    env.write_text("HIREMARCO_OFFER_QUIET_HOURS=off\n")
+    monkeypatch.delenv("HIREMARCO_OFFER_QUIET_HOURS", raising=False)
+    monkeypatch.setenv("HIREMARCO_ENV", str(env))
+    assert not offers_job.quiet_hours_on()
 
 
 def test_at_most_eight_a_day(tmp_path):

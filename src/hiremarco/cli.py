@@ -387,7 +387,7 @@ def _inbox_offers(args) -> int:
     state = config.STATE_DIR / "inbox-offers.sqlite"
     conn = offers_job.connect(state if not args.dry_run or state.exists() else ":memory:")
     counts, would = offers_job.run(Mail(), MuseSpark(), conn, places=load_places(), dry_run=args.dry_run,
-                                   limit=min(args.limit, 50), no_quiet=args.no_quiet)
+                                   limit=min(args.limit, 50))
     for row in would:
         print(f"would hand off: id {row['id']}, read as {row['read_as']}, sends as {row['kind']}"
               + (f": {row['line']}" if args.show else ""))
@@ -1597,7 +1597,6 @@ def main(argv: list[str] | None = None) -> int:
     ib.add_argument("--confirm", default="", help="cleanup: the sha256 of that list, as the Owner confirmed it")
     ib.add_argument("--dry-run", action="store_true", help="cleanup, offers: count only, change nothing, send nothing")
     ib.add_argument("--show", action="store_true", help="offers --dry-run: print the words he would get")
-    ib.add_argument("--no-quiet", action="store_true", help="offers: this run ignores the overnight hold, for the Owner's own test")
     ib.add_argument("state", nargs="?", choices=["on", "off"])
     split = ib.add_mutually_exclusive_group()
     split.add_argument("--sweep", action="store_true", help="sync only: sort, label, auto-trash and expire; no WhatsApp, no tasks")
