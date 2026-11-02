@@ -520,17 +520,23 @@ class BeatLoader:
         if found is None:
             raise LoadError(f"the session has no track named {name!r}")
         low, high = self._visible()
-        if not (low <= found.middle <= high):
-            # one jump of the Tracks area's scroll bar to its top or bottom, not a crawl of wheel ticks: each
-            # re-read of a header costs 20 s in a forty-track session (live 2026-11-02, the BEAT header at y -1092)
-            self.jump(0.0 if found.middle < low else 1.0)
+        if low <= found.middle <= high:
+            return found
+        # the Tracks area's scroll bar set by halves until the header sits in the band: no mouse wheel, which
+        # scrolls whatever is under the pointer (live 2026-11-02: Logic on the 4K display, the pointer on the
+        # laptop, and the wheel went nowhere), and no crawl of ticks re-read at 20 s each
+        lo_v, hi_v = 0.0, 1.0
+        value = 0.0 if found.middle < low else 1.0
+        for _ in range(10):
+            self.jump(value)
             found = self._header(name) or found
-        for _ in range(8):
             if low <= found.middle <= high:
                 return found
-            self._in_front()
-            self.scroll(-5 if found.middle > high else 5)
-            found = self._header(name) or found
+            if found.middle < low:
+                hi_v = value
+            else:
+                lo_v = value
+            value = (lo_v + hi_v) / 2
         raise LoadError(f"could not scroll {name!r} into view")
 
     def _visible(self) -> tuple[float, float]:
