@@ -127,9 +127,9 @@ def check_outbound(
     ``owner_request`` is the Owner's own words asking for this action. A ``named`` send switch lets a call through
     only when the target's full number (E.164 digits) is in those words.
 
-    ``offer`` is the evidence for a ``places`` switch: an offer the Owner said yes to on WhatsApp. It holds only
-    when the target is that offer's place, the number is in his private places file, and the yes came within the
-    yes window of the offer and recently.
+    ``offer`` is the evidence for a ``places`` switch: an offer the Owner said yes to on WhatsApp, or by voice in the
+    booth to the offer he was texted. It holds only when the target is that offer's place, the number is in his
+    private places file, and the yes came within the yes window of the offer and recently.
 
     ``confirmed`` is the evidence for an email: the digest of the draft he was shown, the digest of what is about to
     go, when he was asked and when he said send. It holds only when the two digests match and his word came after the
@@ -199,6 +199,9 @@ def offer_holds(offer: dict, target: str, now: datetime | None = None) -> bool:
 
     now = now or datetime.now(timezone.utc)
     offered, accepted = offer.get("offered_at"), offer.get("accepted_at")
+    yes_by = offer.get("yes_by") or "whatsapp"
+    if yes_by not in ("whatsapp", "booth") or (yes_by == "booth" and not offer.get("texted_at")):
+        return False  # a voice yes counts only for an offer he was really texted
     phones = {p.phone.lstrip("+") for p in load_places()}
     return (offer.get("place_phone") == target and target in phones and offered is not None and accepted is not None
             and timedelta(0) <= accepted - offered <= YES_WINDOW and timedelta(0) <= now - accepted <= YES_WINDOW)
@@ -270,7 +273,9 @@ def execute_effect(
         if owner_request:
             description += f" (the Owner asked: {owner_request})"
         if offer is not None:
-            description += f" (the Owner said yes on WhatsApp to Marco's offer to call {offer.get('place_name')})"
+            how = "by voice in the booth to the offer Marco texted him" if offer.get("yes_by") == "booth" \
+                else "on WhatsApp to Marco's offer"
+            description += f" (the Owner said yes {how} to call {offer.get('place_name')})"
         try:
             approved, reason = critic(description)
         except Exception as exc:
