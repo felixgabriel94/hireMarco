@@ -139,3 +139,23 @@ def test_settings_for_reads_the_chain_and_returns_changes(tmp_path, track):
     assert s.said.startswith("A half dB")
     body = json.loads(seen[0]["messages"][-1]["content"])
     assert body["targets"] == {"lufs": -10.0, "ceiling_dbtp": -1.0} and body["chain"][1]["plugin"] == "Pro-L 2"
+
+
+def test_settings_that_run_out_of_room_are_asked_once_more_for_a_shorter_answer(tmp_path, track):
+    seen = []
+    good = json.dumps({"changes": [{"slot": 2, "parameter": "Gain", "value": 3.5, "unit": "dB", "why": "6 dB short"}],
+                       "said": "Up in stages."})
+    finishes = iter(["length", "stop"])
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json={"model": "muse-wonder-1.0", "choices": [{"message": {"content": good},
+                              "finish_reason": next(finishes)}], "usage": {"prompt_tokens": 10, "completion_tokens": 10}})
+
+    chain = Chain([Slot(2, "Pro-L 2", False, PluginState("Pro-L 2", {"Gain": 0.0}, {"Gain": (0, 100)}, {}))])
+    p = plan.MasterPlan([{"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB short"}], -10.0, -1.0, "ok", "demo")
+    client = MuseSpark(api_key="k", joblog=JobLog(tmp_path / "j.jsonl"), transport=httpx.MockTransport(handler))
+    s = plan.settings_for(chain, track, None, p, client=client)
+    assert len(seen) == 2 and s.changes[0]["value"] == 3.5
+    assert seen[0]["max_completion_tokens"] == plan.TOKENS_SETTINGS
+    assert "at most eight changes" in json.loads(seen[1]["messages"][-1]["content"])["note"]

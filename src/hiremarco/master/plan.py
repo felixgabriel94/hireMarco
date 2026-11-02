@@ -32,6 +32,7 @@ MODEL = "muse-wonder-1.0"
 TENANT = "owner"
 EFFORT = "max"
 TOKENS = 16000
+TOKENS_SETTINGS = 32000   # the settings reason through a whole chain in units: 16000 ran out live (run 16, 2026-11-02)
 THINK_TIMEOUT = 900.0   # seconds: at max effort the plan took over two minutes live (2026-11-02), the client's 60 s cut it
 RETRY_WAITS = (15.0, 45.0)   # a 503 from the API stopped a run live (2026-11-02); a server error or a timeout is tried again
 TARGET_PLAY = 1.5            # LU the plan may move the loudness target from the purpose's (or the references') anchor
@@ -128,12 +129,13 @@ def audit_for_model(audit: Audit, deltas: Deltas | None, hearing: dict | None = 
     return data
 
 
-def _ask(client: MuseSpark, instructions: str, payload: dict, *, job: str, schema: dict) -> dict:
+def _ask(client: MuseSpark, instructions: str, payload: dict, *, job: str, schema: dict, tokens: int = TOKENS,
+         retried: bool = False) -> dict:
     prompt = json.dumps(payload)
     gate.check_model_call(TENANT, model=MODEL, system=instructions, prompt=prompt, joblog=client.joblog)
     for attempt in range(len(RETRY_WAITS) + 1):
         try:
-            reply = client.ask(prompt, developer=instructions, job=job, model=MODEL, max_completion_tokens=TOKENS,
+            reply = client.ask(prompt, developer=instructions, job=job, model=MODEL, max_completion_tokens=tokens,
                                reasoning_effort=EFFORT,
                                response_format={"type": "json_schema", "json_schema": {"name": job, "schema": schema,
                                                                                        "strict": True}})
@@ -143,7 +145,12 @@ def _ask(client: MuseSpark, instructions: str, payload: dict, *, job: str, schem
                 raise
             sleep(RETRY_WAITS[attempt])
     if reply.finish_reason == "length":
-        raise RuntimeError(f"the {job} ran out of room before it finished")
+        if retried:
+            raise RuntimeError(f"the {job} ran out of room before it finished, twice")
+        # the thinking took the room (live 2026-11-02): asked once more for a shorter answer, same budget
+        return _ask(client, instructions, {**payload, "note": "answer with at most eight changes, one short sentence "
+                                                             "of reason each, and two short sentences for the artist"},
+                    job=job, schema=schema, tokens=tokens, retried=True)
     try:
         return json.loads(reply.text)
     except ValueError as exc:
@@ -219,7 +226,8 @@ def settings_for(chain: Chain, audit: Audit, deltas: Deltas | None, plan: Master
         "chain": [{"slot": s.number, "bypassed": s.bypassed, **(s.state.for_model() if s.state else
                    {"plugin": s.name, "parameters": {}, "fixed": {}})} for s in chain.slots],
     }
-    data = _ask(client, SETTINGS_INSTRUCTIONS, payload, job="master_settings", schema=CHANGES_SCHEMA)
+    data = _ask(client, SETTINGS_INSTRUCTIONS, payload, job="master_settings", schema=CHANGES_SCHEMA,
+                tokens=TOKENS_SETTINGS)
     changes = []
     for c in data.get("changes", []):
         try:
