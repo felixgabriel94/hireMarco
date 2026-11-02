@@ -18,4 +18,21 @@ def test_a_capital_a_that_is_a_word_stays():
 def test_a_line_never_opens_with_hmm():
     assert speakable("Hmm. Let me check the take.") == "Let me check the take."
     assert speakable("Mm, okay, rolling.") == "okay, rolling."
-    assert speakable("Hmm") == "Hmm"                                     # a line that is only that stays a line
+    assert speakable("Hmm") == ""                                        # nothing else in it, so nothing to say
+
+
+def test_thinking_sounds_go_anywhere_in_a_line():
+    assert speakable("Okay, uh, rolling.") == "Okay, rolling."
+    assert speakable("Let me uh check the take.") == "Let me check the take."
+    assert speakable("That one was crazy, hmm.") == "That one was crazy."
+    assert speakable("Nice take. Mm. Want another?") == "Nice take. Want another?"
+    assert speakable("So um, lead or double?") == "So, lead or double?"
+    assert speakable("Mm-hm, got it.") == "got it."
+    assert speakable("Mhm. Uhh, umm, we're good.") == "we're good."
+    assert speakable("hmm mm uh um") == ""
+
+
+def test_real_words_are_not_mangled():
+    for line in ("The umbrella's here, mum.", "Uh-oh, that clipped.", "A 35 mm lens, shot at the UM campus.",
+                 "Hummingbird on the hum of the amp.", "Summer's mmm-good.", "Your mic is an MM1."):
+        assert speakable(line) == line

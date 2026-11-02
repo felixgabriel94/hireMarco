@@ -52,8 +52,7 @@ def test_a_failure_is_explained_in_his_words_with_the_plain_line_behind_it():
     assert "failed" in b.hear("Marco, record.") and said[-1] == FAILED
 
 
-def test_a_slow_answer_gets_one_short_thinking_sound_and_a_quick_one_none():
-    from hiremarco.studio.booth import THINKING
+def test_a_slow_answer_is_silent_until_his_line_is_ready():
     from hiremarco.studio.commands import Command
 
     said = []
@@ -66,9 +65,53 @@ def test_a_slow_answer_gets_one_short_thinking_sound_and_a_quick_one_none():
               tape=Tape(1000, seconds=2), log=lambda line: None,
               writer=Writer(complete=lambda p: time.sleep(0.9) or "Still tracking."))
     b.hear("Marco, which mode")
-    assert said[0] in THINKING and said[1:] == ["Still tracking."]  # one filler, though both steps were slow
+    assert said == ["Still tracking."]  # no "One sec." or "Let me see.", however slow both steps were
     said.clear()
     quick = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: c.describe(),
                   say=said.append, feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None)
     quick.hear("Marco, what mode are you in?")
     assert said == ["We're recording."]
+
+
+def test_a_thinking_sound_is_not_a_line():
+    from hiremarco.studio.words import PERSONA, usable
+
+    assert usable("Hmm.") is None and usable("Uh, mm.") is None
+    assert usable("Hmm, we're rolling.") == "Hmm, we're rolling."  # kept here; the voice drops the sound (speakable)
+    assert "Never say hmm, mm, uh or um" in PERSONA and "wait until he has finished" in PERSONA
+
+
+def test_no_filler_is_left_in_the_booth():
+    import hiremarco.studio.booth as booth
+
+    assert not hasattr(booth, "THINKING") and not hasattr(booth, "FILLER_AFTER")
+    assert not any(line in booth.STOCK for line in ("One sec.", "Let me see."))
+
+
+def test_he_holds_a_line_until_the_mic_is_quiet_and_only_so_long():
+    levels = iter([0.2, 0.2, 0.0, 0.0, 0.0])
+    said = []
+    b = Booth(understand=lambda line: None, logic=lambda c: c.describe(), say=said.append, feedback=lambda a, r: None,
+              tape=Tape(1000, seconds=2), log=lambda line: None, mic_level=lambda: next(levels, 0.0))
+    b._speak("Rolling")
+    assert said == ["Rolling"] and next(levels, "done") == "done"  # every read used: it waited through the talking
+
+    b.mic_level = lambda: 0.5  # a loud room: late, never gagged
+    started = time.monotonic()
+    b._speak("Talk to me.")
+    assert said[-1] == "Talk to me." and 1.0 <= time.monotonic() - started < 2.0
+
+
+def test_a_fragment_with_no_name_gets_no_question_back():
+    from hiremarco.studio.booth import MISSED
+    from hiremarco.studio.commands import Command
+
+    said = []
+    b = Booth(understand=lambda line: Command("unknown"), logic=lambda c: c.describe(), say=said.append,
+              feedback=lambda a, r: None, tape=Tape(1000, seconds=2), log=lambda line: None)
+    b.hear("Marco, what's that")  # his name: he says he missed it
+    assert said == [MISSED]
+    b.hear("trying to")           # still awake, no name: someone talking, and he lets it go by
+    assert said == [MISSED]
+    b.hear("make the thing a bit more")  # a whole thought with no name still gets his question
+    assert said == [MISSED, MISSED]

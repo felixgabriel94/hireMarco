@@ -9,6 +9,7 @@ log with its estimated cost.
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 
@@ -57,13 +58,29 @@ class Speech:
         return self.pcm.size / RATE
 
 
+# The sounds he never makes (Owner 2026-11-01), as whole words only: "35 mm" and "UM" (a school) stay, so do "umbrella",
+# "uh-oh" and "mum". hmm, hm, mm, mhm, mm-hm, uh, uhm, um and their long spellings.
+FILLER = re.compile(r"(,?)(\s*)(?<![\w'-])(?<!\d )(?!(?-i:UM|MM|UH)\b)"
+                    r"(?:h?m{2,}|hm+|mhm+|mm-hm+|uh+m*|um+)(?![\w'-])([,.!?…]*)\s*", re.I)
+
+
+def _without_fillers(text: str) -> str:
+    def out(m: re.Match) -> str:
+        before = m.string[:m.start()].rstrip()
+        if not before or before[-1] in ".!?…":  # it opened a sentence, and the sentence opens without it
+            return " "
+        ending = m[3].rstrip(",")
+        return f"{ending} " if ending else (", " if m[1] or m[3] else " ")
+
+    while (cleaned := FILLER.sub(out, text)) != text:
+        text = cleaned
+    return text.strip(" ,.!?…") if not re.search(r"\w", text) else re.sub(r"^[\s,.!?…]+|[\s,]+$", "", text)
+
+
 def speakable(text: str) -> str:
     """Music written the way it is said: "A major" is "Eigh major" (live 2026-10-31 the voice said "uh major"), "F#" is
     "F sharp", "Bb" is "B flat", "Am" is "Eigh minor". A capital A that is a word ("A beat arrived") stays as it is."""
-    import re
-
-    # no "Hmm" or "Mm" to open a line (Owner 2026-10-31), whoever wrote it
-    t = re.sub(r"^\s*(?:h?m{2,}|uh+|um+)(?:[,.!?…]+|\s)\s*", "", text, flags=re.I) or text
+    t = _without_fillers(text)
     t = re.sub(r"\b([A-G])(?:#|♯)", r"\1 sharp", t)
     t = re.sub(r"\b([A-G])(?:b|♭)(?=m\b|\s|[.,;:!?]|$)", r"\1 flat", t)
     t = re.sub(r"\b([A-G])m\b", r"\1 minor", t)
@@ -80,6 +97,8 @@ def synthesize(text: str, *, voice_id: str | None = None, api_key: str | None = 
     text = text.strip()
     if not text:
         raise ValueError("nothing to say")
+    if not speakable(text):
+        raise ValueError("nothing but a thinking sound to say")
     if len(text) > MAX_CHARS:
         raise ValueError(f"{len(text)} characters is more than one line of talk ({MAX_CHARS})")
     joblog = joblog or JobLog()

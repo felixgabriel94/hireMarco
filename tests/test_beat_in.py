@@ -143,7 +143,7 @@ def test_a_file_that_is_not_audio_is_refused(tmp_path):
 def booth_with(load_beat, texts=None):
     said = []
     b = Booth(understand=lambda line: None, logic=lambda c: c.describe(), say=said.append, feedback=None,
-              tape=Tape(1000, seconds=1), log=lambda line: None, fillers=False, load_beat=load_beat,
+              tape=Tape(1000, seconds=1), log=lambda line: None, load_beat=load_beat,
               text_owner=None if texts is None else (lambda body: texts.append(body) or "wamid.x"))
 
     def read(ask=True):

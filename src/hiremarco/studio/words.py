@@ -1,7 +1,8 @@
 """Marco's own words: every line with content is written for the moment by Muse Spark.
 
-The instant lines stay pre-made ("Rolling", his answers to his name, the
-fillers before a long job), because a second of silence there feels broken.
+The instant lines stay pre-made ("Rolling", his answers to his name), because
+a second of silence there feels broken. While he thinks he says nothing: no
+"one sec", no sound; he speaks when his line is ready (Owner 2026-11-01).
 Everything that carries content, a confirmation, a failure, a question back,
 is written from what just happened (the action's own result, never a guess)
 and the last few exchanges, so he sounds like someone in the room and not a
@@ -19,6 +20,7 @@ from collections.abc import Callable
 
 from hiremarco import gate
 from hiremarco.meta.client import MuseSpark
+from hiremarco.voice.tts import speakable
 
 TENANT = "owner"
 MODEL = "muse-spark-1.3"
@@ -33,7 +35,8 @@ PERSONA = (
     "likely meaning and say what you did in a few words, with 'we' where it fits; you suggest the obvious next "
     "step. You ask a question only when the answer changes what you do, and then exactly one, specific ('Lead "
     "or double?'), never 'can you repeat that'. One short sentence, two at most; no filler, no apologies, no "
-    "explaining how you work. Never curt or bossy: no bare 'go ahead' or orders; you sound glad to be there. Say only what the facts say happened; never claim an action that is not in the "
+    "explaining how you work. Never say hmm, mm, uh or um, and no thinking sounds of any kind; never speak while the "
+    "artist is still talking; wait until he has finished. Never curt or bossy: no bare 'go ahead' or orders; you sound glad to be there. Say only what the facts say happened; never claim an action that is not in the "
     "facts. When something failed, say what did not work and what you are doing about it. Do not reuse the "
     "wording of your recent lines. No emojis, no lists, never mention being an AI, a model or a program. Reply "
     "with the spoken line only."
@@ -42,7 +45,7 @@ PERSONA = (
 
 def usable(text: str) -> str | None:
     line = re.sub(r"\s+", " ", text.strip().strip('"').strip("'")).strip()
-    if not line or len(line.split()) > MAX_WORDS or "\n" in text.strip() or re.search(r"[*#`{}<>]", line):
+    if not speakable(line) or len(line.split()) > MAX_WORDS or "\n" in text.strip() or re.search(r"[*#`{}<>]", line):
         return None
     return line
 

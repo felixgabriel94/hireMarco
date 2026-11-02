@@ -39,14 +39,15 @@ LISTENING = "Let me listen."
 DIALING = "Let me dial that in."
 MISSED = "I missed that. Say it again?"
 FAILED = "That one didn't take. I'll note it."
-THINKING = ["One sec.", "Let me see."]  # no "Hmm." (Owner 2026-10-31: it opened most sessions and sounded odd)
 STOP_ALONE = {"stop", "stop stop", "okay stop", "ok stop", "cut", "cut it", "stop recording", "stop the take",
               "hold on", "hold up", "stop there", "let's stop", "lets stop"}
 COUNT_IN_SECONDS = float(os.environ.get("HIREMARCO_COUNT_IN_SECONDS", "0"))  # Logic's count-in, if on
 TUNE_CENTER, TUNE_DRIFT = 80.0, 30.0  # a first pass that still sounds like the artist; the last 20% is theirs
 FLEX_REFERENCE_LIMIT = 5.0  # cents off 440 beyond which Flex Pitch is skipped for the session (Owner 2026-10-29)
 AUTO_NOTE_SECONDS = 8  # a take this long or longer gets his note when it stops; shorter is a test or a false start
-FILLER_AFTER = 0.7  # seconds of thinking before he lets you know he is on it
+FRAGMENT_WORDS = 3  # a line this short with no name, that he cannot place, is not for him
+MIC_TALKING = 0.01  # the mic level (RMS) above which the artist is taken to be talking, as Barge.FLOOR
+QUIET_MAX, QUIET_READ, QUIET_READS = 1.2, 0.05, 3  # he waits this long at most, and for this many quiet reads
 MIC_TAIL = 0.4  # seconds his hearing stays muted after he stops talking
 ECHO_SECONDS = 15.0  # how long a line of his can come back through the mic as an echo
 HERE = "Yeah?"
@@ -61,7 +62,7 @@ LIVE_ON = "Live view's on. The link's on the Mac."
 LIVE_TEXTED = "Live view's on. I texted you the link."
 STOPPED = "Stopped. Everything's held until you clear it from the desk."
 # Lines Marco says often, made once at the start so they play the moment they are needed.
-STOCK = ["Rolling", *HEARD, *THINKING, *AFTER_TAKE, DISMISSED, LIVE_ON, LIVE_TEXTED, NOTED, LISTENING, DIALING, MISSED, FAILED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
+STOCK = ["Rolling", *HEARD, *AFTER_TAKE, DISMISSED, LIVE_ON, LIVE_TEXTED, NOTED, LISTENING, DIALING, MISSED, FAILED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
          "Morning. Your session's up. Where do you want to start?"]
 
 
@@ -156,8 +157,8 @@ class Booth:
     voice_takes: dict = field(default_factory=dict)   # track name -> (its last take's audio, its take_start)
     harmony: object | None = None                     # studio.harmony.Stack over the last take's line
     auto_note: bool = False                           # a note after every take of AUTO_NOTE_SECONDS or more
-    fillers: bool = True                              # "Hmm." while he thinks; off in tests that count lines
-    _filled: bool = False
+    _implied: bool = False                            # this line came without his name, inside the awake window
+    mic_level: Callable[[], float] | None = None      # the mic right now: he holds his line while the artist talks
     _beat_region: str = ""                            # the beat region last read, for Logic's own tempo reading
     _asked_after_take: bool = False                   # the after-take answer is used once per take
     send_link: Callable[[str, str], str] | None = None  # (body, url) to the artist's phone; None or a refusal: the Mac
@@ -267,32 +268,7 @@ class Booth:
             self._speak(plain)
             return
         facts = {**facts, "session": self.session_facts()}
-        self._speak(self._in_time(lambda: self.writer.line(moment, facts, plain)))
-
-    def _in_time(self, work: Callable[[], object]) -> object:
-        """Run ``work``; if it is still thinking after FILLER_AFTER, say a short "Hmm." once per exchange, the
-        way a person does, instead of a silence that feels like a dropped line."""
-        box: dict = {}
-
-        def run() -> None:
-            try:
-                box["value"] = work()
-            except BaseException as exc:  # handed back to the caller as it was
-                box["error"] = exc
-
-        worker = threading.Thread(target=run, daemon=True)
-        worker.start()
-        worker.join(FILLER_AFTER)
-        if worker.is_alive() and not self._filled and not self.rolling and self.fillers:
-            self._filled = True
-            fresh = [line for line in THINKING if line not in self.recent_answers[-2:]] or THINKING
-            line = random.choice(fresh)
-            self.recent_answers.append(line)
-            self._speak(line)
-        worker.join()
-        if "error" in box:
-            raise box["error"]
-        return box["value"]
+        self._speak(self.writer.line(moment, facts, plain))
 
     def _echo(self, line: str) -> bool:
         """His own voice coming back through the mic. Live 2026-10-29: once awake, he heard his own line as the
@@ -308,7 +284,18 @@ class Booth:
                     return True
         return False
 
+    def _wait_for_quiet(self) -> None:
+        """A sentence can close on a pause while the artist is still going (live 2026-11-01: "What you trying", then
+        "trying to"). A line waits for the mic to go quiet, up to QUIET_MAX, so he can be late but never gagged."""
+        if self.mic_level is None or self.rolling:
+            return
+        end, quiet = time.monotonic() + QUIET_MAX, 0
+        while quiet < QUIET_READS and time.monotonic() < end:
+            quiet = quiet + 1 if self.mic_level() <= MIC_TALKING else 0
+            time.sleep(QUIET_READ)
+
     def _speak(self, text: str) -> None:
+        self._wait_for_quiet()
         self.last_said = text
         self.spoken.append((time.monotonic(), text))
         del self.spoken[:-6]
@@ -326,15 +313,15 @@ class Booth:
         # go quiet for AWAKE seconds (Owner 2026-10-29: having to say the name every time is what he dislikes in
         # Siri). The take ends it, so nothing sung is taken for a command.
         implied = (not self.rolling and started - self.awake_at < AWAKE and strip_wake(line) is None)
+        self._implied = implied
         if implied:
             line = f"Marco, {line}"
         elif self.rolling and strip_wake(line) is None and " ".join(_words(line)) in STOP_ALONE:
             # a take: "stop" said on its own ends it without his name (Owner 2026-10-29); a lyric is never
             # just the word, and everything else sung stays the artist's
             line = "Marco, stop."
-        self._filled = False
         try:
-            command = self._in_time(lambda: self.understand(line))
+            command = self.understand(line)
         except gate.Refused as refused:
             return self._done(f"heard: {line}", f"held: {refused.reason}", started)
         if command is None:
@@ -453,9 +440,9 @@ class Booth:
             self._say("could not find the take's file to tune", {"regions": regions[-3:]},
                       "I can't find that take's file. Select the vocal track and ask me again.")
             return "no take file found"
-        target, before, after = self._in_time(lambda: tune.first_pass(path, self.key, center=TUNE_CENTER,
+        target, before, after = tune.first_pass(path, self.key, center=TUNE_CENTER,
                                                                       drift=TUNE_DRIFT,
-                                                                      reference_cents=self.reference_cents))
+                                                                      reference_cents=self.reference_cents)
         subprocess.run(["open", "-R", str(target)], capture_output=True)  # in Finder, to drag under the take
         self._say("finished a first tuning pass; the tuned take is a new file next to the original, shown in Finder",
                   {"notes": before["notes"], "median_cents_off_before": before["median_cents_off"],
@@ -481,7 +468,7 @@ class Booth:
             self._say("could not find the beat's file", {"region": regions[0]}, "I can't find that file on the Mac.")
             return f"no file found for {regions[0]!r}"
         self._beat_region = regions[0]
-        return self._in_time(lambda: analyze.read(path)), path
+        return analyze.read(path), path
 
     def console_check(self) -> str:
         """At the booth's start: what the Console's Auto-Tune still holds from the last session. It is reset
@@ -535,7 +522,7 @@ class Booth:
         key, why = self._beat_key(reading, path)
         from hiremarco.studio.analyze import label, settle_tempo
 
-        events, logic_note = self._in_time(lambda: self._logic_tempo(self._beat_region))
+        events, logic_note = self._logic_tempo(self._beat_region)
         bpm, tempo_why = settle_tempo(reading.bpm, label(path.stem)[1], events)
         region = self._beat_region
         try:
@@ -545,7 +532,7 @@ class Booth:
         try:
             from hiremarco.studio.analyze import tuning
 
-            a4, cents = self._in_time(lambda: tuning(path))
+            a4, cents = tuning(path)
         except Exception:  # the reference stays at 440 and the log line says so
             a4, cents = None, None
 
@@ -616,7 +603,7 @@ class Booth:
         if path is None:
             self._say("could not find the beat's file", {}, "Select the beat's track and ask me again.")
             return "no beat file found"
-        gain, loud, peak = self._in_time(lambda: self._beat_level(path))
+        gain, loud, peak = self._beat_level(path)
         done = self._set_beat_gain(regions[0], gain)
         self._say("set the beat's level to -20 LUFS with region gain", {"loudness_before": loud, "gain": gain,
                   "result": done}, f"Beat's at minus twenty. Down {abs(gain):g} dB." if "not set" not in done
@@ -639,7 +626,7 @@ class Booth:
             read = f"read the beat as {key} ({why}); "
         try:
             root, scale = split_key(key)
-            shown = self._in_time(lambda: self.console.tune(self.vocal_input, root, scale))
+            shown = self.console.tune(self.vocal_input, root, scale)
         except Exception as exc:  # Console closed, no Auto-Tune on the input, or a key it does not list
             self._say("could not set the Console's Auto-Tune", {"key": key, "why": str(exc)[-160:]},
                       "I couldn't set the Auto-Tune. Is Console open with it on your input?")
@@ -668,7 +655,7 @@ class Booth:
             self.offer = self._tune_take
             return f"Flex skipped: beat at {self.reference_cents:+g} cents; offered his own pass"
         try:
-            shown = self._in_time(lambda: self.flex(self.key))
+            shown = self.flex(self.key)
         except Exception as exc:  # the editor not open on the take, or Logic not showing Flex
             self._say("could not run the Flex Pitch pass", {"why": str(exc)[-200:]},
                       "Flex didn't take. Open the take in the editor with Flex Pitch on and ask me again.")
@@ -696,7 +683,7 @@ class Booth:
             return "asked which plug-in"
         track = self._surface_track(command.track)
         try:
-            reply = self._in_time(lambda: self.surface(f"insert {track} {command.slot} {command.text}"))
+            reply = self.surface(f"insert {track} {command.slot} {command.text}")
         except OSError:
             self._say("the control surface is not running", {}, "My control surface isn't up. Give me a second.")
             return "surface not running"
@@ -1119,6 +1106,10 @@ class Booth:
         if a == "summon":
             self._speak(self._answer_to_name())
             return "called by name; answered and listening"
+        if a == "unknown" and self._implied and len(_words(strip_wake(self.heard_line) or "")) <= FRAGMENT_WORDS:
+            # no name, a few words, nothing he can place: half a sentence, or the artist talking to someone else in
+            # the room (live 2026-11-01: "trying to", "My girl", "whenever" each got a question back). It goes by.
+            return "no name and only a fragment: let it go by"
         if a == "unknown":
             # He heard his name but could not place the line: say so, never guess and never go quiet.
             self._say("did not understand; ask one specific question", {"heard": self.heard_line}, MISSED)
@@ -1651,6 +1642,7 @@ def run_booth(*, dry_run: bool = False) -> int:
 
         audio = DuplexAudio.from_config(on_input)
         rig.update(audio=audio, place="booth")
+        booth.mic_level = lambda: rig["audio"].in_level
         booth.tape = Tape(audio.rate)
         if talkback is not None:
             talkback.play = audio.play

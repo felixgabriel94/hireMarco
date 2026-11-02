@@ -60,7 +60,7 @@ class FakeConsole:
 def booth(**parts):
     said = []
     b = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: c.describe(),
-              say=said.append, feedback=None, tape=Tape(1000, seconds=1), log=lambda line: None, fillers=False, **parts)
+              say=said.append, feedback=None, tape=Tape(1000, seconds=1), log=lambda line: None, **parts)
     return b, said
 
 
