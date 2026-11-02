@@ -674,7 +674,7 @@ def test_he_asks_and_gets_the_sheet_then_three_pictures_one_at_a_time_then_the_l
     out = handle(line.arrive("ask", kind="text", text="Marco, pick my selects"), wa=line.wa, marco=marco,
                  settle=lambda s: None)
     assert "selects: 5 frames, picked [2, 1, 3]" in out
-    assert [m["type"] for m in line.sent] == ["image", "image", "image", "image", "text"]
+    assert [m["type"] for m in line.sent if m["type"] != "reaction"] == ["image", "image", "image", "image", "text"]
     assert line.captions() == ["I've got you in all 5 frames. Going through them now.",
                                "2. Your eyes are on it and the light holds your face.",
                                "1. Good stance, though your feet are tight to the edge.",
