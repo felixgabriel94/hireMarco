@@ -329,6 +329,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
     # live 2026-11-02); a plug-in the ledger holds inactive is kept out by the room, whatever its state
     names = [i.name for i in before.inserts]
     claimed: set[str] = set()
+    claimed_rows: set[tuple[str, int]] = set()   # the exact rows that fill a role: a third Pro-Q 3 is not one of them
     plugin_of: dict[str, str] = {}   # the strip's short name -> the plan's plugin, for the ledger
     kept_out: set[tuple[str, int]] = set()   # rows a face notice put out: never brought back in
     for role, plugin in result.plan.chain.items():
@@ -338,6 +339,9 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
         if there is not None:
             names.remove(there)   # that one row is taken; a second Pro-Q 3 on the strip can fill the next EQ role
             claimed.add(there)
+            row = next((i for i in before.inserts if i.name == there and (i.name, round(i.y)) not in claimed_rows), None)
+            if row is not None:
+                claimed_rows.add((row.name, round(row.y)))
             plugin_of[there] = plugin
             log(f"   {role} is already on the strip ({there})")
             continue
@@ -360,6 +364,9 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             remember_insert(job.song, landed[-1], candidate)
             names = [i.name for i in after.inserts]
             claimed.add(landed[-1])
+            new_rows = [i for i in after.inserts if (i.name, round(i.y)) not in seen]
+            if new_rows:
+                claimed_rows.add((new_rows[-1].name, round(new_rows[-1].y)))
             plugin_of[landed[-1]] = candidate
             face = seen_face[0] if seen_face else None
             if face is None or face.licensed:
@@ -384,8 +391,8 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
     marcos = {row["name"] for row in marcos_inserts(job.song)}
     back_in = [i.y for i in strip.read().inserts
                if i.marcos and (i.name, round(i.y)) not in kept_out
-               and not (i.name in marcos and i.name not in claimed)
-               and ((i.name, round(i.y)) in was_in or (i.name, round(i.y)) not in seen or i.name in claimed)]
+               and not (i.name in marcos and (i.name, round(i.y)) not in claimed_rows)
+               and ((i.name, round(i.y)) in was_in or (i.name, round(i.y)) not in seen or (i.name, round(i.y)) in claimed_rows)]
     if back_in:
         strip.bypass(False, rows=back_in)
 

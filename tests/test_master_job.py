@@ -304,3 +304,23 @@ def test_a_stray_insert_marco_made_stays_out_and_the_artists_come_back(tmp_path,
     states = {i.name: i.bypassed for i in strip.inserts}
     assert states["Kickstart "] is True and states["Ozone 11 Ma"] is False and states["Pro-L 2"] is False
     assert [r["name"] for r in jobs.marcos_inserts("song")] == ["Kickstart "]
+
+
+def test_a_stray_with_a_claimed_name_stays_out_by_its_row(tmp_path, monkeypatch):
+    from hiremarco import config
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+    for name, plugin, stray in (("Pro-Q 3", "Pro-Q 3", False), ("Pro-L 2", "Pro-L 2", False), ("Pro-Q 3", "Pro-Q 3", True)):
+        jobs.remember_insert("song", name, plugin, stray=stray)
+    strip = FakeStrip()
+    strip.inserts += [Insert("Pro-Q 3", False, 585, 180), Insert("Pro-L 2", False, 585, 197), Insert("Pro-Q 3", True, 585, 214)]
+    bouncer, channel = FakeBouncer(tmp_path, [-30.0, -20.0, -12.0]), FakeChannel()
+    plan = MasterPlan([{"role": "corrective_eq", "plugin": "Pro-Q 3", "why": "254 Hz"}, {"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}],
+                      -12.0, -1.0, "ok", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings([], ""))
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+             toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-Q 3", "Pro-L 2"}, log=lambda s: None)
+    rows = {round(i.y): i.bypassed for i in strip.inserts}
+    assert rows[180] is False and rows[197] is False and rows[214] is True   # the third Pro-Q 3 stays out
