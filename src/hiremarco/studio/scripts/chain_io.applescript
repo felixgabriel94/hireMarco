@@ -15,7 +15,54 @@ on menusOpen()
 	return (do shell script "osascript -l JavaScript " & quoted form of helper) as integer
 end menusOpen
 
+on mixerOutputStrip()
+	-- the output strip in the Mixer window's Single view: the strip before the Master fader, else the one named
+	-- Stereo Out, else the last (live 2026-11-02: on the V2 copy the Inspector's output strip answered no open
+	-- press at all, while the same insert's open button in the Mixer opened its window)
+	tell application "System Events"
+		tell process "Logic Pro"
+			set mixerWin to missing value
+			repeat with w in (every window)
+				if (name of w) contains " - Mixer" then set mixerWin to w
+			end repeat
+			if mixerWin is missing value then return missing value
+			set area to missing value
+			try
+				set area to (first UI element of (first UI element of (last group of mixerWin)) whose role is "AXLayoutArea")
+			end try
+			if area is missing value then
+				try
+					set area to (first UI element of (last group of mixerWin) whose role is "AXLayoutArea")
+				end try
+			end if
+			if area is missing value then return missing value
+			set stripItems to (every UI element of area whose role is "AXLayoutItem")
+			set n to count of stripItems
+			if n is 0 then return missing value
+			set names to {}
+			repeat with entry in stripItems
+				set end of names to (description of entry) as text
+			end repeat
+			set theIndex to n
+			if names contains "Stereo Out" then
+				repeat with i from 1 to n
+					if (item i of names) is "Stereo Out" then set theIndex to i
+				end repeat
+			else if (names contains "Master") and n > 1 then
+				repeat with i from 1 to n
+					if (item i of names) is "Master" and i > 1 then set theIndex to i - 1
+				end repeat
+			end if
+			return item theIndex of stripItems
+		end tell
+	end tell
+end mixerOutputStrip
+
 on inserts()
+	if stripIndex is 2 then
+		set mixerStrip to my mixerOutputStrip()
+		if mixerStrip is not missing value then return my insertsOf(mixerStrip)
+	end if
 	tell application "System Events"
 		tell process "Logic Pro"
 			set main to missing value
@@ -34,6 +81,14 @@ on inserts()
 			if mixer is missing value then error "the Inspector shows no channel strip (press I, select a track)"
 			if stripIndex is 2 and (count of UI elements of mixer) < 2 then error "the Inspector shows no output strip beside the track's"
 				set strip to UI element stripIndex of mixer
+		end tell
+	end tell
+	return my insertsOf(strip)
+end inserts
+
+on insertsOf(strip)
+	tell application "System Events"
+		tell process "Logic Pro"
 			set found to {}
 			repeat with g in (every group of strip)
 				try
@@ -61,7 +116,7 @@ on inserts()
 		set item best of found to missing value
 	end repeat
 	return sorted
-end inserts
+end insertsOf
 
 on isLogicWindow(w)
 	-- the Tracks and Mixer windows are Logic's own, never a plugin's: the Mixer window was closed as one and the
@@ -123,9 +178,18 @@ end pluginWindow
 on openSlot(slot)
 	-- Start clean: an "open" press on a plugin whose window is already open closes it instead.
 	closePluginWindows()
+	-- the strip's buttons are rebuilt by Logic after a plugin window opens and closes, so a reference taken
+	-- before the first window is stale by the second slot (live 2026-11-02: only the first of six opened); the
+	-- slot's button is looked up again by its name and row right before the press
+	set target to item 4 of slot
+	try
+		repeat with fresh in my inserts()
+			if (item 2 of fresh) is (item 2 of slot) and ((item 1 of fresh) - (item 1 of slot)) < 4 and ((item 1 of slot) - (item 1 of fresh)) < 4 then set target to item 4 of fresh
+		end repeat
+	end try
 	tell application "System Events"
 		tell process "Logic Pro"
-			perform action "AXPress" of (item 4 of slot)
+			perform action "AXPress" of target
 		end tell
 	end tell
 	set w to missing value
