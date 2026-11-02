@@ -169,7 +169,7 @@ def prove_chain(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cy
                     # the same eight bars of the mix against the check, loudness-matched: a ducker on the output
                     # shows as new modulation at the beat rate here, before a full print (Owner 2026-11-02)
                     v = verifying.compare(mix_path, last_print[0], job.bpm, start_s=(bars[0] - 1) * job.bar_s,
-                                          length_s=(bars[1] - bars[0]) * job.bar_s, tonal_only=True)
+                                          length_s=(bars[1] - bars[0]) * job.bar_s, tonal_only=True, master_start_s=0.0)
                     for line in v.text().splitlines():
                         log(f"   chain check {line}")
                     pumping = [r for r in v.reasons if "pumps" in r]
@@ -342,7 +342,7 @@ def climb_ladder(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_c
         return bouncer.print(bouncing.CHECK, folder, name).path
 
     def compare(path: Path):
-        return verifying.compare(result.mix, path, job.bpm, start_s=start_s, length_s=length_s)
+        return verifying.compare(result.mix, path, job.bpm, start_s=start_s, length_s=length_s, master_start_s=0.0)
 
     def lufs_of(path: Path) -> float:
         return auditing.audit_file(path).base.lufs

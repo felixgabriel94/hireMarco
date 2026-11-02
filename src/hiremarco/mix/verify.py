@@ -110,13 +110,15 @@ def _read(path: Path, start_s: float | None = None, length_s: float | None = Non
 
 def compare(mix_path: Path, master_path: Path, bpm: float, *, start_s: float | None = None,
             length_s: float | None = None, planned_bands: dict[str, float] | None = None,
-            tonal_only: bool = False) -> Verdict:
+            tonal_only: bool = False, master_start_s: float | None = None) -> Verdict:
     """The master (or a chain check) against the mix over the same stretch, loudness-matched: fails on new
-    tempo-locked modulation, on a band moved beyond the plan, or on a crest that collapsed."""
+    tempo-locked modulation, on a band moved beyond the plan, or on a crest that collapsed. A short print that
+    starts at the stretch's first bar is read from ``master_start_s`` (0), not from the mix's offset (run 35,
+    2026-11-02: the loudest bars' offset sliced a nineteen-second print past its end)."""
     v = Verdict(True)
     try:
         mix, rate = _read(mix_path, start_s, length_s)
-        master, rate2 = _read(master_path, start_s, length_s)
+        master, rate2 = _read(master_path, start_s if master_start_s is None else master_start_s, length_s)
     except Exception as exc:  # noqa: BLE001
         v.passed = False
         v.reasons.append(f"could not read the prints: {type(exc).__name__}")
@@ -125,6 +127,10 @@ def compare(mix_path: Path, master_path: Path, bpm: float, *, start_s: float | N
         v.not_checked.append(f"sample rates differ ({rate} and {rate2})")
         return v
     n = min(mix.shape[0], master.shape[0])
+    if n < rate:
+        v.passed = False
+        v.reasons.append(f"the prints overlap for {n / rate:.1f} s only; nothing to compare")
+        return v
     mix, master = mix[:n], master[:n]
     from hiremarco.mix.ears import lufs
 

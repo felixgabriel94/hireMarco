@@ -59,3 +59,15 @@ def test_the_manifest_tells_yours_planned_and_stray_apart():
               {"name": "Kickstart ", "plugin": "Gain (misfire)", "stray": True}]
     rows = verify.manifest(inserts, ledger, {"Gain", "Pro-L 2"}, same_plugin)
     assert [(r["name"], r["status"]) for r in rows] == [("Ozone 11 Ma", "yours"), ("Gain", "planned"), ("Pro-L 2", "planned"), ("Kickstart ", "stray")]
+
+
+def test_a_short_print_is_read_from_its_own_start_against_the_mix_stretch(tmp_path):
+    mix = noise(seconds=60.0)
+    sf.write(tmp_path / "mix.wav", mix, RATE, subtype="FLOAT")
+    start, length = 40.0, 12.0
+    sf.write(tmp_path / "check.wav", mix[int(start * RATE):int((start + length) * RATE)] * 1.5, RATE, subtype="FLOAT")
+    v = verify.compare(tmp_path / "mix.wav", tmp_path / "check.wav", 100.0, start_s=start, length_s=length,
+                       tonal_only=True, master_start_s=0.0)
+    assert v.passed and v.numbers["master_lufs"] > v.numbers["mix_lufs"] + 3
+    blind = verify.compare(tmp_path / "mix.wav", tmp_path / "check.wav", 100.0, start_s=start, length_s=length, tonal_only=True)
+    assert not blind.passed and "nothing to compare" in blind.reasons[0]

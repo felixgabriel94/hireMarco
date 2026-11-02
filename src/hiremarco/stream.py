@@ -23,7 +23,7 @@ from hiremarco import config
 MARCO = "marco"
 NAME = "marco.log"
 EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
-PHONE = re.compile(r"\+?\d[\d\s().-]{6,}\d")
+PHONE = re.compile(r"\+?\d[\d\s().-]{6,}\d")   # a candidate; it is a number only with nine digits or more (a date has eight)
 KEY = re.compile(r"\b(?=[A-Za-z0-9_-]{24,}\b)(?=[A-Za-z0-9_-]*\d)[A-Za-z0-9_-]+\b")
 BEARER = re.compile(r"(?i)bearer\s+\S+")
 
@@ -38,7 +38,7 @@ def clean(text: str) -> str:
     text = BEARER.sub("[bearer]", text)
     text = EMAIL.sub("[email]", text)
     text = KEY.sub("[key]", text)
-    text = PHONE.sub("[number]", text)
+    text = PHONE.sub(lambda m: "[number]" if sum(c.isdigit() for c in m.group(0)) >= 9 else m.group(0), text)
     return " ".join(text.split())
 
 
