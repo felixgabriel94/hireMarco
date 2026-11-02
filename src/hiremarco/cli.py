@@ -1298,6 +1298,22 @@ def cmd_ledger(args) -> int:
             if len(row["evidence"]) > 2:
                 print(f"  {row['status']:<9} {name}: {'; '.join(row['evidence'])}")
         return 0
+    if args.action == "face":
+        # one plug-in's license read off its own window in Logic, the last word when the engine and the panel
+        # disagree or an authorization just landed (2026-11-02)
+        from hiremarco import gate
+        from hiremarco.master.job import mark_in_ledger
+        from hiremarco.studio import facecheck
+        from hiremarco.studio.face import look as look_at_face
+        from hiremarco.studio.stereo_out import StereoOut
+
+        if not args.words:
+            print("name the plug-in as Logic lists it: marco ledger face 'UAD Shadow Hills Class A Master'")
+            return 2
+        name = " ".join(args.words)
+        strip = StereoOut(conn=gate.connect())
+        status = facecheck.check(name, strip, lambda: look_at_face(strip.name, log=print), mark_in_ledger, print)
+        return 0 if status != "unknown" else 1
     if args.action == "renewals":
         from datetime import date
 
@@ -1920,7 +1936,7 @@ def main(argv: list[str] | None = None) -> int:
     lg.set_defaults(func=cmd_log)
 
     le = sub.add_parser("ledger", help="license ledger: build | panel | show [owned|demo|unknown|not_owned|inactive] | renewals [days]")
-    le.add_argument("action", choices=["build", "panel", "show", "renewals"])
+    le.add_argument("action", choices=["build", "panel", "face", "show", "renewals"])
     le.add_argument("words", nargs="*")
     le.set_defaults(func=cmd_ledger)
 
