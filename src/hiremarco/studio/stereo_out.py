@@ -138,23 +138,33 @@ class StereoOut:
             if not menus:
                 raise RuntimeError("the plug-in menu did not open")
             mx, my, mw, _ = menus[0]
-            self.click(mx + mw / 2, my + SEARCH_Y)     # the search field
+            self.click(mx + mw / 2, my + SEARCH_Y)     # the search field, across the top of the menu
             self.sleep(0.3)
             if not self.menus():
                 raise RuntimeError("the plug-in menu closed before the search")
             safe = name.replace("\\", "\\\\").replace('"', '\\"')
             self.osa(f'tell application "System Events" to keystroke "{safe}"')
-            self.sleep(0.9)
+            self.sleep(1.0)
+            menus = self.menus()                       # the list shrinks to the matches, and may move with it
+            if not menus:
+                raise RuntimeError(f"the plug-in menu closed while {name!r} was typed")
+            main = menus[0]
+            mx, my, mw, _ = main
             self.click(mx + 40, my + FIRST_ROW_Y)     # the first result
             self.sleep(0.8)
-            sub = [m for m in self.menus() if abs(m[0] - mx) > 20 or abs(m[1] - my) > 20]
+            open_now = self.menus()
+            if not open_now:
+                return f"{name} inserted"             # a Recent entry goes straight in (live 2026-11-02, Gain)
+            sub = [m for m in open_now if any(abs(a - b) > 20 for a, b in zip(m, main))]
             if not sub:
+                self._snapshot(f"no result for {name}")
                 self.osa('tell application "System Events" to key code 53')
                 raise RuntimeError(f"no result for {name!r} in the plug-in menu")
             sx, sy, _, _ = sub[0]
             self.click(sx + 30, sy + ITEM_Y)          # the first variant: stereo
             self.sleep(1.5)
             if self.menus():
+                self._snapshot(f"menu open after {name}")
                 self.osa('tell application "System Events" to key code 53')
                 raise RuntimeError(f"the plug-in menu stayed open after picking {name!r}")
             return f"{name} inserted"
@@ -164,6 +174,20 @@ class StereoOut:
             raise RuntimeError(f"{name} did not land on the Stereo Out (reads {[i.name for i in after.inserts]})")
         self.close_windows()
         return after
+
+    def _snapshot(self, why: str) -> None:
+        """The screen as it was when a step failed, kept in the state folder so the failure can be read later."""
+        try:
+            from hiremarco import config
+
+            folder = Path(config.STATE_DIR) / "capture"
+            folder.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y-%m-%dT%H-%M-%S")
+            safe = "".join(c if c.isalnum() else "-" for c in why)[:40]
+            subprocess.run(["screencapture", "-x", "-m", "-t", "jpg", str(folder / f"{stamp}_stereo-out_{safe}.jpg")],
+                           check=False, timeout=15)
+        except Exception:
+            pass
 
     def close_windows(self) -> int:
         """Plug-in windows Logic opened on an insert: every window that is not the Tracks or the Mixer window."""

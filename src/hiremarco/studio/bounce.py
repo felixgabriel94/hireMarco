@@ -96,6 +96,21 @@ def print_name(song: str, purpose: str, today: str) -> str:
     return f"{clean} - {purpose} {today}"
 
 
+def free_name(folder: Path, name: str, suffix: str = ".wav") -> str:
+    """``name`` when nothing in the folder carries it, else the first of ``name (2)``, ``name (3)``..."""
+    if not (Path(folder) / f"{name}{suffix}").exists():
+        return name
+    n = 2
+    while (Path(folder) / f"{name} ({n}){suffix}").exists():
+        n += 1
+    return f"{name} ({n})"
+
+
+def read_back(path: Path, took_s: float = 0.0) -> Printed:
+    info = sf.info(path)
+    return Printed(Path(path), round(info.duration, 2), info.samplerate, info.subtype, info.channels, took_s)
+
+
 def wait_for(path: Path, *, timeout_s: float, settle_s: float = SETTLE_S, sleep=time.sleep, clock=time.monotonic) -> float:
     """Until the file exists and its size has not changed for ``settle_s``; the seconds it took."""
     started = clock()
@@ -153,7 +168,5 @@ class Bouncer:
                 raise
         # offline bounces run several times faster than real time; realtime ones take the song's length plus a margin
         budget = timeout_s or max(120.0, (opened.seconds or 600.0) * (2.0 if spec.mode == "Realtime" else 1.0) + 60.0)
-        took = wait_for(target, timeout_s=budget, sleep=self.sleep)
-        info = sf.info(target)
-        return Printed(target, round(info.duration, 2), info.samplerate, info.subtype, info.channels,
-                       round(time.monotonic() - started, 1))
+        wait_for(target, timeout_s=budget, sleep=self.sleep)
+        return read_back(target, round(time.monotonic() - started, 1))

@@ -111,11 +111,17 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     before = strip.read()
     if any(i.marcos for i in before.inserts):
         strip.bypass(True)
-    locators(1, job.end_bar)
-    ensure_range(bouncer, job.end_bar, toggle_cycle, log)
-    mix = bouncer.print(bouncing.MIX, bounces, bouncing.print_name(job.song, "mix", job.today))
+    mix_name = bouncing.print_name(job.song, "mix", job.today)
+    if (bounces / f"{mix_name}.wav").exists():
+        # today's mix print of this song already landed (a run that stopped after it): the same file is the mix
+        mix = bouncing.read_back(bounces / f"{mix_name}.wav")
+        log(f"   {mix.path.name} is already printed today: reading it back instead of printing again")
+    else:
+        locators(1, job.end_bar)
+        ensure_range(bouncer, job.end_bar, toggle_cycle, log)
+        mix = bouncer.print(bouncing.MIX, bounces, mix_name)
+        log(f"   {mix.path.name}: {mix.seconds} s, {mix.rate} Hz {mix.subtype}, {mix.took_s} s to print")
     result.mix = mix.path
-    log(f"   {mix.path.name}: {mix.seconds} s, {mix.rate} Hz {mix.subtype}, {mix.took_s} s to print")
 
     # 2. the audit, against the references the artist owns
     log("2. the audit")
@@ -175,7 +181,8 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
 
         # 6. the master print, read back
         log(f"6. the master print (round {round_no})")
-        name = bouncing.print_name(job.song, "master" if round_no == 1 else f"master v{round_no}", job.today)
+        name = bouncing.free_name(bounces, bouncing.print_name(job.song, "master" if round_no == 1 else f"master v{round_no}",
+                                                               job.today))
         master = bouncer.print(bouncing.MASTER, bounces, name)
         result.master = master.path
         result.audit_master = auditing.audit_file(master.path)
