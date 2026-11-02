@@ -165,7 +165,10 @@ def manifest(inserts, ledger: list[dict], planned: set[str], same) -> list[dict]
     marcos = {row["name"] for row in ledger}
     strays = {row["name"] for row in ledger if row.get("stray")}
     out = []
-    for i in inserts:
+    counts: dict[str, int] = {}
+    for i in sorted(inserts, key=lambda i: i.y):
+        ordinal = counts.get(i.name, 0)
+        counts[i.name] = ordinal + 1
         if i.name not in marcos:
             status = "yours"
         elif i.name in strays and not any(same(p, i.name) for p in planned):
@@ -174,5 +177,5 @@ def manifest(inserts, ledger: list[dict], planned: set[str], same) -> list[dict]
             status = "planned"
         else:
             status = "stray"
-        out.append({"name": i.name, "y": round(i.y), "bypassed": i.bypassed, "status": status})
+        out.append({"name": i.name, "y": round(i.y), "ordinal": ordinal, "bypassed": i.bypassed, "status": status})
     return out

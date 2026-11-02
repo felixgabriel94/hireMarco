@@ -395,3 +395,25 @@ def test_the_bench_keeps_what_moves_the_sound_and_takes_off_what_does_not(tmp_pa
     assert [(b["name"], b["earned"]) for b in result.bench] == [("Gain", True), ("Pro-L 2", False)]
     assert ("remove", "Pro-L 2") in strip.log and [i.name for i in strip.inserts] == ["Console Re", "Gain"]
     assert "kept Gain; taken off Pro-L 2" in result.caption and json.loads(result.record.read_text())["bench"][1]["earned"] is False
+
+
+def test_inserts_come_back_in_even_when_a_new_insert_shifts_the_rows(tmp_path, monkeypatch):
+    class ShiftingStrip(FakeStrip):
+        def insert(self, name, look=None):
+            for i in self.inserts:            # the strip scrolls: every row moves up when a new one lands
+                i.y -= 17
+            return super().insert(name, look)
+
+    strip = ShiftingStrip()
+    strip.inserts += [Insert("Gain", False, 585, 180), Insert("Ozone 11 I", False, 585, 197)]
+    bouncer, channel = FakeBouncer(tmp_path, [-30.0, -20.0, -12.0]), FakeChannel()
+    plan = MasterPlan([{"role": "gain", "plugin": "Gain", "why": "8 dB"}, {"role": "glue", "plugin": "UAD Manley Variable Mu", "why": "glue"},
+                       {"role": "width", "plugin": "Ozone 11 Imager", "why": "wide low end"}], -12.0, -1.0, "ok", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings([], ""))
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+             toggle_cycle=lambda: None, select_track=lambda: None, room={"Gain", "UAD Manley Variable Mu", "Ozone 11 Imager"},
+             log=lambda s: None)
+    states = {i.name: i.bypassed for i in strip.inserts}
+    assert states["Gain"] is False and states["Ozone 11 I"] is False and states["UAD Manley Variable Mu"[:30]] is False

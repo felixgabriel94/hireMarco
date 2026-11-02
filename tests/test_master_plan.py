@@ -171,3 +171,23 @@ def test_a_reason_that_quotes_the_rulebook_and_not_the_track_is_not_grounded():
                           "why": "a narrow cut there"}]}
     assert plan.grounded(tracked, known)
     assert not plan.grounded({"roles": [{"role": "glue", "plugin": "X", "measured": "", "why": "feels right"}]}, known)
+
+
+def test_settings_naming_controls_that_do_not_exist_are_asked_again_with_the_list(tmp_path, track):
+    seen = []
+    bad = json.dumps({"changes": [{"slot": 1, "parameter": "limiter_drive", "value": 3, "unit": "dB", "why": "x"}], "said": ""})
+    good = json.dumps({"changes": [{"slot": 1, "parameter": "Gain", "value": 3.5, "unit": "dB", "why": "6 dB short"}], "said": "Up."})
+    replies = iter([bad, good])
+
+    def handler(request):
+        seen.append(json.loads(request.content))
+        return httpx.Response(200, json={"model": "muse-wonder-1.0", "choices": [{"message": {"content": next(replies)},
+                              "finish_reason": "stop"}], "usage": {"prompt_tokens": 10, "completion_tokens": 10}})
+
+    chain = Chain([Slot(1, "Pro-L 2", False, PluginState("Pro-L 2", {"Gain": 0.0}, {"Gain": (0, 100)}, {}))])
+    p = plan.MasterPlan([{"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB short"}], -10.0, -1.0, "ok", "demo")
+    client = MuseSpark(api_key="k", joblog=JobLog(tmp_path / "j.jsonl"), transport=httpx.MockTransport(handler))
+    s = plan.settings_for(chain, track, None, p, client=client)
+    assert len(seen) == 2 and s.changes[0]["parameter"] == "Gain"
+    body = json.loads(seen[1]["messages"][-1]["content"])
+    assert body["controls"] == {"1": ["Gain"]} and "exactly as this list" in body["note"]

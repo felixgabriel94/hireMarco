@@ -248,6 +248,23 @@ def run_bench(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycl
     return rows
 
 
+def row_keys(inserts) -> dict[int, tuple[str, int]]:
+    """Each insert keyed by its name and its place among the inserts of that name, top first: a key that survives
+    the strip scrolling when a new insert lands (live 2026-11-02, run 29: keys by screen row stopped matching and
+    two inserts stayed bypassed)."""
+    counts: dict[str, int] = {}
+    out = {}
+    for i in sorted(inserts, key=lambda i: i.y):
+        n = counts.get(i.name, 0)
+        counts[i.name] = n + 1
+        out[id(i)] = (i.name, n)
+    return out
+
+
+def key_of(inserts, insert) -> tuple[str, int]:
+    return row_keys(inserts)[id(insert)]
+
+
 def role_filled(role: str, names: list[str], claimed: set[str] | None = None, room: set[str] | None = None) -> str | None:
     """The strip name of a plugin already there that can fill the role (a run that stopped after its insert), not
     one another role has claimed: Pro-Q 3 counts once, for the EQ role it was put in for. A candidate outside the
@@ -360,8 +377,9 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
     strip.open_mixer()
     before = strip.read()
     # what was in and what was out before the job: an insert the artist or an earlier run left bypassed stays so
-    was_in = {(i.name, round(i.y)) for i in before.inserts if i.marcos and not i.bypassed}
-    seen = {(i.name, round(i.y)) for i in before.inserts}
+    before_keys = row_keys(before.inserts)
+    was_in = {before_keys[id(i)] for i in before.inserts if i.marcos and not i.bypassed}
+    seen = set(before_keys.values())
     if any(i.marcos for i in before.inserts):
         strip.bypass(True)
     mix_name = bouncing.print_name(job.song, "mix", job.today)
@@ -431,9 +449,9 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
         if there is not None:
             names.remove(there)   # that one row is taken; a second Pro-Q 3 on the strip can fill the next EQ role
             claimed.add(there)
-            row = next((i for i in before.inserts if i.name == there and (i.name, round(i.y)) not in claimed_rows), None)
+            row = next((i for i in before.inserts if i.name == there and before_keys[id(i)] not in claimed_rows), None)
             if row is not None:
-                claimed_rows.add((row.name, round(row.y)))
+                claimed_rows.add(before_keys[id(row)])
             plugin_of[there] = plugin
             log(f"   {role} is already on the strip ({there})")
             continue
@@ -456,15 +474,16 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             remember_insert(job.song, landed[-1], candidate)
             names = [i.name for i in after.inserts]
             claimed.add(landed[-1])
-            new_rows = [i for i in after.inserts if (i.name, round(i.y)) not in seen]
+            after_keys = row_keys(after.inserts)
+            new_rows = [i for i in after.inserts if after_keys[id(i)] not in seen]
             if new_rows:
-                claimed_rows.add((new_rows[-1].name, round(new_rows[-1].y)))
+                claimed_rows.add(after_keys[id(new_rows[-1])])
             plugin_of[landed[-1]] = candidate
             face = seen_face[0] if seen_face else None
             if face is not None:
                 for i in after.inserts:
-                    if (i.name, round(i.y)) not in seen:
-                        faced.add((i.name, round(i.y)))
+                    if after_keys[id(i)] not in seen:
+                        faced.add(after_keys[id(i)])
             if face is None or face.licensed:
                 if candidate != plugin:
                     for entry in result.plan.roles:   # the record names what landed, not what was planned
@@ -478,17 +497,19 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             if mark_plugin is not None:
                 mark_plugin(candidate, "inactive", f"its window said {face.notice!r} on {job.today}")
             result.dead.append(candidate)
-            seen.add((landed[-1], round(row.y)))   # not to be brought back in after the chain
-            kept_out.add((landed[-1], round(row.y)))
+            seen.add(after_keys[id(row)])   # not to be brought back in after the chain
+            kept_out.add(after_keys[id(row)])
         else:
             log(f"   nothing licensed in the room for {role}; the chain goes on without it")
     # an insert Marco put there himself that fills no role in this plan, or a stray, stays out; the artist's own
     # inserts (never in the ledger) come back exactly as they were
     marcos = {row["name"] for row in marcos_inserts(job.song)}
-    back_in = [i.y for i in strip.read().inserts
-               if i.marcos and (i.name, round(i.y)) not in kept_out
-               and not (i.name in marcos and (i.name, round(i.y)) not in claimed_rows)
-               and ((i.name, round(i.y)) in was_in or (i.name, round(i.y)) not in seen or (i.name, round(i.y)) in claimed_rows)]
+    now = strip.read().inserts
+    now_keys = row_keys(now)
+    back_in = [i.y for i in now
+               if i.marcos and now_keys[id(i)] not in kept_out
+               and not (i.name in marcos and now_keys[id(i)] not in claimed_rows)
+               and (now_keys[id(i)] in was_in or now_keys[id(i)] not in seen or now_keys[id(i)] in claimed_rows)]
     if back_in:
         strip.bypass(False, rows=back_in)
 
@@ -508,7 +529,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
     # every planned insert that was already on the strip gets its face read too (Owner 2026-11-02: an unowned
     # Shadow Hills sat in the chain with START DEMO on its window because only new inserts were faced)
     if look_at_face is not None and hasattr(strip, "open_insert"):
-        for row in [r for r in result.manifest if r["status"] == "planned" and (r["name"], r["y"]) not in faced]:
+        for row in [r for r in result.manifest if r["status"] == "planned" and (r["name"], r["ordinal"]) not in faced]:
             try:
                 strip.open_insert(row["name"], row["y"])
                 face = look_at_face()

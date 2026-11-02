@@ -272,6 +272,25 @@ def roles_for(audit: Audit, deltas: Deltas | None, room: set[str], *, purpose: s
     return plan
 
 
+def usable_changes(data: dict, chain: Chain) -> int:
+    """How many of the answer's changes name a control that exists on the slot they name (or the next one)."""
+    from hiremarco.studio.chain import control_named
+
+    by_number = {s.number: s for s in chain.slots if s.state}
+    count = 0
+    for c in data.get("changes", []):
+        try:
+            number, name = int(c.get("slot", 0)), str(c.get("parameter", ""))
+        except (TypeError, ValueError):
+            continue
+        for n in (number, number + 1):
+            slot = by_number.get(n)
+            if slot is not None and control_named(name, slot.state.changeable()) is not None:
+                count += 1
+                break
+    return count
+
+
 def settings_for(chain: Chain, audit: Audit, deltas: Deltas | None, plan: MasterPlan, *, direction: str = "",
                  client: MuseSpark | None = None, hearing: dict | None = None) -> Settings:
     """The controls, in the chain as it stands; validated and bounded by ``studio.chain`` when applied."""
@@ -285,6 +304,13 @@ def settings_for(chain: Chain, audit: Audit, deltas: Deltas | None, plan: Master
     }
     data = _ask(client, SETTINGS_INSTRUCTIONS, payload, job="master_settings", schema=CHANGES_SCHEMA,
                 tokens=TOKENS_SETTINGS)
+    if not usable_changes(data, chain):
+        # live 2026-11-02 (run 29): the answer named controls that do not exist ("limiter_drive", "band_gain");
+        # asked once more with the exact names per slot
+        listing = {s.number: sorted(s.state.changeable()) for s in chain.slots if s.state}
+        data = _ask(client, SETTINGS_INSTRUCTIONS, {**payload, "note": "name each control exactly as this list "
+                                                                         "gives it, per slot, nothing else", "controls": listing},
+                    job="master_settings", schema=CHANGES_SCHEMA, tokens=TOKENS_SETTINGS)
     changes = []
     for c in data.get("changes", []):
         try:
