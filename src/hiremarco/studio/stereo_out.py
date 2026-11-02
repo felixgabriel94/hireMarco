@@ -128,6 +128,11 @@ class StereoOut:
             raise RuntimeError("the Stereo Out shows no empty insert slot")
 
         def run() -> str:
+            if self.menus():
+                # a menu left open holds Logic: an activate would hang (live 2026-11-02); Escape goes through
+                # System Events alone and frees it
+                self.osa('tell application "System Events" to key code 53')
+                self.sleep(0.5)
             self.osa('tell application "Logic Pro" to activate')
             self.sleep(0.3)
             front_is_logic()
@@ -153,24 +158,22 @@ class StereoOut:
             self.click(mx + 40, my + FIRST_ROW_Y)     # the first result
             self.sleep(0.8)
             open_now = self.menus()
-            if not open_now:
-                return f"{name} inserted"             # a Recent entry goes straight in (live 2026-11-02, Gain)
             sub = [m for m in open_now if any(abs(a - b) > 20 for a, b in zip(m, main))]
-            if not sub:
-                self._snapshot(f"no result for {name}")
-                self.osa('tell application "System Events" to key code 53')
-                raise RuntimeError(f"no result for {name!r} in the plug-in menu")
-            sx, sy, _, _ = sub[0]
-            self.click(sx + 30, sy + ITEM_Y)          # the first variant: stereo
-            self.sleep(1.5)
+            if sub:                                   # the variants: the first is stereo
+                sx, sy, _, _ = sub[0]
+                self.click(sx + 30, sy + ITEM_Y)
+                self.sleep(1.5)
+            # a Recent entry goes straight in with no variants (live 2026-11-02, Gain); what counts is the strip,
+            # read below, not the menu: whatever is still open is closed first
             if self.menus():
                 self._snapshot(f"menu open after {name}")
                 self.osa('tell application "System Events" to key code 53')
-                raise RuntimeError(f"the plug-in menu stayed open after picking {name!r}")
-            return f"{name} inserted"
+                self.sleep(0.4)
+            return f"{name} picked"
         self._gated(run, "insert", f"insert {name} on the Stereo Out")
         after = self.read()
         if len(after.inserts) != len(before.inserts) + 1:
+            self._snapshot(f"{name} did not land")
             raise RuntimeError(f"{name} did not land on the Stereo Out (reads {[i.name for i in after.inserts]})")
         self.close_windows()
         return after
@@ -191,11 +194,7 @@ class StereoOut:
 
     def close_windows(self) -> int:
         """Plug-in windows Logic opened on an insert: every window that is not the Tracks or the Mixer window."""
-        script = ('tell application "System Events" to tell process "Logic Pro"\nset n to 0\n'
-                  'repeat with w in (every window)\nif (name of w) does not contain " - Tracks" and (name of w) does '
-                  'not contain "Mixer" then\ntry\nperform action "AXPress" of (first button of w whose subrole is '
-                  '"AXCloseButton")\nset n to n + 1\nend try\nend if\nend repeat\nreturn n\nend tell')
-        out = self.osa(script)
+        out = self.jxa("close_plugin_windows.js")
         self.sleep(0.3)
         return int(out or 0)
 

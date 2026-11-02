@@ -49,13 +49,15 @@ def test_bypass_that_does_not_take_is_an_error(monkeypatch):
 
 def test_insert_walks_the_menu_and_checks_the_strip_grew(monkeypatch):
     reads = iter([strip_json([["Gain", False, 585, 180]]), strip_json([["Gain", False, 585, 180], ["Pro-L 2", False, 585, 197]])])
-    # read after the slot click, after the search click, after typing (the list shrinks), after the first result (its
-    # submenu beside it), after the pick
-    menus = iter(["[[586, 195, 230, 527]]", "[[586, 195, 230, 527]]", "[[586, 195, 230, 109]]",
+    # read before anything (nothing open), after the slot click, after the search click, after typing (the list
+    # shrinks), after the first result (its submenu beside it), after the pick
+    menus = iter(["[]", "[[586, 195, 230, 527]]", "[[586, 195, 230, 527]]", "[[586, 195, 230, 109]]",
                   "[[586, 195, 230, 109], [816, 240, 120, 60]]", "[]"])
     clicks, typed = [], []
 
     def jxa(script, *args):
+        if script == "close_plugin_windows.js":
+            return "1"
         return next(reads) if script == "stereo_out.js" else next(menus)
 
     def osa(script):
@@ -77,12 +79,17 @@ def test_insert_walks_the_menu_and_checks_the_strip_grew(monkeypatch):
 
 def test_a_recent_entry_goes_straight_in_without_a_submenu(monkeypatch):
     reads = iter([strip_json([["Gain", False, 585, 180]]), strip_json([["Gain", False, 585, 180], ["Gain", False, 585, 197]])])
-    menus = iter(["[[586, 195, 230, 527]]", "[[586, 195, 230, 527]]", "[[586, 195, 230, 109]]", "[]"])
+    menus = iter(["[]", "[[586, 195, 230, 527]]", "[[586, 195, 230, 527]]", "[[586, 195, 230, 109]]", "[]", "[]"])
     clicks = []
     monkeypatch.setattr(stereo_out, "front_is_logic", lambda: None)
     monkeypatch.setattr(stereo_out.gate, "execute_effect", lambda conn, fn, **kw: fn())
-    so = stereo_out.StereoOut(jxa=lambda s, *a: next(reads) if s == "stereo_out.js" else next(menus), osa=lambda s: "",
-                              click=lambda x, y: clicks.append((x, y)), conn=object(), sleep=lambda s: None)
+    def jxa(s, *a):
+        if s == "close_plugin_windows.js":
+            return "1"
+        return next(reads) if s == "stereo_out.js" else next(menus)
+
+    so = stereo_out.StereoOut(jxa=jxa, osa=lambda s: "", click=lambda x, y: clicks.append((x, y)), conn=object(),
+                              sleep=lambda s: None)
     after = so.insert("Gain")
     assert [i.name for i in after.inserts] == ["Gain", "Gain"] and len(clicks) == 3
 
