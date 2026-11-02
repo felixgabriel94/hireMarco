@@ -189,7 +189,7 @@ def test_a_print_off_target_gets_one_more_round(tmp_path, monkeypatch):
     job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
     result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
                       toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2"}, log=lambda s: None)
-    assert result.rounds == 2 and "under the target" in seen[1]
+    assert result.rounds == 2 and "under the target" in seen[1] and "move the limiter's gain by +8.0 dB" in seen[1]
     assert result.master.name == "song - master v2 2026-11-02.wav"
 
 

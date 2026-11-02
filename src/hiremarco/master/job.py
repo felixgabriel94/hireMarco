@@ -33,7 +33,7 @@ from hiremarco.studio.stereo_out import StereoOut
 
 LUFS_TOLERANCE = 1.0      # LU: a print this close to its target is done
 CEILING_TOLERANCE = 0.1   # dB over the true-peak ceiling that still passes (the meter's own rounding)
-MAX_ROUNDS = 2
+MAX_ROUNDS = 3   # a second pass under-asked the limiter by 3 dB (run 25, 2026-11-02); a third, told the exact figure, closes it
 
 
 @dataclass
@@ -357,9 +357,13 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
         over = am.base.true_peak_db - result.plan.ceiling_dbtp
         if abs(gap) <= LUFS_TOLERANCE and over <= CEILING_TOLERANCE:
             break
+        # the exact figure, not a description: loudness before the limiter moves one for one with the gain stages, so
+        # the whole gap goes on the limiter's gain this time (a pass that asked for less than the gap landed short)
         direction = (f"the print came out {abs(gap):.1f} LU {'under' if gap > 0 else 'over'} the target of "
                      f"{result.plan.target_lufs} LUFS" + (f" and {over:.1f} dB over the {result.plan.ceiling_dbtp} dBTP "
-                     f"ceiling" if over > CEILING_TOLERANCE else "") + "; adjust the limiter and the gain stages only")
+                     f"ceiling" if over > CEILING_TOLERANCE else "")
+                     + f"; move the limiter's gain by {gap:+.1f} dB from where it stands now, the whole gap, keep every "
+                     f"other control where it is, and hold the ceiling at {result.plan.ceiling_dbtp} dBTP")
         log(f"   {direction}")
         chain = channel.read(fresh=False)
 
