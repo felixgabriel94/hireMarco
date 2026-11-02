@@ -58,6 +58,7 @@ class Result:
     rounds: int = 0
     stopped: str = ""
     record: Path | None = None
+    dead: list[str] = field(default_factory=list)   # inserts that passed silence, left bypassed
 
     @property
     def caption(self) -> str:
@@ -103,10 +104,52 @@ def on_strip(plugin: str, names: list[str]) -> bool:
     return False
 
 
-def uad_dsp(name: str) -> bool:
-    """A plug-in that runs on the Apollo's DSP, as Logic lists it: 'UAD ' first. Console Recall is the one UAD
-    plug-in that printed fine offline (live 2026-11-02), so it is not counted."""
-    return name.startswith("UAD ") and not name.startswith("UAD Console")
+CHECK_RANGE = (2, 10)   # bars: a short print that proves the chain passes audio before the master is printed
+
+
+def prove_chain(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycle, job: Job, log,
+                plugin_of: dict[str, str] | None = None, mark=None) -> list[str]:
+    """The chain proves it passes audio: eight bars printed with everything in. A silent print means an insert is
+    eating the sound (Owner 2026-11-02: a plug-in whose subscription lapsed loads, says so on its face, and passes
+    silence; Marco has to know the difference). Marco's active inserts are bypassed one at a time, from the last,
+    and the first bypass that brings the sound back names the dead one, which stays bypassed and is written to the
+    license ledger. The names of the dead inserts come back; the range is put back to the song."""
+    folder = Path(job.bounces).expanduser() / "checks"
+    folder.mkdir(parents=True, exist_ok=True)
+    dead: list[str] = []
+
+    def short_print(label: str) -> auditing.Audit:
+        name = bouncing.free_name(folder, bouncing.print_name(job.song, label, job.today))
+        printed = bouncer.print(bouncing.MASTER, folder, name)
+        return auditing.audit_file(printed.path)
+
+    locators(*CHECK_RANGE)
+    ensure_range(bouncer, CHECK_RANGE[1], toggle_cycle, log)
+    try:
+        for _ in range(4):
+            heard = short_print("chain check")
+            if not heard.base.silent:
+                log(f"   the chain passes audio ({heard.base.lufs} LUFS over bars {CHECK_RANGE[0]} to {CHECK_RANGE[1]})")
+                return dead
+            log("   the chain prints silence: looking for the insert that eats the sound")
+            culprit = None
+            for ins in reversed([i for i in strip.read().inserts if i.marcos and not i.bypassed]):
+                strip.bypass(True, rows=[ins.y])
+                if not short_print(f"chain check without {ins.name}").base.silent:
+                    culprit = ins
+                    break
+                strip.bypass(False, rows=[ins.y])
+            if culprit is None:
+                raise RuntimeError("the chain prints silence and no single insert explains it")
+            plugin = (plugin_of or {}).get(culprit.name, culprit.name)
+            dead.append(plugin)
+            log(f"   {plugin} passes silence: left bypassed and written to the ledger as inactive")
+            if mark is not None:
+                mark(plugin, "inactive", f"printed silence on the Stereo Out {job.today}")
+        raise RuntimeError("the chain still prints silence after four tries")
+    finally:
+        locators(1, job.end_bar)
+        ensure_range(bouncer, job.end_bar, toggle_cycle, log)
 
 
 def role_filled(role: str, names: list[str], claimed: set[str] | None = None) -> str | None:
@@ -135,10 +178,17 @@ def ensure_range(bouncer: bouncing.Bouncer, end_bar: int, toggle_cycle: Callable
     raise RuntimeError(f"the Bounce dialog would not take bars 1 to {end_bar}")
 
 
+def mark_in_ledger(plugin: str, status: str, why: str) -> None:
+    """A finding about a plug-in written to the license ledger, as Logic names it."""
+    from hiremarco.studio.ledger import mark
+
+    mark(roles.MAPS / "license_ledger.json", f"{plugin} (s/s)", status, why)
+
+
 def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Channel, locators: Callable[[int, int], None],
         toggle_cycle: Callable[[], None], select_track: Callable[[], None], room: set[str] | None = None,
         client=None, critic=None, deliver: Callable[[Path, str], str] | None = None, log: Callable[[str], None] = print,
-        sleep=time.sleep) -> Result:
+        sleep=time.sleep, mark_plugin: Callable[[str, str, str], None] | None = mark_in_ledger) -> Result:
     result = Result()
     bounces = Path(job.bounces).expanduser()
     bounces.mkdir(parents=True, exist_ok=True)
@@ -201,23 +251,30 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     # is bypassed right now for the mix print); one he left bypassed earlier is not a filled role
     names = [i.name for i in before.inserts if not i.marcos or (i.name, round(i.y)) in was_in]
     claimed: set[str] = set()
+    plugin_of: dict[str, str] = {}   # the strip's short name -> the plan's plugin, for the ledger
     for role, plugin in result.plan.chain.items():
         if role == "meter":
             continue  # meters are read by the audit, not by eye; nothing to insert for the print
         there = role_filled(role, names, claimed)
         if there is not None:
             claimed.add(there)
+            plugin_of[there] = plugin
             log(f"   {role} is already on the strip ({there})")
             continue
         after = strip.insert(plugin)
         landed = [i.name for i in after.inserts if i.name not in names] or [plugin]
         names = [i.name for i in after.inserts]
         claimed.add(landed[-1])
+        plugin_of[landed[-1]] = plugin
         log(f"   {landed[-1]} in ({role})")
     back_in = [i.y for i in strip.read().inserts
                if i.marcos and ((i.name, round(i.y)) in was_in or (i.name, round(i.y)) not in seen)]
     if back_in:
         strip.bypass(False, rows=back_in)
+
+    # 4b. the chain proves it passes audio before anything is set or printed for real
+    log("4b. the chain check")
+    result.dead = prove_chain(strip, bouncer, locators, toggle_cycle, job, log, plugin_of=plugin_of, mark=mark_plugin)
 
     # 5. the settings, read and set through the Inspector's output strip
     log("5. the settings")
@@ -245,14 +302,7 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
         log(f"6. the master print (round {round_no})")
         name = bouncing.free_name(bounces, bouncing.print_name(job.song, "master" if round_no == 1 else f"master v{round_no}",
                                                                job.today))
-        spec = bouncing.MASTER
-        dsp = [i.name for i in strip.read().inserts if not i.bypassed and uad_dsp(i.name)]
-        if dsp:
-            # a UAD DSP plug-in on the strip prints silence offline (live 2026-11-02: the Manley on the Stereo Out
-            # gave a -120 LUFS master while the mix printed fine); the master then prints in real time
-            spec = bouncing.Spec(bits=bouncing.MASTER.bits, mode="Realtime")
-            log(f"   {', '.join(dsp)} on the strip: printing in real time")
-        master = bouncer.print(spec, bounces, name)
+        master = bouncer.print(bouncing.MASTER, bounces, name)
         result.master = master.path
         result.audit_master = auditing.audit_file(master.path)
         am = result.audit_master
@@ -272,7 +322,7 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     result.record.write_text(json.dumps({
         "song": job.song, "purpose": job.purpose, "stock_only": job.stock_only, "direction": job.direction,
         "mix": str(result.mix), "master": str(result.master), "plan": result.plan.as_dict(),
-        "settings": result.settings, "rounds": result.rounds,
+        "settings": result.settings, "rounds": result.rounds, "dead": result.dead,
         "audit_mix": result.audit_mix.as_dict(), "audit_master": result.audit_master.as_dict() if result.audit_master else None,
         "deltas": deltas.as_dict() if deltas else None, "references": [r.base.name for r in refs],
     }, indent=1, default=str))

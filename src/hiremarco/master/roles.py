@@ -63,7 +63,9 @@ def in_the_room(maps: Path = MAPS) -> set[str]:
     ledger = maps / "license_ledger.json"
     if ledger.exists():
         for name, row in json.loads(ledger.read_text()).items():
-            if row.get("status") == "not_owned":
+            # not_owned: never licensed; inactive: a subscription that lapsed (Plugin Alliance, Owner 2026-11-02),
+            # which loads, shows "subscription not active" and passes silence
+            if row.get("status") in ("not_owned", "inactive"):
                 names.discard(_strip(name))
     return names
 

@@ -54,10 +54,12 @@ class FakeStrip:
 class FakeBouncer:
     def __init__(self, folder, lufs_per_print):
         self.folder, self.levels, self.prints, self.opened = folder, iter(lufs_per_print), [], 0
+        self.end = None   # the right locator the job last set; the dialog shows it once Cycle is on
 
     def open(self, spec):
         self.opened += 1
-        return bouncing.Opened("Requires 1 MB (Time 0:10)", " 1 1 1 1", " 90 1 1 1" if self.opened > 1 else " 257 1 1 1")
+        shown = self.end if self.opened > 1 and self.end is not None else 257
+        return bouncing.Opened("Requires 1 MB (Time 0:10)", " 1 1 1 1", f" {shown} 1 1 1")
 
     def cancel(self):
         return "cancelled"
@@ -89,18 +91,22 @@ class FakeChannel:
 
 
 def test_the_job_prints_audits_plans_sets_and_delivers(tmp_path, monkeypatch):
-    strip, bouncer, channel = FakeStrip(), FakeBouncer(tmp_path, [-30.0, -12.0]), FakeChannel()
+    # prints: the mix, the chain check, the master
+    strip, bouncer, channel = FakeStrip(), FakeBouncer(tmp_path, [-30.0, -20.0, -12.0]), FakeChannel()
     plan = MasterPlan([{"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB short"}], -12.0, -1.0, "A clean mix.", "demo")
     monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
     monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings(
         [{"slot": 1, "parameter": "Gain", "value": 6, "unit": "dB", "why": "6 dB in stages"}], "Up 6 dB."))
     toggled, delivered, lines = [], [], []
     job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
-    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: lines.append(f"locators {a} {b}"),
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: (setattr(bouncer, "end", b), lines.append(f"locators {a} {b}")),
                       toggle_cycle=lambda: toggled.append(1), select_track=lambda: lines.append("selected"),
                       room={"Pro-L 2"}, deliver=lambda p, c: delivered.append((p.name, c)) or "sent", log=lines.append)
     assert toggled == [1]                                                       # the first open showed the project end
-    assert [p[0] for p in bouncer.prints] == ["32-bit float", "24-bit"]
+    assert [p[0] for p in bouncer.prints] == ["32-bit float", "24-bit", "24-bit"]
+    assert "chain check" in bouncer.prints[1][1] and result.dead == []
+    assert "locators 2 10" in lines                                             # the chain check's short range...
+    assert max(i for i, l in enumerate(lines) if l == "locators 1 90") > lines.index("locators 2 10")   # ...put back
     assert result.mix.name == "song - mix 2026-11-02.wav" and result.master.name == "song - master 2026-11-02.wav"
     assert strip.log[:2] == ["mixer", ("insert", "Pro-L 2")] or ("insert", "Pro-L 2") in strip.log
     assert channel.applied[0][0]["parameter"] == "Gain" and result.rounds == 1
@@ -117,21 +123,44 @@ def test_a_held_plan_stops_before_the_chain(tmp_path, monkeypatch):
                       critic=(False, "the rules say no"))
     monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
     job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
-    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: None,
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
                       toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2"}, log=lambda s: None)
     assert result.stopped.startswith("the critic held") and result.master is None
     assert not any(isinstance(e, tuple) and e[0] == "insert" for e in strip.log)
 
 
+def test_a_silent_chain_names_the_insert_that_eats_the_sound(tmp_path, monkeypatch):
+    # prints: the mix, a silent chain check, silent again without the last insert, sound without the one before, the
+    # check again with the dead one out, the master
+    strip = FakeStrip()
+    bouncer, channel = FakeBouncer(tmp_path, [-30.0, -150.0, -150.0, -20.0, -20.0, -12.0]), FakeChannel()
+    plan = MasterPlan([{"role": "glue", "plugin": "Shadow Hills Mastering Compress", "why": "2 dB"},
+                       {"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}], -12.0, -1.0, "ok", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings(
+        [{"slot": 1, "parameter": "Gain", "value": 6, "unit": "dB", "why": "6 dB"}], "Up."))
+    marked = []
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+                      toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2", "Shadow Hills Mastering Compress"},
+                      log=lambda s: None, mark_plugin=lambda p, s, w: marked.append((p, s)))
+    assert result.dead == ["Shadow Hills Mastering Compress"]
+    assert marked == [("Shadow Hills Mastering Compress", "inactive")]
+    states = {i.name: i.bypassed for i in strip.inserts}
+    assert states["Shadow Hills Mastering Compress"[:30]] is True and states["Pro-L 2"] is False
+    assert result.master is not None and result.audit_master.base.lufs > -60
+
+
 def test_a_print_off_target_gets_one_more_round(tmp_path, monkeypatch):
-    strip, bouncer, channel = FakeStrip(), FakeBouncer(tmp_path, [-30.0, -20.0, -12.0]), FakeChannel()
+    # prints: the mix, the chain check, a master under target, the second master
+    strip, bouncer, channel = FakeStrip(), FakeBouncer(tmp_path, [-30.0, -20.0, -20.0, -12.0]), FakeChannel()
     plan = MasterPlan([{"role": "limiter", "plugin": "Pro-L 2", "why": ""}], -12.0, -1.0, "", "demo")
     monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
     seen = []
     monkeypatch.setattr(planning, "settings_for", lambda chain, a, d, p, direction="", client=None: seen.append(direction) or Settings(
         [{"slot": 1, "parameter": "Gain", "value": 6, "unit": "dB", "why": ""}], ""))
     job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
-    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: None,
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
                       toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2"}, log=lambda s: None)
     assert result.rounds == 2 and "under the target" in seen[1]
     assert result.master.name == "song - master v2 2026-11-02.wav"
