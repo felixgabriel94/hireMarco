@@ -153,7 +153,7 @@ def prove_chain(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cy
 
     def short_print(label: str) -> auditing.Audit:
         name = bouncing.free_name(folder, bouncing.print_name(job.song, label, job.today))
-        printed = bouncer.print(bouncing.MASTER, folder, name)
+        printed = bouncer.print(bouncing.CHECK, folder, name)
         last_print[:] = [printed.path]
         return auditing.audit_file(printed.path)
 
@@ -213,7 +213,7 @@ def run_bench(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycl
 
     def short_print(label: str) -> Path:
         name = bouncing.free_name(folder, bouncing.print_name(job.song, label, job.today))
-        return bouncer.print(bouncing.MASTER, folder, name).path
+        return bouncer.print(bouncing.CHECK, folder, name).path
 
     def measure(path: Path) -> dict:
         audio, rate = sf.read(str(path), dtype="float32", always_2d=True)
@@ -339,7 +339,7 @@ def climb_ladder(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_c
         locators(*bars)
         ensure_range(bouncer, bars[1], toggle_cycle, log)
         name = bouncing.free_name(folder, bouncing.print_name(job.song, label, job.today))
-        return bouncer.print(bouncing.MASTER, folder, name).path
+        return bouncer.print(bouncing.CHECK, folder, name).path
 
     def compare(path: Path):
         return verifying.compare(result.mix, path, job.bpm, start_s=start_s, length_s=length_s)

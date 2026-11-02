@@ -51,6 +51,8 @@ class Spec:
 
 MIX = Spec(bits="32-bit float")      # the mix for mastering: no limiter, headroom kept, float so nothing clips
 MASTER = Spec(bits="24-bit")         # the master as delivered
+CHECK = Spec(bits="24-bit", tail=False)   # a short print for a check, a bench or a ladder step: no audio tail, the
+                                          # compare slices to the same bars (Owner 2026-11-02: the tail only costs time)
 
 
 @dataclass
