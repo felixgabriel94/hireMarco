@@ -1210,7 +1210,7 @@ def cmd_log(args) -> int:
     if args.window:
         from hiremarco import logwindow
 
-        logwindow.show(at, lines=args.lines)
+        logwindow.show(at, lines=args.lines, screen=args.screen, point=args.point, fill=args.fill)
         return 0
     rows = stream.tail(args.lines, at=at)
     if not rows:
@@ -1933,6 +1933,9 @@ def main(argv: list[str] | None = None) -> int:
     lg.add_argument("lines", nargs="?", type=int, default=8)
     lg.add_argument("--window", action="store_true", help="the fixed dark window the film watches: last eight steps, 24 point")
     lg.add_argument("--at", help="another log file (a dry run's), instead of the real one")
+    lg.add_argument("--screen", type=int, default=1, help="which display: 1 is the Mac's own, 2 the next (the TV)")
+    lg.add_argument("--point", type=float, default=24.0, help="type size in points (24; 32 for a TV across the room)")
+    lg.add_argument("--fill", type=float, help="cover this share of the display, centered (0.9 on the TV); else the corner panel")
     lg.set_defaults(func=cmd_log)
 
     le = sub.add_parser("ledger", help="license ledger: build | panel | show [owned|demo|unknown|not_owned|inactive] | renewals [days]")

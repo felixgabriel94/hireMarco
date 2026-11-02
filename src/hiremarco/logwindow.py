@@ -26,26 +26,36 @@ DIM = (0.55, 0.55, 0.55)         # the seconds
 PAPER = (0.07, 0.07, 0.08)
 
 
-def show(at: Path | None = None, *, x: float | None = None, y: float | None = None, lines: int = LINES) -> None:
+def show(at: Path | None = None, *, x: float | None = None, y: float | None = None, lines: int = LINES,
+         screen: int = 1, point: float = POINT, fill: float | None = None) -> None:
+    """The panel on display ``screen`` (1 is the Mac's own); ``fill`` is the share of that display it covers
+    (the TV across the room takes 0.9 at 32 point), else the fixed size at the display's top right."""
     import AppKit
     from Foundation import NSMakeRect, NSObject, NSTimer
     from PyObjCTools import AppHelper
 
     app = AppKit.NSApplication.sharedApplication()
     app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)   # no Dock tile, never the active app
-    screen = AppKit.NSScreen.mainScreen().visibleFrame()
-    left = screen.origin.x + screen.size.width - WIDTH - 24 if x is None else x
-    bottom = screen.origin.y + screen.size.height - HEIGHT - 24 if y is None else y
+    screens = list(AppKit.NSScreen.screens())
+    chosen = screens[min(max(screen, 1), len(screens)) - 1]
+    frame = chosen.visibleFrame()
+    width, height = (frame.size.width * fill, frame.size.height * fill) if fill else (WIDTH, HEIGHT)
+    left = frame.origin.x + (frame.size.width - width) / 2 if fill else (frame.origin.x + frame.size.width - width - 24)
+    bottom = frame.origin.y + (frame.size.height - height) / 2 if fill else (frame.origin.y + frame.size.height - height - 24)
+    left, bottom = (x if x is not None else left), (y if y is not None else bottom)
     style = (AppKit.NSWindowStyleMaskTitled | AppKit.NSWindowStyleMaskClosable
              | AppKit.NSWindowStyleMaskNonactivatingPanel | AppKit.NSWindowStyleMaskUtilityWindow)
-    window = AppKit.NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
-        NSMakeRect(left, bottom, WIDTH, HEIGHT), style, AppKit.NSBackingStoreBuffered, False)
+    # made on the chosen display: a frame given to a panel made on the main display is pulled back onto it
+    # (2026-11-02: the TV panel landed over Logic on the laptop)
+    window = AppKit.NSPanel.alloc().initWithContentRect_styleMask_backing_defer_screen_(
+        NSMakeRect(left, bottom, width, height), style, AppKit.NSBackingStoreBuffered, False, chosen)
+    window.setFrameOrigin_((left, bottom))
     window.setBecomesKeyOnlyIfNeeded_(True)
     window.setHidesOnDeactivate_(False)
     window.setTitle_("Marco")
     window.setLevel_(AppKit.NSFloatingWindowLevel)
     window.setBackgroundColor_(AppKit.NSColor.colorWithSRGBRed_green_blue_alpha_(*PAPER, 1.0))
-    view = AppKit.NSTextView.alloc().initWithFrame_(NSMakeRect(0, 0, WIDTH, HEIGHT))
+    view = AppKit.NSTextView.alloc().initWithFrame_(NSMakeRect(0, 0, width, height))
     view.setEditable_(False)
     view.setSelectable_(False)
     view.setDrawsBackground_(True)
@@ -53,12 +63,12 @@ def show(at: Path | None = None, *, x: float | None = None, y: float | None = No
     view.setTextContainerInset_((20, 16))
     window.setContentView_(view)
 
-    font = AppKit.NSFont.monospacedSystemFontOfSize_weight_(POINT, AppKit.NSFontWeightRegular)
+    font = AppKit.NSFont.monospacedSystemFontOfSize_weight_(point, AppKit.NSFontWeightRegular)
     colors = {name: AppKit.NSColor.colorWithSRGBRed_green_blue_alpha_(*rgb, 1.0)
               for name, rgb in (("accent", ACCENT), ("ink", INK), ("dim", DIM))}
     paragraph = AppKit.NSMutableParagraphStyle.alloc().init()   # a wrapped step stays in its own column
-    paragraph.setHeadIndent_(COLUMN * POINT * 0.6)
-    paragraph.setParagraphSpacing_(POINT * 0.25)
+    paragraph.setHeadIndent_(COLUMN * point * 0.6)
+    paragraph.setParagraphSpacing_(point * 0.25)
 
     def render(rows: list[dict]):
         text = AppKit.NSMutableAttributedString.alloc().init()
