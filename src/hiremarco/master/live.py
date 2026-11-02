@@ -99,8 +99,15 @@ def run_live(song: str | None = None, end_bar: int | None = None, *, purpose: st
             # not take (the Tracks window on the TV, run 24) is logged, not fatal
             log(f"   could not select {track!r} for the Inspector: {type(exc).__name__}: {str(exc)[-100:]}")
 
+    bpm = None
+    try:
+        from hiremarco.studio.tracks import Tracks
+
+        bpm = float(Tracks().where()[1]) or None
+    except Exception as exc:   # noqa: BLE001
+        log(f"   the tempo could not be read ({type(exc).__name__}); the pumping check is skipped")
     job = jobs.Job(song, end_bar, (bounces or BOUNCES / song), purpose=purpose, direction=direction,
-                   stock_only=stock_only, references=references)
+                   stock_only=stock_only, references=references, bpm=bpm)
     from hiremarco.mix import listen as listening
     from hiremarco.studio.face import look as look_at_face
 

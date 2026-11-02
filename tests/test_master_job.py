@@ -324,3 +324,45 @@ def test_a_stray_with_a_claimed_name_stays_out_by_its_row(tmp_path, monkeypatch)
              toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-Q 3", "Pro-L 2"}, log=lambda s: None)
     rows = {round(i.y): i.bypassed for i in strip.inserts}
     assert rows[180] is False and rows[197] is False and rows[214] is True   # the third Pro-Q 3 stays out
+
+
+def test_a_master_that_fails_verification_is_not_delivered(tmp_path, monkeypatch):
+    from hiremarco.mix import verify
+
+    strip, bouncer, channel = FakeStrip(), FakeBouncer(tmp_path, [-30.0, -20.0, -12.0]), FakeChannel()
+    plan = MasterPlan([{"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}], -12.0, -1.0, "ok", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings([], ""))
+    calls = []
+
+    def compare(mix, master, bpm, **kw):
+        calls.append((mix.name, master.name, kw.get("tonal_only", False)))
+        if kw.get("tonal_only"):
+            return verify.Verdict(True, checked=["eight bars clean"])
+        return verify.Verdict(False, reasons=["the master pumps at the beat rate: 4.0 dB of swing where the mix has 0.3 dB"],
+                              checked=["loudness-matched"])
+    monkeypatch.setattr(verify, "compare", compare)
+    delivered = []
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02", bpm=100.0)
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+                      toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2"}, log=lambda s: None,
+                      deliver=lambda p, c: delivered.append(p.name) or "sent")
+    assert calls[0][2] is True and calls[1][2] is False                   # the chain check first, then the master
+    assert result.stopped.startswith("the master failed verification") and delivered == []
+    assert "NOT VERIFIED" in result.verdict.text() and json.loads(result.record.read_text())["verdict"]["passed"] is False
+    assert result.caption.startswith("Stopped: the master failed verification")
+    assert [m["status"] for m in result.manifest] == ["planned"]           # Pro-L 2, in Marco's ledger from this run
+
+
+def test_the_caption_says_verified_when_the_master_passes(tmp_path, monkeypatch):
+    from hiremarco.mix import verify
+
+    strip, bouncer, channel = FakeStrip(), FakeBouncer(tmp_path, [-30.0, -20.0, -12.0]), FakeChannel()
+    plan = MasterPlan([{"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}], -12.0, -1.0, "ok", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings([], ""))
+    monkeypatch.setattr(verify, "compare", lambda *a, **k: verify.Verdict(True, checked=["no new modulation", "every band within reach"]))
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02", bpm=100.0)
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+                      toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2"}, log=lambda s: None)
+    assert result.master is not None and "Verified: no new modulation; every band within reach." in result.caption

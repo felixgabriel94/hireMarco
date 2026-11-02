@@ -28,9 +28,10 @@ from hiremarco.master import roles
 from hiremarco.master.rules import PURPOSES
 from hiremarco.mix import audit as auditing
 from hiremarco.mix import listen as listening
+from hiremarco.mix import verify as verifying
 from hiremarco.studio import bounce as bouncing
 from hiremarco.studio.chain import Channel
-from hiremarco.studio.stereo_out import StereoOut
+from hiremarco.studio.stereo_out import StereoOut, same_plugin
 
 LUFS_TOLERANCE = 1.0      # LU: a print this close to its target is done
 CEILING_TOLERANCE = 0.1   # dB over the true-peak ceiling that still passes (the meter's own rounding)
@@ -48,6 +49,11 @@ class Job:
     stock_only: bool = False
     references: Path | None = None
     today: str = field(default_factory=lambda: date.today().isoformat())
+    bpm: float | None = None          # the song's tempo, for the pumping check (a ducker shows at the beat rate)
+
+    @property
+    def bar_s(self) -> float | None:
+        return 4 * 60.0 / self.bpm if self.bpm else None
 
 
 @dataclass
@@ -64,6 +70,8 @@ class Result:
     dead: list[str] = field(default_factory=list)   # inserts that passed silence, left bypassed
     hearing: dict | None = None                     # the hearing stack on the mix print, when installed
     hearing_master: dict | None = None
+    manifest: list[dict] = field(default_factory=list)   # every insert on the output: yours, planned or stray
+    verdict: object | None = None                   # the master against the mix (mix.verify.Verdict)
 
     @property
     def caption(self) -> str:
@@ -72,9 +80,11 @@ class Result:
         am, p = self.audit_master, self.plan
         if am is None or p is None:
             return "No master printed."
+        verified = (self.verdict.text().splitlines()[0] if self.verdict is not None
+                    else "not verified against the mix (no tempo to check the pumping)")
         return (f"Master, {p.purpose}: {am.base.lufs} LUFS integrated, true peak {am.base.true_peak_db} dBTP, "
                 f"loudness range {am.loudness_range} LU, {am.sample_rate} Hz {am.subtype}. "
-                f"Target was {p.target_lufs} LUFS under {p.ceiling_dbtp} dBTP.")
+                f"Target was {p.target_lufs} LUFS under {p.ceiling_dbtp} dBTP. {verified[0].upper() + verified[1:]}.")
 
 
 def end_bar_for(seconds: float, bpm: float, beats_per_bar: int = 4, lead_in_bars: int = 1, tail_bars: int = 1) -> int:
@@ -113,7 +123,7 @@ CHECK_RANGE = (2, 10)   # bars: a short print that proves the chain passes audio
 
 
 def prove_chain(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycle, job: Job, log,
-                plugin_of: dict[str, str] | None = None, mark=None) -> list[str]:
+                plugin_of: dict[str, str] | None = None, mark=None, mix_path: Path | None = None) -> list[str]:
     """The chain proves it passes audio: eight bars printed with everything in. A silent print means an insert is
     eating the sound (Owner 2026-11-02: a plug-in whose subscription lapsed loads, says so on its face, and passes
     silence; Marco has to know the difference). Marco's active inserts are bypassed one at a time, from the last,
@@ -123,9 +133,12 @@ def prove_chain(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cy
     folder.mkdir(parents=True, exist_ok=True)
     dead: list[str] = []
 
+    last_print: list[Path] = []
+
     def short_print(label: str) -> auditing.Audit:
         name = bouncing.free_name(folder, bouncing.print_name(job.song, label, job.today))
         printed = bouncer.print(bouncing.MASTER, folder, name)
+        last_print[:] = [printed.path]
         return auditing.audit_file(printed.path)
 
     locators(*CHECK_RANGE)
@@ -135,6 +148,16 @@ def prove_chain(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cy
             heard = short_print("chain check")
             if not heard.base.silent:
                 log(f"   the chain passes audio ({heard.base.lufs} LUFS over bars {CHECK_RANGE[0]} to {CHECK_RANGE[1]})")
+                if mix_path is not None and job.bar_s and last_print:
+                    # the same eight bars of the mix against the check, loudness-matched: a ducker on the output
+                    # shows as new modulation at the beat rate here, before a full print (Owner 2026-11-02)
+                    v = verifying.compare(mix_path, last_print[0], job.bpm, start_s=(CHECK_RANGE[0] - 1) * job.bar_s,
+                                          length_s=(CHECK_RANGE[1] - CHECK_RANGE[0]) * job.bar_s, tonal_only=True)
+                    for line in v.text().splitlines():
+                        log(f"   chain check {line}")
+                    pumping = [r for r in v.reasons if "pumps" in r]
+                    if pumping:
+                        raise RuntimeError("the chain pumps against the mix: " + "; ".join(pumping))
                 return dead
             log("   the chain prints silence: looking for the insert that eats the sound")
             culprit = None
@@ -396,9 +419,24 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
     if back_in:
         strip.bypass(False, rows=back_in)
 
+    # 4a. the manifest: every insert on the output accounted for before any print (Owner 2026-11-02: a stray
+    # Kickstart pumped a whole master); a stray that is in is bypassed here and named
+    log("4a. the manifest")
+    planned = set(plugin_of.values()) | set(result.plan.chain.values())
+    result.manifest = verifying.manifest(strip.read().inserts, marcos_inserts(job.song), planned, same_plugin)
+    stray_rows = [row["y"] for row in result.manifest if row["status"] == "stray" and not row["bypassed"]]
+    if stray_rows:
+        strip.bypass(True, rows=stray_rows)
+        for row in result.manifest:
+            if row["y"] in stray_rows:
+                row["bypassed"] = True
+    for row in result.manifest:
+        log(f"   {row['name']}: {row['status']}" + (" (bypassed)" if row["bypassed"] else ""))
+
     # 4b. the chain proves it passes audio before anything is set or printed for real
     log("4b. the chain check")
-    result.dead += [d for d in prove_chain(strip, bouncer, locators, toggle_cycle, job, log, plugin_of=plugin_of, mark=mark_plugin)
+    result.dead += [d for d in prove_chain(strip, bouncer, locators, toggle_cycle, job, log, plugin_of=plugin_of, mark=mark_plugin,
+                                           mix_path=result.mix)
                     if d not in result.dead]
 
     # 5. the settings, read and set through the Inspector's output strip
@@ -436,6 +474,14 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             for line in listening.highlights(result.hearing_master):
                 log(f"   {line}")
         log(f"   {master.path.name}: {am.base.lufs} LUFS, {am.base.true_peak_db} dBTP, range {am.loudness_range} LU")
+        if job.bpm:
+            result.verdict = verifying.compare(result.mix, master.path, job.bpm)
+            for line in result.verdict.text().splitlines():
+                log(f"   {line}")
+            if not result.verdict.passed:
+                result.stopped = "the master failed verification against the mix: " + "; ".join(result.verdict.reasons)
+                log(f"   {result.stopped}")
+                break
         gap = result.plan.target_lufs - am.base.lufs
         over = am.base.true_peak_db - result.plan.ceiling_dbtp
         if abs(gap) <= LUFS_TOLERANCE and over <= CEILING_TOLERANCE:
@@ -459,8 +505,9 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
         "audit_mix": result.audit_mix.as_dict(), "audit_master": result.audit_master.as_dict() if result.audit_master else None,
         "deltas": deltas.as_dict() if deltas else None, "references": [r.base.name for r in refs],
         "hearing": result.hearing, "hearing_master": result.hearing_master,
+        "manifest": result.manifest, "verdict": (result.verdict.__dict__ if result.verdict is not None else None),
     }, indent=1, default=str))
-    if deliver is not None and result.master is not None:
+    if deliver is not None and result.master is not None and not result.stopped:
         log("7. the delivery")
         log("   " + deliver(result.master, result.caption))
         log("   " + deliver(result.mix, f"The mix as it stands, no master: {result.audit_mix.base.lufs} LUFS, "
