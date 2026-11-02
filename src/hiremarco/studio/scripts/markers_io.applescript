@@ -7,6 +7,9 @@
 --   osascript markers_io.applescript header        x,y of the Marker track's name, where its menu opens on a click
 --   osascript markers_io.applescript hide          close the Marker List, so it covers nothing a click needs
 --   osascript markers_io.applescript undo          Logic's Edit > Undo; prints the item's name before the click
+--   osascript markers_io.applescript goto 21       the playhead to bar 21 in one move (Go To Position dialog), read back
+--   osascript markers_io.applescript gotoexact 45 3 2 1   the same, to bar beat division tick
+--   osascript markers_io.applescript where         the playhead's bar; whereexact gives bar beat division tick
 -- Grounded in the live map of 2026-10-31: the Marker List window holds a table whose rows have four cells; the
 -- position and length are groups described "2 1 1 1" and "8 0 0 0", the name a cell described by the name itself.
 -- Arrangement markers are not in this list; the Marker track's own menu ("Create from Arrangement Markers",
@@ -70,60 +73,98 @@ on pasteName(theName)
 	end tell
 end pasteName
 
+on tracksWindow()
+	set tw to namedWindow(" - Tracks")
+	if tw is missing value then error "Logic's Tracks window is not open"
+	return tw
+end tracksWindow
+
+on playheadGroup()
+	-- the first "Playhead Position" group with four sliders in the Control Bar is the playhead; the others are locators
+	set tw to tracksWindow()
+	tell application "System Events" to tell process "Logic Pro"
+		set cb to (first group of (first group of tw whose description is "Control Bar") whose description is "Control Bar")
+		repeat with cand in (groups of cb whose description is "Playhead Position")
+			if (count of sliders of cand) is 4 then return contents of cand
+		end repeat
+	end tell
+	error "the playhead position is not showing in the Control Bar"
+end playheadGroup
+
+on whereExact()
+	set g to playheadGroup()
+	set parts to {}
+	tell application "System Events" to tell process "Logic Pro"
+		repeat with d in {"bar", "beat", "division", "tick"}
+			set end of parts to ((value of (first slider of g whose description is d)) as integer) as text
+		end repeat
+	end tell
+	set AppleScript's text item delimiters to " "
+	set landed to parts as text
+	set AppleScript's text item delimiters to ""
+	return landed
+end whereExact
+
+on jumpTo(positionText)
+	-- the playhead in one move through Navigate > Go To > Position… (live 2026-11-02: five jumps, bar 1 to 90 and
+	-- back, each exact in 2 to 3 s). The Navigate menu is opened for real first: until it is, Logic reports every
+	-- item in it disabled and a click on Position… does nothing. The dialog is the floating window "Go To Position";
+	-- its New bars field (group 4) has the focus when it opens, so the typed position reaches that field and nothing
+	-- else, and Return takes it and closes the dialog. Setting the Control Bar's bar field moved one bar per set, the
+	-- sliding the Owner saw (2026-11-02); it is not used any more.
+	tell application "Logic Pro" to activate
+	delay 0.3
+	tell application "System Events"
+		if name of (first process whose frontmost is true) is not "Logic Pro" then error "Logic is not in front; nothing was typed"
+		tell process "Logic Pro"
+			click menu bar item "Navigate" of menu bar 1
+			delay 0.3
+			click menu item "Go To" of menu 1 of menu bar item "Navigate" of menu bar 1
+			delay 0.3
+			click menu item "Position…" of menu 1 of menu item "Go To" of menu 1 of menu bar item "Navigate" of menu bar 1
+			repeat 30 times
+				delay 0.1
+				if exists window "Go To Position" then exit repeat
+			end repeat
+			if not (exists window "Go To Position") then
+				key code 53
+				error "the Go To Position dialog did not open"
+			end if
+			set fe to value of attribute "AXFocusedUIElement"
+			set newField to group 4 of window "Go To Position"
+			if (position of fe) is not (position of newField) then
+				key code 53
+				error "the Go To Position dialog opened without its New field focused: " & (description of fe)
+			end if
+			keystroke positionText
+			delay 0.2
+			key code 36
+			repeat 30 times
+				delay 0.1
+				if not (exists window "Go To Position") then exit repeat
+			end repeat
+			if exists window "Go To Position" then
+				key code 53
+				error "the Go To Position dialog stayed open after Return"
+			end if
+		end tell
+	end tell
+	return whereExact()
+end jumpTo
+
 on gotoBar(target)
-	return gotoPosition(target, 1)
+	set wanted to (target as integer) as text
+	set landed to jumpTo(wanted)
+	if (first word of landed) is not wanted then error "the playhead reads " & landed & " after a jump to bar " & wanted
+	return first word of landed
 end gotoBar
 
 on gotoExact(barWanted, beatWanted, divWanted, tickWanted)
-	-- bar, beat, division (sixteenths) and tick, each set until it reads what is wanted (one step per set for bar
-	-- and beat; the division and tick are set the same way, checked)
-	gotoPosition(barWanted, beatWanted)
-	set tw to namedWindow(" - Tracks")
-	tell application "System Events" to tell process "Logic Pro"
-		set cb to (first group of (first group of tw whose description is "Control Bar") whose description is "Control Bar")
-		set g to missing value
-		repeat with cand in (groups of cb whose description is "Playhead Position")
-			if (count of sliders of cand) is 4 and g is missing value then set g to contents of cand
-		end repeat
-		repeat with pair in {{"division", divWanted}, {"tick", tickWanted}}
-			set sl to (first slider of g whose description is (item 1 of pair))
-			repeat 300 times
-				if (value of sl as integer) is (item 2 of pair) then exit repeat
-				set value of sl to (item 2 of pair)
-				delay 0.02
-			end repeat
-		end repeat
-		return ((value of sliders of g) as text)
-	end tell
+	set wanted to ((barWanted as integer) as text) & " " & ((beatWanted as integer) as text) & " " & ((divWanted as integer) as text) & " " & ((tickWanted as integer) as text)
+	set landed to jumpTo(wanted)
+	if landed is not wanted then error "the playhead reads " & landed & " after a jump to " & wanted
+	return landed
 end gotoExact
-
-on gotoPosition(target, beatWanted)
-	-- the playhead's bar in the Control Bar: setting it moves one bar per set (live 2026-10-31), so it is set until
-	-- it reads the bar wanted; no keys, so nothing reaches the transport
-	set tw to namedWindow(" - Tracks")
-	tell application "System Events" to tell process "Logic Pro"
-		set cb1 to (first group of tw whose description is "Control Bar")
-		set cb to (first group of cb1 whose description is "Control Bar")
-		set g to missing value
-		repeat with cand in (groups of cb whose description is "Playhead Position")
-			if (count of sliders of cand) is 4 and g is missing value then set g to contents of cand -- the first is the playhead
-		end repeat
-		if g is missing value then error "the playhead position is not showing in the Control Bar"
-		set s to (first slider of g whose description is "bar")
-		repeat 600 times
-			if (value of s as integer) is target then exit repeat
-			set value of s to target
-			delay 0.03
-		end repeat
-		set b to (first slider of g whose description is "beat")
-		repeat 16 times
-			if (value of b as integer) is beatWanted then exit repeat
-			set value of b to beatWanted
-			delay 0.03
-		end repeat
-		return (value of s as integer) as text
-	end tell
-end gotoPosition
 
 on run argv
 	set cmd to item 1 of argv
@@ -140,16 +181,8 @@ on run argv
 	end if
 	if cmd is "goto" then return gotoBar((item 2 of argv) as integer)
 	if cmd is "gotoexact" then return gotoExact((item 2 of argv) as integer, (item 3 of argv) as integer, (item 4 of argv) as integer, (item 5 of argv) as integer)
-	if cmd is "where" then
-		set tw to namedWindow(" - Tracks")
-		tell application "System Events" to tell process "Logic Pro"
-			set cb to (first group of (first group of tw whose description is "Control Bar") whose description is "Control Bar")
-			repeat with g in (groups of cb whose description is "Playhead Position")
-				if (count of sliders of g) is 4 then return ((value of (first slider of g whose description is "bar")) as integer) as text
-			end repeat
-		end tell
-		error "the playhead position is not showing in the Control Bar"
-	end if
+	if cmd is "where" then return first word of whereExact()
+	if cmd is "whereexact" then return whereExact()
 	if cmd is "hide" then
 		set w to namedWindow(" - Marker List")
 		if w is missing value then return "not open"
@@ -222,7 +255,7 @@ on run argv
 		error "no marker at bar " & (item 2 of argv)
 	end if
 	if cmd is "deleteat" then
-		my gotoPosition((item 2 of argv) as integer, 1)
+		my gotoBar((item 2 of argv) as integer)
 		delay 0.15
 		tell application "System Events" to tell process "Logic Pro"
 			click menu item "Delete Marker at Playhead Position" of menu 1 of menu bar item "Navigate" of menu bar 1
@@ -247,7 +280,10 @@ on run argv
 		delay 0.3
 		repeat with spot in spots
 			set parts to words of spot
-			my gotoPosition((item 1 of parts) as integer, (item 2 of parts) as integer)
+			repeat while (count of parts) < 4
+				set end of parts to "1"
+			end repeat
+			my gotoExact((item 1 of parts) as integer, (item 2 of parts) as integer, (item 3 of parts) as integer, (item 4 of parts) as integer)
 			delay 0.15
 			tell application "System Events" to tell process "Logic Pro"
 				click menu item "Delete Marker at Playhead Position" of menu 1 of menu bar item "Navigate" of menu bar 1

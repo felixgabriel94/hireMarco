@@ -345,8 +345,8 @@ def live_arranger(conn=None, rules_path: Path | None = None) -> Arranger:
         gated(lambda: key(Press(letter, mods)), name.replace("_", " "))
 
     def go(bar: int, beat: int = 1) -> None:
-        # the playhead's bar in the Control Bar, set without keys: typed digits and spaces reached the transport and
-        # started playback (live 2026-10-31)
+        # one move through Logic's Go To Position dialog, read back (live 2026-11-02); the Control Bar's bar field
+        # moved one bar per set, which slid the playhead across the song (Owner 2026-11-02: no sliding)
         gated(lambda: _run(["goto", str(bar)]), f"go to bar {bar}")
 
     def locators(start: int, end: int) -> None:

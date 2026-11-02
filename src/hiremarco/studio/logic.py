@@ -205,8 +205,9 @@ class Logic:
         return self._gated(run, command.action, command.describe())
 
     def goto(self, position: str) -> None:
-        """The playhead to "bar beat division tick" through the Control Bar, not the Go to Position key: in the
-        Owner's Logic "/" opened Go to Marker Number and the typed spaces started playback (live 2026-10-31)."""
+        """The playhead to "bar beat division tick" in one move through the Go To Position dialog, opened from the
+        Navigate menu, not by its key: in the Owner's Logic "/" opened Go to Marker Number and the typed spaces
+        started playback (live 2026-10-31); the dialog's field takes the whole position (live 2026-11-02)."""
         from hiremarco.studio.arrange import _run
 
         parts = (position.split() + ["1", "1", "1"])[:4]  # bar, beat, sixteenth, tick: a take's start is exact
