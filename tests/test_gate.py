@@ -116,7 +116,7 @@ def test_daily_limit(env, monkeypatch):
         act(env, idempotency_key="c", message="3")
 
 
-def test_model_call_checks(env, tmp_path):
+def test_model_call_checks(env, tmp_path, monkeypatch):
     log = JobLog(tmp_path / "jobs.jsonl")
     gate.check_model_call("owner", model="muse-spark-1.3", system="Be brief.", prompt="hi", joblog=log)
     with pytest.raises(gate.Refused, match="no price"):
@@ -126,6 +126,12 @@ def test_model_call_checks(env, tmp_path):
     log.append(JobRow(job="big", model="muse-spark-1.3", cost_usd=gate.DAILY_MODEL_CAP_USD))
     with pytest.raises(gate.Refused, match="cap"):
         gate.check_model_call("owner", model="muse-spark-1.3", system="", prompt="hi", joblog=log)
+    monkeypatch.setenv("HIREMARCO_MODEL_CAP_USD", str(gate.DAILY_MODEL_CAP_USD * 3))   # the Owner's raised cap
+    gate.check_model_call("owner", model="muse-spark-1.3", system="", prompt="hi", joblog=log)
+    monkeypatch.setenv("HIREMARCO_MODEL_CAP_USD", "not a number")
+    with pytest.raises(gate.Refused, match="cap"):
+        gate.check_model_call("owner", model="muse-spark-1.3", system="", prompt="hi", joblog=log)
+    monkeypatch.delenv("HIREMARCO_MODEL_CAP_USD")
     gate.set_kill_switch(True)
     with pytest.raises(gate.Refused, match="kill switch"):
         gate.check_model_call("owner", model="muse-spark-1.3", system="", prompt="hi", joblog=JobLog(tmp_path / "x.jsonl"))

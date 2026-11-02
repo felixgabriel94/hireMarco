@@ -51,6 +51,15 @@ MAIL_WORD_WINDOW = timedelta(hours=24)  # a preview older than this can't be sen
 DUPLICATE_WINDOW_S = 600
 DAILY_MODEL_CAP_USD = 5.0
 
+
+def daily_model_cap_usd() -> float:
+    """The day's model spend cap: the Owner raises it for a build day with HIREMARCO_MODEL_CAP_USD in the
+    environment (his word, 2026-11-02); the code's default stays."""
+    try:
+        return float(config.get("HIREMARCO_MODEL_CAP_USD") or DAILY_MODEL_CAP_USD)
+    except ValueError:
+        return DAILY_MODEL_CAP_USD
+
 SECRET_SHAPES = re.compile(
     r"(Bearer [A-Za-z0-9._-]{20,}|EAA[A-Za-z0-9]{40,}|sk-[A-Za-z0-9]{20,}|LLM_[A-Za-z0-9_-]{20,}"
     r"|AC[0-9a-f]{32}|-----BEGIN [A-Z ]*PRIVATE KEY)"
@@ -309,5 +318,6 @@ def check_model_call(
         raise Refused("the prompt holds something shaped like a secret")
     joblog = joblog or JobLog()
     spent = joblog.total_usd(date.today().isoformat())
-    if spent >= DAILY_MODEL_CAP_USD:
-        raise Refused(f"today's model spend {spent:.2f} USD reached the {DAILY_MODEL_CAP_USD:.2f} USD cap")
+    cap = daily_model_cap_usd()
+    if spent >= cap:
+        raise Refused(f"today's model spend {spent:.2f} USD reached the {cap:.2f} USD cap")
