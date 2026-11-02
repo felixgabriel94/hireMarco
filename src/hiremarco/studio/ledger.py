@@ -98,13 +98,40 @@ def built_in(logic_names: list[str]) -> set[str]:
     return set(logic_names[:first_au])
 
 
+LOGIC_NAME_CUT = 31   # Logic shows a plug-in name cut at this many characters ("UAD Shadow Hills Class A Master")
+
+
+def uad_row(name: str, uad_rows: dict[str, dict]) -> dict | None:
+    """The engine's row for a UAD name as Logic lists it: the same name, or the one engine name a cut name
+    starts; several candidates with different statuses are out until one is faced."""
+    if name in uad_rows:
+        return uad_rows[name]
+    if len(name) < LOGIC_NAME_CUT - 1:
+        return None
+    hits = [n for n in uad_rows if n.startswith(name)]
+    if not hits:
+        return None
+    statuses = {uad_rows[n]["status"] for n in hits}
+    if len(statuses) == 1:
+        return {"status": statuses.pop(), "evidence": [f"as {hits[0]}"] + list(uad_rows[hits[0]]["evidence"])}
+    return {"status": "not_owned", "evidence": [f"Logic's cut name fits {len(hits)} engine plug-ins with different "
+                                                f"statuses: {', '.join(hits)}"]}
+
+
 def build(logic_names: list[str], uad_ok: set[str], uad_all: set[str], not_owned: set[str],
-          used: set[str], presets: set[str], registered: set[str], present: set[str]) -> dict[str, dict]:
-    """One row per plug-in Logic lists: status and the evidence behind it."""
+          used: set[str], presets: set[str], registered: set[str], present: set[str],
+          uad_rows: dict[str, dict] | None = None) -> dict[str, dict]:
+    """One row per plug-in Logic lists: status and the evidence behind it. ``uad_rows`` is the engine's word per
+    UAD plug-in (``uad_panel.reconcile``), exact where it speaks; ``uad_ok`` and ``uad_all`` are the older flags."""
     rows = {}
     apple = built_in(logic_names)
     for logic_name in logic_names:
         name = base_name(logic_name)
+        if name.startswith("UAD ") and uad_rows:
+            row = uad_row(name, uad_rows)
+            if row is not None:
+                rows[logic_name] = {"status": row["status"], "evidence": list(row["evidence"])}
+                continue
         evidence = ["logic"] if logic_name in apple else []
         if name in uad_ok:
             evidence.append("console")

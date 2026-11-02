@@ -120,6 +120,18 @@ class Console:
             self._authorized = names
         return self._authorized
 
+    def statuses(self) -> dict[str, str]:
+        """Every UAD plug-in's Status text as the engine shows it ("Authorized for all devices", "Demo not
+        started", "Demo (14 days left)"); an engine without the text answers from its Authorized flag."""
+        found = {}
+        for key in self.get("/plugins").get("children", {}):
+            props = self.get(f"/plugins/{key}")["properties"]
+            text = props.get("Status", {}).get("value")
+            if not text:
+                text = "Authorized for all devices" if props.get("Authorized", {}).get("value") else "Demo not started"
+            found[props["Name"]["value"]] = str(text)
+        return found
+
     def catalog(self) -> set[str]:
         """Every UAD plug-in Console knows, owned or not."""
         return {self.get(f"/plugins/{key}")["properties"]["Name"]["value"]

@@ -1198,16 +1198,23 @@ def cmd_ledger(args) -> int:
         names = json.loads((maps / "logic_plugins.json").read_text())
         if not refused.exists():
             refused.write_text(json.dumps(["Melodyne"]))  # trial ended (Owner, 2026-10-29)
+        from hiremarco.studio import uad_panel
+
         try:
-            console = Console()
-            uad_ok, uad_all = console.authorized(), console.catalog()
+            engine = Console().statuses()
         except (ConsoleError, OSError):
             print("UAD Console is not reachable; UAD plug-ins stay unknown")
-            uad_ok, uad_all = set(), set()
+            engine = {}
+        panel_path = maps / "uad_panel.json"
+        panel = json.loads(panel_path.read_text()) if panel_path.exists() else None
+        if panel:
+            print(f"the UAD Control Panel as read {panel['read_at']} ({len(panel['rows'])} rows)")
+        uad_rows = uad_panel.reconcile(engine, panel["rows"] if panel else None)
+        uad_ok = {n for n, r in uad_rows.items() if r["status"] in ("owned", "demo")}
         wanted = {ledger.base_name(n) for n in names}
-        rows = ledger.build(names, uad_ok, uad_all, set(json.loads(refused.read_text())),
+        rows = ledger.build(names, uad_ok, set(engine), set(json.loads(refused.read_text())),
                             ledger.strings_in(ledger.used_files(), wanted), ledger.preset_folders(),
-                            ledger.registered_ni(), ledger.installed())
+                            ledger.registered_ni(), ledger.installed(), uad_rows=uad_rows)
         plans_path = maps / "plans.json"
         plans = json.loads(plans_path.read_text()) if plans_path.exists() else []
         covered = ledger.apply_plans(rows, plans)
@@ -1217,8 +1224,38 @@ def cmd_ledger(args) -> int:
                 rows[name] = row
         path.write_text(json.dumps(rows, indent=1))
         counts = Counter(row["status"] for row in rows.values())
-        print(f"{len(rows)} plug-ins: " + ", ".join(f"{counts[s]} {s}" for s in ("owned", "unknown", "not_owned"))
+        print(f"{len(rows)} plug-ins: " + ", ".join(f"{counts[s]} {s}" for s in ("owned", "demo", "unknown", "not_owned", "inactive"))
               + f" ({covered} covered by subscriptions)")
+        for name, row in sorted(rows.items()):
+            if any(e.startswith(("the panel shows", "the engine and the panel", "demo ends")) for e in row["evidence"]):
+                print(f"  {row['status']:<9} {name:<48} {'; '.join(row['evidence'])}")
+        return 0
+    if args.action == "panel":
+        import time
+        from collections import Counter
+
+        from hiremarco.studio import uad_panel
+        from hiremarco.studio.console import Console, ConsoleError
+
+        shown = uad_panel.read_panel(log=print)
+        maps.mkdir(parents=True, exist_ok=True)
+        (maps / "uad_panel.json").write_text(json.dumps({"read_at": time.strftime("%Y-%m-%d %H:%M %Z"), "rows": shown}, indent=1))
+        kinds = Counter(uad_panel.kind_of(s)[0] for s in shown.values())
+        print(f"{len(shown)} rows read off the panel: " + ", ".join(f"{kinds[k]} {k}" for k in ("owned", "demo", "not_owned", "inactive", "unknown")))
+        unread = [t for t in uad_panel.ini_titles() if t not in shown]
+        if unread:
+            print(f"  {len(unread)} of UA's titles not seen: {', '.join(unread)}")
+        for title, status in shown.items():
+            if uad_panel.kind_of(status)[0] in ("demo", "inactive", "unknown"):
+                print(f"  {title}: {status}")
+        try:
+            engine = Console().statuses()
+        except (ConsoleError, OSError):
+            print("UAD Console is not reachable; no engine reading to compare")
+            return 0
+        for name, row in uad_panel.reconcile(engine, shown).items():
+            if len(row["evidence"]) > 2:
+                print(f"  {row['status']:<9} {name}: {'; '.join(row['evidence'])}")
         return 0
     if args.action == "renewals":
         from datetime import date
@@ -1829,8 +1866,8 @@ def main(argv: list[str] | None = None) -> int:
     va.add_argument("words", nargs="*")
     va.set_defaults(func=cmd_vault)
 
-    le = sub.add_parser("ledger", help="license ledger: build | show [owned|unknown|not_owned]")
-    le.add_argument("action", choices=["build", "show", "renewals"])
+    le = sub.add_parser("ledger", help="license ledger: build | panel | show [owned|demo|unknown|not_owned|inactive] | renewals [days]")
+    le.add_argument("action", choices=["build", "panel", "show", "renewals"])
     le.add_argument("words", nargs="*")
     le.set_defaults(func=cmd_ledger)
 
