@@ -15,3 +15,6 @@ One line per claim; the file is the record.
 - R-AUD-0013: Dither when reducing bit depth; truncation causes quantization distortion (primary, proven)
 - R-AUD-0014: soothe2's depth, sharpness and selectivity: how much, how narrow, and how choosy the resonance suppression is (primary, proven)
 - R-AUD-0015: The Manley Variable Mu is a variable-gain tube compressor made for the mix bus, with linked stereo and mid/side operation (primary, proven)
+- R-AUD-0016: Pro-C 2: threshold, ratio, knee, range, the eight styles, attack and release, lookahead, hold, auto gain and parallel mix (primary, proven)
+- R-AUD-0017: Pro-DS: threshold and range, the trigger band between 2 and 20 kHz, Single Vocal against Allround, wide band against split band (primary, proven)
+- R-AUD-0018: Pro-G: threshold, ratio and range of a gate or expander; the styles, with Vocal for breaths and bleed; side-chain filters (primary, proven)
