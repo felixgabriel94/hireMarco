@@ -362,3 +362,10 @@ def test_the_writer_is_told_to_use_proper_sentences_however_he_typed_it(world):
     client.ask = lambda prompt, **k: captured.append(k.get("developer", "")) or ask(prompt, **k)
     say("reply to kai that tuesday works", FakeMail(KAI), client)
     assert "proper sentences with normal capitals" in captured[-1]
+
+
+def test_a_new_emails_subject_starts_with_a_capital_and_keeps_the_rest(world):
+    say, wa, *_ = world
+    new = Muse(intent(action="new", find="", to="ana@studio.com", subject="checking in on the iPhone shoot"), body="Hi Ana")
+    say("email ana@studio.com", FakeMail(), new)
+    assert "Subject: Checking in on the iPhone shoot" in wa.sent[-1][0]

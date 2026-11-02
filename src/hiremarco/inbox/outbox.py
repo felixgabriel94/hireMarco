@@ -379,6 +379,7 @@ def _draft_new(said, intent, sender, message_id, wa, conn, mail, client) -> str:
         _say(wa, sender, "I couldn't write that one just now. Nothing was saved. Want to try again?", f"mail-empty:{message_id}")
         return "mail: new, the model gave nothing"
     subject = re.sub(r"\s+", " ", intent["subject"]).strip() or "Hello"
+    subject = subject[0].upper() + subject[1:]  # "checking in" reads as typed; the rest stays as he wrote it
     raw = build(", ".join(to), ", ".join(cc), subject, body)
     return _make_draft(conn, mail, wa, sender, message_id, kind="new", to=", ".join(to), cc=", ".join(cc),
                        subject=subject, body=body, words=intent["instructions"] or said, raw=raw)
