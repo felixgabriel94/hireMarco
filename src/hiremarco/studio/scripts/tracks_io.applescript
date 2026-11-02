@@ -568,6 +568,15 @@ on run argv
 		-- the open project's Tracks window title, "Name - Tracks"
 		tell application "System Events" to return name of main
 	end if
+	if mode is "frame" then
+		-- the Tracks window's position and size in screen points: "x<TAB>y<TAB>w<TAB>h" (a window on a second
+		-- display reads negative, live 2026-11-02)
+		tell application "System Events"
+			set p to position of main
+			set z to size of main
+			return ((item 1 of p) as text) & tab & ((item 2 of p) as text) & tab & ((item 1 of z) as text) & tab & ((item 2 of z) as text)
+		end tell
+	end if
 	if mode is "header" then
 		-- one track's header by name: "x<TAB>y<TAB>w<TAB>h<TAB>focus<TAB>triangle" in screen points, focus 1 when it is
 		-- the selected track, triangle 1 open / 0 closed / - for a track that is not a stack; "missing" when no header

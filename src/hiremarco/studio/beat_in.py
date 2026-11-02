@@ -519,18 +519,28 @@ class BeatLoader:
             found = self._header(name)
         if found is None:
             raise LoadError(f"the session has no track named {name!r}")
-        if not (VISIBLE[0] <= found.middle <= VISIBLE[1]):
+        low, high = self._visible()
+        if not (low <= found.middle <= high):
             # one jump of the Tracks area's scroll bar to its top or bottom, not a crawl of wheel ticks: each
             # re-read of a header costs 20 s in a forty-track session (live 2026-11-02, the BEAT header at y -1092)
-            self.jump(0.0 if found.middle < VISIBLE[0] else 1.0)
+            self.jump(0.0 if found.middle < low else 1.0)
             found = self._header(name) or found
         for _ in range(8):
-            if VISIBLE[0] <= found.middle <= VISIBLE[1]:
+            if low <= found.middle <= high:
                 return found
             self._in_front()
-            self.scroll(-5 if found.middle > VISIBLE[1] else 5)
+            self.scroll(-5 if found.middle > high else 5)
             found = self._header(name) or found
         raise LoadError(f"could not scroll {name!r} into view")
+
+    def _visible(self) -> tuple[float, float]:
+        """The band of the Tracks window a header click can reach, from the window's own frame: the window moves
+        between displays (live 2026-11-02: at y -1050 on a second screen), so the band is never a fixed number."""
+        try:
+            x, y, w, h = (float(v) for v in self.run(["frame"]).strip().split("\t"))
+        except (ValueError, RuntimeError):
+            return VISIBLE
+        return (y + VISIBLE[0], y + h - 60)
 
     def select(self, name: str = BEAT_TRACK) -> None:
         target = self._reach(name)
