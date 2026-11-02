@@ -257,3 +257,20 @@ def test_a_gmail_only_sign_in_asks_for_gmail_alone_and_writes_only_the_file_it_w
     written = dict(line.split("=", 1) for line in target.read_text().splitlines())
     assert written == {"GOOGLE_CLIENT_ID": "cid", "GOOGLE_CLIENT_SECRET": "sec", "GOOGLE_REFRESH_TOKEN": "new", "MODEL_API_KEY": "mk"}
     assert "GOOGLE_REFRESH_TOKEN=old" in home.read_text() and oct(target.stat().st_mode)[-3:] == "600"
+
+
+def test_gear_gets_the_equipment_label_beside_its_own_add_only():
+    conn = inbox.connect(":memory:")
+    inbox.set_labels(conn, True)
+    gear = inbox.Decision("g", "orders@bhphotovideo.com", "Your order shipped", "Invoices", equipment=True)
+    plain = inbox.Decision("p", "x@shop.com", "Receipt", "Invoices")
+    for d in (gear, plain):
+        conn.execute("insert into applied (message_id, label, sender, ts) values (?, ?, ?, 'now')",
+                     (d.message_id, d.label, d.sender))
+    mail = FakeMail([])
+    assert inbox.apply_labels(mail, conn, [(None, gear), (None, plain)]) == 2
+    assert mail.added == [("g", "L_inv"), ("g", "L_Equipment"), ("p", "L_inv")]
+
+
+def test_mail_already_marked_equipment_by_hand_is_left_alone():
+    assert "Equipment" in inbox.LABELS and "Equipment" not in inbox.SORTED

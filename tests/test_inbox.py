@@ -278,3 +278,28 @@ def test_mail_with_a_secret_shape_is_sorted_from_headers_and_the_cap_still_stops
     monkeypatch.setattr("hiremarco.gate.check_model_call", refuse("today's model spend 5.00 USD reached the cap"))
     with pytest.raises(gate.Refused):
         inbox.classify(item(), [], client, conn)
+
+
+class GearClient(Client):
+    def __init__(self, equipment):
+        super().__init__("Invoices")
+        if equipment is not None:
+            self.answer["equipment"] = equipment
+
+
+def test_gear_is_flagged_from_the_same_model_call_and_only_on_a_clear_yes():
+    conn = inbox.connect(":memory:")
+    assert inbox.SCHEMA["properties"]["equipment"]["type"] == "boolean" and "equipment" in inbox.SCHEMA["required"]
+    client = GearClient(True)
+    d = inbox.classify(item("orders@sweetwater.com", "Your order has shipped"), [], client, conn)
+    assert d.label == "Invoices" and d.equipment and len(client.prompts) == 1
+    assert "equipment" in client.prompts[0][1]
+    for answer in (False, None, "yes"):
+        assert not inbox.classify(item(), [], GearClient(answer), conn).equipment
+
+
+def test_sensitive_and_rule_sorted_mail_is_never_flagged_as_gear():
+    conn, client = inbox.connect(":memory:"), GearClient(True)
+    assert not inbox.classify(item("alerts@chase.com", "Your Chase statement is ready"), [], client, conn).equipment
+    assert not inbox.classify(item("news@jamesclear.com", "3-2-1"), [], client, conn).equipment
+    assert client.prompts == []
