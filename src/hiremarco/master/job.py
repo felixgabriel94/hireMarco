@@ -26,6 +26,7 @@ from hiremarco.master import plan as planning
 from hiremarco.master import roles
 from hiremarco.master.rules import PURPOSES
 from hiremarco.mix import audit as auditing
+from hiremarco.mix import listen as listening
 from hiremarco.studio import bounce as bouncing
 from hiremarco.studio.chain import Channel
 from hiremarco.studio.stereo_out import StereoOut
@@ -59,6 +60,8 @@ class Result:
     stopped: str = ""
     record: Path | None = None
     dead: list[str] = field(default_factory=list)   # inserts that passed silence, left bypassed
+    hearing: dict | None = None                     # the hearing stack on the mix print, when installed
+    hearing_master: dict | None = None
 
     @property
     def caption(self) -> str:
@@ -189,7 +192,8 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
         toggle_cycle: Callable[[], None], select_track: Callable[[], None], room: set[str] | None = None,
         client=None, critic=None, deliver: Callable[[Path, str], str] | None = None, log: Callable[[str], None] = print,
         sleep=time.sleep, mark_plugin: Callable[[str, str, str], None] | None = mark_in_ledger,
-        look_at_face: Callable[[], object] | None = None) -> Result:
+        look_at_face: Callable[[], object] | None = None,
+        listen: Callable[..., dict | None] | None = None) -> Result:
     result = Result()
     bounces = Path(job.bounces).expanduser()
     bounces.mkdir(parents=True, exist_ok=True)
@@ -227,11 +231,18 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     deltas = auditing.compare(result.audit_mix, refs)
     for line in auditing.summary(result.audit_mix, deltas).splitlines():
         log(f"   {line}")
+    if listen is not None:
+        # the ears beyond the meters, against the first reference when there is one
+        first_ref = next(iter(sorted(p for p in Path(job.references).iterdir() if p.suffix.lower() in (".wav", ".aiff", ".aif", ".flac"))), None) \
+            if job.references and Path(job.references).is_dir() else None
+        result.hearing = listen(mix.path, reference=first_ref)
+        for line in listening.highlights(result.hearing):
+            log(f"   {line}")
 
     # 3. the plan, from the deepest brain, judged by the critic
     log("3. the plan")
     result.plan = planning.roles_for(result.audit_mix, deltas, room, purpose=job.purpose, direction=job.direction,
-                                     stock_only=job.stock_only, client=client, critic=critic)
+                                     stock_only=job.stock_only, client=client, critic=critic, hearing=result.hearing)
     for r in result.plan.roles:
         log(f"   {r['role']}: {r['plugin']}. {r['why']}")
     log(f"   target {result.plan.target_lufs} LUFS, ceiling {result.plan.ceiling_dbtp} dBTP")
@@ -307,7 +318,7 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     for round_no in range(1, MAX_ROUNDS + 1):
         result.rounds = round_no
         settings = planning.settings_for(chain, result.audit_mix, deltas, result.plan, direction=direction,
-                                         client=client)
+                                         client=client, hearing=result.hearing)
         for c in settings.changes:
             log(f"   slot {c['slot']} {c['parameter']} = {c['value']:g} {c['unit']}: {c['why']}")
         try:
@@ -329,6 +340,10 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
         result.master = master.path
         result.audit_master = auditing.audit_file(master.path)
         am = result.audit_master
+        if listen is not None:
+            result.hearing_master = listen(master.path)
+            for line in listening.highlights(result.hearing_master):
+                log(f"   {line}")
         log(f"   {master.path.name}: {am.base.lufs} LUFS, {am.base.true_peak_db} dBTP, range {am.loudness_range} LU")
         gap = result.plan.target_lufs - am.base.lufs
         over = am.base.true_peak_db - result.plan.ceiling_dbtp
@@ -348,6 +363,7 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
         "settings": result.settings, "rounds": result.rounds, "dead": result.dead,
         "audit_mix": result.audit_mix.as_dict(), "audit_master": result.audit_master.as_dict() if result.audit_master else None,
         "deltas": deltas.as_dict() if deltas else None, "references": [r.base.name for r in refs],
+        "hearing": result.hearing, "hearing_master": result.hearing_master,
     }, indent=1, default=str))
     if deliver is not None and result.master is not None:
         log("7. the delivery")

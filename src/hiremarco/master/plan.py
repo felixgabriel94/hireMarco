@@ -24,6 +24,7 @@ from hiremarco.master import roles as roles_
 from hiremarco.master.rules import PURPOSES, RULEBOOK, SOURCES
 from hiremarco.meta.client import MuseSpark, MuseSparkError
 from hiremarco.mix.audit import Audit, Deltas, findings, summary
+from hiremarco.mix import listen as listening
 from hiremarco.studio.chain import SCHEMA as CHANGES_SCHEMA
 from hiremarco.studio.chain import Chain
 
@@ -44,6 +45,8 @@ def _passing(exc: MuseSparkError) -> bool:
 
 AUDIT_INSTRUCTIONS = (
     "You are Marco, a mastering engineer reading a track before you touch it. You get the track's measured audit "
+    "(and under hearing, when the stack answered, what a listener hears: psychoacoustic loudness, sharpness and "
+    "roughness, Audiobox production quality, what it sounds like in words, how alike the reference sounds) "
     "(every number was measured on the file), its deltas against reference masters the artist owns when there are "
     "any, the purpose of this master, the roles a chain can hold with what is in the room for each, and the "
     "rulebook you work by with its sources. Decide what this track needs and what it does not, like the engineers "
@@ -75,7 +78,8 @@ SETTINGS_INSTRUCTIONS = (
     "chain in signal order, each plugin's controls (names are the plugin's own; each movable control as a percent "
     "of its own range, 0 its minimum and 100 its maximum, and in in_units the value the plugin itself shows with "
     "its unit), the "
-    "measured audit of the mix, its deltas against the references, the targets, the plan's reasons per role, and "
+    "measured audit of the mix (with, under hearing, what a listener hears: sone, acum, asper, Audiobox scores, "
+    "and how alike a reference sounds), its deltas against the references, the targets, the plan's reasons per role, and "
     "the rulebook with its sources. Give the settings, like the engineers the rulebook cites: corrective moves only "
     "where the audit names a problem, half-dB and quarter-dB EQ moves, a dB or two of glue, the limiter's ceiling at "
     "the target true peak and its gain to reach the target loudness in stages. Use only the slots and control names "
@@ -112,12 +116,15 @@ class Settings:
     said: str = ""
 
 
-def audit_for_model(audit: Audit, deltas: Deltas | None) -> dict:
+def audit_for_model(audit: Audit, deltas: Deltas | None, hearing: dict | None = None) -> dict:
     data = audit.as_dict()
     data["findings"] = findings(audit)
     data["summary"] = summary(audit, deltas)
     if deltas:
         data["deltas"] = deltas.as_dict()
+    heard = listening.for_model(hearing)
+    if heard:
+        data["hearing"] = heard   # what a listener hears, beyond the meters (the hearing stack, 2026-11-02)
     return data
 
 
@@ -153,13 +160,14 @@ def grounded(data: dict) -> bool:
 
 
 def roles_for(audit: Audit, deltas: Deltas | None, room: set[str], *, purpose: str = "demo", direction: str = "",
-              stock_only: bool = False, client: MuseSpark | None = None, critic: Critic | None = None) -> MasterPlan:
+              stock_only: bool = False, client: MuseSpark | None = None, critic: Critic | None = None,
+              hearing: dict | None = None) -> MasterPlan:
     """What this track needs: the roles, their plugins, the targets and the audit in Marco's words."""
     if purpose not in PURPOSES:
         raise ValueError(f"no purpose {purpose!r}; one of {', '.join(PURPOSES)}")
     client = client or MuseSpark(timeout=THINK_TIMEOUT)
     payload = {"purpose": purpose, "purpose_targets": PURPOSES[purpose], "direction": direction,
-               "stock_only": stock_only, "audit": audit_for_model(audit, deltas), "room": roles_.for_model(room),
+               "stock_only": stock_only, "audit": audit_for_model(audit, deltas, hearing), "room": roles_.for_model(room),
                "rulebook": RULEBOOK, "sources": SOURCES}
     data = _ask(client, AUDIT_INSTRUCTIONS, payload, job="master_audit", schema=AUDIT_SCHEMA)
     if not grounded(data):
@@ -201,13 +209,13 @@ def roles_for(audit: Audit, deltas: Deltas | None, room: set[str], *, purpose: s
 
 
 def settings_for(chain: Chain, audit: Audit, deltas: Deltas | None, plan: MasterPlan, *, direction: str = "",
-                 client: MuseSpark | None = None) -> Settings:
+                 client: MuseSpark | None = None, hearing: dict | None = None) -> Settings:
     """The controls, in the chain as it stands; validated and bounded by ``studio.chain`` when applied."""
     client = client or MuseSpark(timeout=THINK_TIMEOUT)
     payload = {
         "direction": direction, "purpose": plan.purpose,
         "targets": {"lufs": plan.target_lufs, "ceiling_dbtp": plan.ceiling_dbtp},
-        "plan": plan.roles, "audit": audit_for_model(audit, deltas), "rulebook": RULEBOOK,
+        "plan": plan.roles, "audit": audit_for_model(audit, deltas, hearing), "rulebook": RULEBOOK,
         "chain": [{"slot": s.number, "bypassed": s.bypassed, **(s.state.for_model() if s.state else
                    {"plugin": s.name, "parameters": {}, "fixed": {}})} for s in chain.slots],
     }

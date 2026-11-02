@@ -184,7 +184,7 @@ def test_a_print_off_target_gets_one_more_round(tmp_path, monkeypatch):
     plan = MasterPlan([{"role": "limiter", "plugin": "Pro-L 2", "why": ""}], -12.0, -1.0, "", "demo")
     monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
     seen = []
-    monkeypatch.setattr(planning, "settings_for", lambda chain, a, d, p, direction="", client=None: seen.append(direction) or Settings(
+    monkeypatch.setattr(planning, "settings_for", lambda chain, a, d, p, direction="", client=None, **kw: seen.append(direction) or Settings(
         [{"slot": 1, "parameter": "Gain", "value": 6, "unit": "dB", "why": ""}], ""))
     job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
     result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
@@ -217,3 +217,20 @@ def test_a_notice_sends_in_the_rooms_next_candidate_for_the_role(tmp_path, monke
     assert inserted == ["Shadow Hills Mastering Compress", fallback, "Pro-L 2"]
     assert result.plan.chain["glue"] == fallback and result.dead == ["Shadow Hills Mastering Compress"]
     assert json.loads(result.record.read_text())["plan"]["roles"][0]["plugin"] == fallback
+
+
+def test_the_ears_ride_with_the_audit_into_the_plan_and_the_record(tmp_path, monkeypatch):
+    strip, bouncer, channel = FakeStrip(), FakeBouncer(tmp_path, [-30.0, -20.0, -12.0]), FakeChannel()
+    plan = MasterPlan([{"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}], -12.0, -1.0, "ok", "demo")
+    got = {}
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: (got.__setitem__("plan", k.get("hearing")), plan)[1])
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: (got.__setitem__("settings", k.get("hearing")), Settings([], ""))[1])
+    heard = {"audiobox_aesthetics": {"mix": {"CE": 6.0, "CU": 7.0, "PC": 5.0, "PQ": 6.5}}}
+    listened = []
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+                      toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2"}, log=lambda s: None,
+                      listen=lambda p, reference=None: listened.append((p.name, reference)) or heard)
+    assert result.hearing == heard and got["plan"] == heard and got["settings"] == heard
+    assert listened[0] == ("song - mix 2026-11-02.wav", None) and listened[1][0].startswith("song - master")
+    assert json.loads(result.record.read_text())["hearing"]["audiobox_aesthetics"]["mix"]["PQ"] == 6.5
