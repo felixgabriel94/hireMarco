@@ -133,7 +133,7 @@ def chain_for_model(chain) -> list[dict]:
 
 
 def profile(reads: list[PartRead], audit: dict | None, hearing: dict | None, *, artist: str = "the artist",
-            client: MuseSpark | None = None) -> Profile:
+            client: MuseSpark | None = None, retried: bool = False, note: str = "") -> Profile:
     if not any(r.inserts or r.flow for r in reads):
         # with nothing read the brain answered placeholders (live 2026-11-02: "bye", "hello"); a profile needs reads
         raise RuntimeError("no part was read from Logic; nothing to learn from: " + "; ".join(r.error for r in reads if r.error)[:300])
@@ -141,7 +141,7 @@ def profile(reads: list[PartRead], audit: dict | None, hearing: dict | None, *, 
     from hiremarco.mix import listen as listening
 
     payload = {"artist": artist, "parts": [asdict(r) for r in reads], "audit_of_the_mix_print": audit,
-               "hearing": listening.for_model(hearing)}
+               "hearing": listening.for_model(hearing), **({"note": note} if note else {})}
     prompt = json.dumps(payload, default=str)
     gate.check_model_call(TENANT, model=MODEL, system=INSTRUCTIONS, prompt=prompt, joblog=client.joblog)
     reply = client.ask(prompt, developer=INSTRUCTIONS, job="taste", model=MODEL, max_completion_tokens=TOKENS,
@@ -154,6 +154,12 @@ def profile(reads: list[PartRead], audit: dict | None, hearing: dict | None, *, 
         data = json.loads(reply.text)
     except ValueError as exc:
         raise RuntimeError("the taste profile came back unreadable") from exc
+    if not data.get("parts") and not retried:
+        # live 2026-11-02: a reply with a full summary and every list empty; asked once more for the lists
+        return profile(reads, audit, hearing, artist=artist, client=client, retried=True,
+                       note="the lists are required: one entry in parts for every part read, at least three "
+                            "signature habits, at least two costs with numbers, exactly three questions; the "
+                            "summary can be two sentences")
     return Profile([{"part": str(p.get("part", "")), "learned": str(p.get("learned", "")), "evidence": str(p.get("evidence", ""))}
                     for p in data.get("parts", [])],
                    [str(s) for s in data.get("signature", [])], [str(c) for c in data.get("costs", [])],
