@@ -221,7 +221,14 @@ on openSlot(slot)
 			key code 36
 		end tell
 		delay 0.6
+	else
+		-- run 33 (2026-11-02): with the view already on Controls the window was read 0.1 s after it opened and
+		-- its reference broke mid-read ("Can't get window"); a window just opened settles before it is read
+		delay 0.4
 	end if
+	-- the reference is taken again once the window is settled, so a window Logic rebuilt is the one read
+	set w to pluginWindow()
+	if w is missing value then error "the plugin window for " & (item 2 of slot) & " closed before it was read"
 	return w
 end openSlot
 
@@ -498,7 +505,17 @@ on run argv
 		repeat while i ≤ (count of argv)
 			set a to item i of argv
 			if a is ";" then
-				if current is not missing value then set end of blocks to "slot" & tab & (current as text) & linefeed & report(openSlot(item current of slots), wanted, item 2 of (item current of slots))
+				if current is not missing value then
+					-- a window gone between its opening and its read (run 33) is opened once more
+					try
+						set block to report(openSlot(item current of slots), wanted, item 2 of (item current of slots))
+					on error errMsg number errNum
+						if errNum is not -1728 then error errMsg number errNum
+						delay 0.5
+						set block to report(openSlot(item current of slots), wanted, item 2 of (item current of slots))
+					end try
+					set end of blocks to "slot" & tab & (current as text) & linefeed & block
+				end if
 				set current to missing value
 				set wanted to {}
 				set i to i + 1
@@ -510,7 +527,16 @@ on run argv
 				set i to i + 2
 			end if
 		end repeat
-		if current is not missing value then set end of blocks to "slot" & tab & (current as text) & linefeed & report(openSlot(item current of slots), wanted, item 2 of (item current of slots))
+		if current is not missing value then
+			try
+				set block to report(openSlot(item current of slots), wanted, item 2 of (item current of slots))
+			on error errMsg number errNum
+				if errNum is not -1728 then error errMsg number errNum
+				delay 0.5
+				set block to report(openSlot(item current of slots), wanted, item 2 of (item current of slots))
+			end try
+			set end of blocks to "slot" & tab & (current as text) & linefeed & block
+		end if
 		set AppleScript's text item delimiters to linefeed
 		return blocks as text
 	end if
