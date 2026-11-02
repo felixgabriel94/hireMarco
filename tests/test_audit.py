@@ -93,3 +93,34 @@ def test_deltas_against_references_name_the_gaps():
     assert audit.compare(track, []) is None
     text = audit.summary(track, d)
     assert "against ref2, ref3" in text and "LUFS integrated" in text
+
+
+def test_a_resonance_is_named_by_its_note_and_the_key_is_read():
+    rate = 22050
+    t = np.arange(6 * rate) / rate
+    rng = np.random.default_rng(5)
+    chords = [(261.63, 329.63, 392.0), (349.23, 440.0, 523.25), (392.0, 493.88, 587.33)]
+    bed = np.concatenate([sum(0.2 * np.sin(2 * np.pi * h * t[: 2 * rate]) for h in chord) for chord in chords])
+    ring = 0.5 * np.sin(2 * np.pi * 1046.5 * t)
+    a = audit.audit_audio((bed + ring + 0.01 * rng.standard_normal(t.size)).astype(np.float64), rate, "ring")
+    assert a.key == "C major" and a.key_confidence > 0.2
+    top = a.resonances[0]
+    assert top.note == "C6" and top.relation == "the tonic"
+    line = next(n for n in audit.findings(a) if n.startswith("resonance at"))
+    assert "(C6, the tonic of C major)" in line
+    assert "key C major" in audit.summary(a)
+
+
+def test_two_notes_taking_turns_in_one_bin_are_named_as_the_part_not_a_ring():
+    rate = 22050
+    t = np.arange(rate) / rate
+    b3 = 0.5 * np.sin(2 * np.pi * 246.94 * t)
+    c4 = 0.5 * np.sin(2 * np.pi * 261.63 * t)
+    rng = np.random.default_rng(7)
+    bed = 0.02 * rng.standard_normal(8 * rate)
+    audio = bed + np.concatenate([b3, c4, b3, c4, b3, c4, b3, c4])
+    a = audit.audit_audio(audio, rate, "turns")
+    top = a.resonances[0]
+    assert set(top.notes.replace("%", "").split(", ")) >= {"B3 50", "C4 50"} or top.notes.count(",") == 1
+    line = next(n for n in audit.findings(a) if n.startswith("resonance at"))
+    assert "second by second" in line and "two notes of the part share this bin" in line

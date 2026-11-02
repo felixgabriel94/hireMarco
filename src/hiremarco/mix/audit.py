@@ -39,6 +39,10 @@ ABSOLUTE_GATE = -70.0
 class Resonance:
     hz: float
     above_db: float
+    note: str = ""        # the nearest note, "B3" (the artist's rule, 2026-11-02: a frequency is named by its note)
+    cents: int = 0        # how far off that note
+    relation: str = ""    # against the song's key: the tonic, a chord tone, in the key, off the key
+    notes: str = ""       # what the bin holds second by second: "B3 16%, C4 17%" when two notes share the bin
 
 
 @dataclass
@@ -60,6 +64,8 @@ class Audit:
     tail_silence_s: float
     sample_rate: int
     subtype: str
+    key: str = ""                  # the song's key as read from the audio's chroma, "" when none could be read
+    key_confidence: float = 0.0
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -217,6 +223,7 @@ def audit_audio(audio: np.ndarray, rate: int, name: str, *, subtype: str = "") -
     centers, levels = smoothed_spectrum(audio, rate)
     corr, width = stereo_bands(audio, rate)
     head, tail = edges(audio, rate)
+    song_key, key_confidence = read_key(audio, rate)
     return Audit(
         base=base,
         short_term_max=round(float(short.max()), 1) if short.size else -120.0,
@@ -225,14 +232,97 @@ def audit_audio(audio: np.ndarray, rate: int, name: str, *, subtype: str = "") -
         plr_db=round(base.true_peak_db - base.lufs, 1),
         tilt_db_per_octave=tilt(centers, levels),
         problem_bands_db=problem_shares(audio, rate),
-        resonances=resonances(centers, levels),
+        resonances=named(resonances(centers, levels), song_key, audio, rate),
         band_correlation=corr, band_width_db=width,
         mono_loss_db=mono_loss(audio, rate),
         dc_offset=round(float(np.mean(audio)), 4),
         clicks=clicks(audio, rate),
         head_silence_s=head, tail_silence_s=tail,
         sample_rate=rate, subtype=subtype,
+        key=song_key, key_confidence=key_confidence,
     )
+
+
+def read_key(audio: np.ndarray, rate: int) -> tuple[str, float]:
+    """The song's key from its chroma, or none when the read fails or the audio is too short to say."""
+    from hiremarco.mix import key as keys
+
+    try:
+        if audio.shape[0] < rate * 2:
+            return "", 0.0
+        return keys.detect(audio, rate)
+    except Exception:   # noqa: BLE001  (a missing library or a degenerate signal: the audit still stands)
+        return "", 0.0
+
+
+def peak_in_bin(freqs: np.ndarray, power: np.ndarray, center: float, per_octave: int = 12) -> float:
+    """The frequency of the strongest line inside a fractional-octave bin: a bin is a semitone wide, so its center
+    can sit half a semitone from the ring itself, and the note is named from the line, not the bin."""
+    half = 2 ** (1 / (2 * per_octave))
+    inside = np.where((freqs >= center / half) & (freqs < center * half))[0]
+    if inside.size == 0:
+        return center
+    return round(float(freqs[inside[int(np.argmax(power[inside]))]]), 1)
+
+
+def named(found: list[Resonance], song_key: str, audio: np.ndarray | None = None, rate: int = 0,
+          per_octave: int = 12) -> list[Resonance]:
+    """Each resonance at the line inside its bin, with its note, its cents and how it sits in the key."""
+    from hiremarco.mix import key as keys
+
+    freqs = power = None
+    if audio is not None and rate:
+        mono = audio.mean(axis=1) if audio.ndim > 1 else audio
+        freqs, power = signal.welch(mono, rate, nperseg=min(32768, max(1024, mono.size)))
+    out = []
+    windows = _window_lines(audio, rate, per_octave) if (audio is not None and rate and found) else []
+    for r in found:
+        hz = peak_in_bin(freqs, power, r.hz, per_octave) if freqs is not None else r.hz
+        note, cents = keys.note_of(hz)
+        relation = keys.relation(hz, song_key) if song_key else ""
+        out.append(Resonance(hz, r.above_db, note=note, cents=cents, relation=relation,
+                             notes=_notes_in_bin(windows, r.hz, per_octave)))
+    return out
+
+
+def _window_lines(audio: np.ndarray, rate: int, per_octave: int, window_s: float = 1.0) -> list[tuple[np.ndarray, np.ndarray]]:
+    """The spectrum of each sounding second: (freqs, power), for reading what a long-term bin holds over time."""
+    mono = audio.mean(axis=1) if audio.ndim > 1 else audio
+    step = max(int(window_s * rate), 1024)
+    out = []
+    for start in range(0, max(mono.size - step + 1, 1), step):
+        chunk = mono[start:start + step]
+        if chunk.size < step // 2 or float(np.max(np.abs(chunk))) < 1e-4:
+            continue
+        out.append(signal.welch(chunk, rate, nperseg=min(32768, max(1024, chunk.size))))
+    return out
+
+
+def _notes_in_bin(windows: list[tuple[np.ndarray, np.ndarray]], center: float, per_octave: int,
+                  above_db: float = 4.0) -> str:
+    """The notes that stand in a bin second by second, with the share of seconds each stands in: a long-term
+    resonance that is two notes of the part is named as such, so nobody cuts between them (live 2026-11-02: a
+    254 Hz "resonance" was B3 and C4 taking turns)."""
+    from hiremarco.mix import key as keys
+
+    if not windows:
+        return ""
+    half = 2 ** (1 / (2 * per_octave))
+    votes: dict[str, int] = {}
+    for freqs, power in windows:
+        inside = np.where((freqs >= center / half) & (freqs < center * half))[0]
+        around = np.where((freqs >= center / 2) & (freqs < center * 2))[0]
+        if inside.size == 0 or around.size == 0:
+            continue
+        line = inside[int(np.argmax(power[inside]))]
+        excess = 10 * np.log10(max(float(power[line]), 1e-18)) - 10 * np.log10(max(float(np.mean(power[around])), 1e-18))
+        if excess >= above_db:
+            name, _ = keys.note_of(float(freqs[line]))
+            votes[name] = votes.get(name, 0) + 1
+    if not votes:
+        return ""
+    top = sorted(votes.items(), key=lambda kv: -kv[1])[:2]
+    return ", ".join(f"{name} {count / len(windows):.0%}" for name, count in top)
 
 
 def audit_file(path: Path) -> Audit:
@@ -314,7 +404,11 @@ def findings(a: Audit) -> list[str]:
     if b.low_mono is not None and b.low_mono < 0.8:
         notes.append(f"low end below 120 Hz is wide (correlation {b.low_mono})")
     for r in a.resonances[:3]:
-        notes.append(f"resonance at {r.hz:g} Hz, {r.above_db} dB over its octave")
+        where = f" ({r.note}{f' {r.cents:+d} cents' if r.cents else ''}" + (f", {r.relation} of {a.key}" if r.relation else "") + ")" if r.note else ""
+        by_second = f"; second by second {r.notes}" if r.notes else ""
+        if r.notes and r.notes.count(",") == 1:
+            by_second += ": two notes of the part share this bin, not one ring"
+        notes.append(f"resonance at {r.hz:g} Hz{where}, {r.above_db} dB over its octave{by_second}")
     if a.head_silence_s > 1.0:
         notes.append(f"{a.head_silence_s} s of silence at the head")
     if a.tail_silence_s > 3.0:
@@ -337,6 +431,8 @@ def summary(a: Audit, deltas: Deltas | None = None) -> str:
     if b.correlation is not None:
         lines.append(f"correlation {b.correlation}, low end {b.low_mono}, mono loses {a.mono_loss_db} LU; width "
                      + ", ".join(f"{k} {v}" for k, v in a.band_width_db.items() if v is not None))
+    if a.key:
+        lines.append(f"key {a.key} (confidence {a.key_confidence:.2f})")
     lines += [f"finding: {n}" for n in findings(a)]
     if deltas:
         lines += [f"against {', '.join(deltas.against)}: {n}" for n in deltas.notes] or \

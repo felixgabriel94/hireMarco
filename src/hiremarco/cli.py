@@ -1180,6 +1180,26 @@ def cmd_mcu(args) -> int:
     return 0
 
 
+def cmd_takes(args) -> int:
+    """Abnormal peaks on a take, named by note and key: ``marco takes FILE [--key "C major"]``."""
+    from pathlib import Path
+
+    import soundfile as sf
+
+    from hiremarco.mix import audit, takes
+
+    path = Path(args.file).expanduser()
+    audio, rate = sf.read(str(path), always_2d=True)
+    song_key, confidence = (args.key, 1.0) if args.key else audit.read_key(audio, rate)
+    print(f"{path.name}: key {song_key or 'not read'}" + (f" (confidence {confidence:.2f})" if song_key and not args.key else ""))
+    found = takes.peaks(audio, rate, song_key, above_db=args.above)
+    if not found:
+        print("   no peak stands over its octave in a fifth of the take or more")
+    for line in takes.describe(found, song_key):
+        print("   " + line)
+    return 0
+
+
 def cmd_log(args) -> int:
     """Marco's running log: ``marco log [N]`` prints the last N lines; ``--window`` opens the film's window."""
     from pathlib import Path
@@ -1886,6 +1906,12 @@ def main(argv: list[str] | None = None) -> int:
     va.add_argument("action", choices=["keep", "list", "show"])
     va.add_argument("words", nargs="*")
     va.set_defaults(func=cmd_vault)
+
+    tk = sub.add_parser("takes", help="abnormal peaks on one take, by note and key: FILE [--key 'C major']")
+    tk.add_argument("file")
+    tk.add_argument("--key", help="the song's key when known; read from the take otherwise")
+    tk.add_argument("--above", type=float, default=5.0, help="dB over its octave a line must stand, per window (5)")
+    tk.set_defaults(func=cmd_takes)
 
     lg = sub.add_parser("log", help="Marco's running log, one line per step all day: the last lines, or --window for the film's window")
     lg.add_argument("lines", nargs="?", type=int, default=8)

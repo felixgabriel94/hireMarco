@@ -107,10 +107,29 @@ def look(name: str = "Stereo Out", *, client: MuseSpark | None = None,
          shoot: Callable[[str], bytes] = capture_window, log: Callable[[str], None] | None = None) -> Face | None:
     """Capture the plug-in window that just opened and read its face; None when the window could not be captured
     or the reading did not come back (live 2026-11-02: an empty reply), so the audio check stays the second line
-    and the job goes on."""
-    try:
-        return read_face(shoot(name), client=client)
-    except Exception as exc:   # noqa: BLE001
-        if log is not None:
-            log(f"   the face of {name} could not be read: {type(exc).__name__}: {str(exc)[-120:]}")
-        return None
+    and the job goes on. A window not there yet is captured once more after a moment (run 34: it was still
+    opening), and a reply that came back unreadable is asked once more on the same capture."""
+    png = None
+    for attempt in range(2):
+        try:
+            png = shoot(name)
+            break
+        except Exception as exc:   # noqa: BLE001
+            if attempt == 1:
+                if log is not None:
+                    log(f"   the face of {name} could not be read: {type(exc).__name__}: {str(exc)[-120:]}")
+                return None
+            time.sleep(0.6)
+    for attempt in range(2):
+        try:
+            return read_face(png, client=client)
+        except ValueError as exc:
+            if attempt == 1:
+                if log is not None:
+                    log(f"   the face of {name} could not be read twice: {str(exc)[-120:]}")
+                return None
+        except Exception as exc:   # noqa: BLE001
+            if log is not None:
+                log(f"   the face of {name} could not be read: {type(exc).__name__}: {str(exc)[-120:]}")
+            return None
+    return None

@@ -58,7 +58,8 @@ def test_measures_come_from_the_audit_dict_with_the_target():
 
 def test_the_shipped_situations_parse_and_name_real_claims():
     shipped = handbook.load()
-    assert len(shipped) >= 8 and all(s.id.startswith("S-MASTER-") for s in shipped)
+    assert len(shipped) >= 11 and all(s.id.startswith(("S-MASTER-", "S-MIX-")) for s in shipped)
+    assert {s.job for s in shipped} == {"mastering", "mixing"} and all(s.id.startswith("S-MASTER-") for s in handbook.load(job="mastering"))
     claims = {p.stem for p in (handbook.ROOT / "claims").glob("R-AUD-*.md")}
     for s in shipped:
         assert s.triggers and s.claims, s.id
@@ -70,5 +71,5 @@ def test_the_shipped_situations_parse_and_name_real_claims():
              "resonance at 254 Hz, 6.3 dB over its octave", "77.08 s of silence at the tail"]
     measures = {"lufs": -18.0, "target": -10.0, "tilt_db_per_octave": -4.58, "problem_bands_db": {"mud": -6.3},
                 "loudness_range": 4.4, "true_peak_db": -1.2}
-    ids = [s.id for s in handbook.pick(run31, measures, shipped)]
+    ids = [s.id for s in handbook.pick(run31, measures, handbook.load(job="mastering"))]
     assert ids == ["S-MASTER-01", "S-MASTER-02", "S-MASTER-03", "S-MASTER-04", "S-MASTER-05", "S-MASTER-08"]

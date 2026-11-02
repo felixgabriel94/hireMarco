@@ -231,7 +231,8 @@ def roles_for(audit: Audit, deltas: Deltas | None, room: set[str], *, purpose: s
     client = client or MuseSpark(timeout=THINK_TIMEOUT)
     from hiremarco.master import handbook
 
-    situations = handbook.pick(findings(audit), handbook.measures_of(audit.as_dict(), PURPOSES[purpose]["lufs"]))
+    situations = handbook.pick(findings(audit), handbook.measures_of(audit.as_dict(), PURPOSES[purpose]["lufs"]),
+                               handbook.load(job="mastering"))
     payload = {"purpose": purpose, "purpose_targets": PURPOSES[purpose], "direction": direction,
                "stock_only": stock_only, "audit": audit_for_model(audit, deltas, hearing), "room": roles_.for_model(room),
                "rulebook": RULEBOOK, "sources": SOURCES, "handbook": handbook.text(situations)}

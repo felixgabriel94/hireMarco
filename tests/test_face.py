@@ -34,18 +34,43 @@ def test_a_plain_face_reads_as_licensed(tmp_path):
     assert f.licensed and f.notice == "" and f.plugin == "Pro-L 2"
 
 
+def test_an_empty_reply_is_asked_once_more_and_a_late_window_captured_again(tmp_path, monkeypatch):
+    from hiremarco import config
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
+    replies = iter(["", json.dumps({"licensed": True, "notice": "", "plugin": "Pro-L 2"})])
+
+    def handler(request):
+        return httpx.Response(200, json={"model": "muse-spark-1.3", "choices": [{"message": {"content": next(replies)},
+                              "finish_reason": "length"}], "usage": {"prompt_tokens": 9, "completion_tokens": 1}})
+
+    client = MuseSpark(api_key="k", joblog=JobLog(tmp_path / "j.jsonl"), transport=httpx.MockTransport(handler))
+    shots = []
+
+    def late(name):
+        shots.append(name)
+        if len(shots) == 1:
+            raise RuntimeError("Can't get window 1 of process Logic Pro whose name = FG Master")
+        return b"png"
+
+    monkeypatch.setattr(face.time, "sleep", lambda s: None)
+    f = face.look("FG Master", client=client, shoot=late)
+    assert f is not None and f.licensed and f.plugin == "Pro-L 2" and shots == ["FG Master", "FG Master"]
+
+
 def test_an_unreadable_face_is_no_reading_not_a_stop(tmp_path, monkeypatch):
     from hiremarco import config
 
     monkeypatch.setattr(config, "STATE_DIR", tmp_path)
     said = []
     assert face.look(client=spark(tmp_path, "", []), shoot=lambda name: b"png", log=said.append) is None
-    assert said and "could not be read" in said[0] and "unreadable" in said[0]
+    assert said and "could not be read twice" in said[0] and "unreadable" in said[0]
     assert any(p.suffix == ".png" for p in (tmp_path / "capture").iterdir())
 
 
-def test_a_capture_that_fails_is_no_reading_either(tmp_path):
+def test_a_capture_that_fails_is_no_reading_either(tmp_path, monkeypatch):
     def boom(name):
         raise RuntimeError("no window named FG Master")
 
+    monkeypatch.setattr(face.time, "sleep", lambda s: None)
     assert face.look("FG Master", client=spark(tmp_path, "{}", []), shoot=boom) is None
