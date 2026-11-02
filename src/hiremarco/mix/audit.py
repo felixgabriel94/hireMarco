@@ -102,6 +102,22 @@ def block_loudness(weighted: np.ndarray, rate: int, block_s: float, hop_s: float
     return -0.691 + 10 * np.log10(np.maximum(powers, 1e-12))
 
 
+def loudest_bars(audio: np.ndarray, rate: int, bpm: float, bars: int = 8, first_bar: int = 1,
+                 beats_per_bar: int = 4) -> tuple[int, int, float]:
+    """The loudest run of ``bars`` bars in a print that starts at ``first_bar``: K-weighted loudness of every
+    bar-long hop over a block ``bars`` long, the highest taken (the artist's rule, 2026-11-02: the loudest section
+    first, since that is the peak). Returns (start bar, end bar, LUFS of that block); the whole print when it is
+    shorter than the block."""
+    bar_s = beats_per_bar * 60.0 / bpm
+    weighted = _weighted(np.asarray(audio, dtype=np.float64), rate)
+    blocks = block_loudness(weighted, rate, bars * bar_s, bar_s)
+    if blocks.size == 0:
+        whole = block_loudness(weighted, rate, weighted.shape[0] / rate, weighted.shape[0] / rate)
+        return first_bar, first_bar + max(1, int(round(weighted.shape[0] / rate / bar_s))), round(float(whole[0]), 1) if whole.size else -120.0
+    i = int(np.argmax(blocks))
+    return first_bar + i, first_bar + i + bars, round(float(blocks[i]), 1)
+
+
 def loudness_range(weighted: np.ndarray, rate: int) -> float:
     """EBU Tech 3342: short-term (3 s) loudness, absolute gate at -70, relative gate 20 LU under the gated
     mean, then the spread between the 10th and the 95th percentile."""

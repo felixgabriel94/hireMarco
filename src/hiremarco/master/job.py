@@ -52,6 +52,7 @@ class Job:
     references: Path | None = None
     today: str = field(default_factory=lambda: date.today().isoformat())
     bpm: float | None = None          # the song's tempo, for the pumping check (a ducker shows at the beat rate)
+    check_range: tuple[int, int] | None = None   # the loudest eight bars of the mix print, once it is read
 
     @property
     def bar_s(self) -> float | None:
@@ -127,7 +128,12 @@ def on_strip(plugin: str, names: list[str]) -> bool:
     return False
 
 
-CHECK_RANGE = (2, 10)   # bars: a short print that proves the chain passes audio before the master is printed
+CHECK_RANGE = (2, 10)   # bars, until the mix print is read: then the loudest eight bars (Owner 2026-11-02)
+CHECK_BARS = 8
+
+
+def check_range_of(job: Job) -> tuple[int, int]:
+    return job.check_range or CHECK_RANGE
 
 
 def prove_chain(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycle, job: Job, log,
@@ -149,18 +155,19 @@ def prove_chain(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cy
         last_print[:] = [printed.path]
         return auditing.audit_file(printed.path)
 
-    locators(*CHECK_RANGE)
-    ensure_range(bouncer, CHECK_RANGE[1], toggle_cycle, log)
+    bars = check_range_of(job)
+    locators(*bars)
+    ensure_range(bouncer, bars[1], toggle_cycle, log)
     try:
         for _ in range(4):
             heard = short_print("chain check")
             if not heard.base.silent:
-                log(f"   the chain passes audio ({heard.base.lufs} LUFS over bars {CHECK_RANGE[0]} to {CHECK_RANGE[1]})")
+                log(f"   the chain passes audio ({heard.base.lufs} LUFS over bars {bars[0]} to {bars[1]})")
                 if mix_path is not None and job.bar_s and last_print:
                     # the same eight bars of the mix against the check, loudness-matched: a ducker on the output
                     # shows as new modulation at the beat rate here, before a full print (Owner 2026-11-02)
-                    v = verifying.compare(mix_path, last_print[0], job.bpm, start_s=(CHECK_RANGE[0] - 1) * job.bar_s,
-                                          length_s=(CHECK_RANGE[1] - CHECK_RANGE[0]) * job.bar_s, tonal_only=True)
+                    v = verifying.compare(mix_path, last_print[0], job.bpm, start_s=(bars[0] - 1) * job.bar_s,
+                                          length_s=(bars[1] - bars[0]) * job.bar_s, tonal_only=True)
                     for line in v.text().splitlines():
                         log(f"   chain check {line}")
                     pumping = [r for r in v.reasons if "pumps" in r]
@@ -213,8 +220,9 @@ def run_bench(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycl
                 "bands": verifying.band_levels(audio, rate)}
 
     rows: list[dict] = []
-    locators(*CHECK_RANGE)
-    ensure_range(bouncer, CHECK_RANGE[1], toggle_cycle, log)
+    bars = check_range_of(job)
+    locators(*bars)
+    ensure_range(bouncer, bars[1], toggle_cycle, log)
     try:
         full = measure(short_print("bench full chain"))
         for ins in [i for i in strip.read().inserts if i.marcos and i.name in marcos and not i.bypassed]:
@@ -394,6 +402,19 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
         mix = bouncer.print(bouncing.MIX, bounces, mix_name)
         log(f"   {mix.path.name}: {mix.seconds} s, {mix.rate} Hz {mix.subtype}, {mix.took_s} s to print")
     result.mix = mix.path
+    if job.bpm and job.check_range is None:
+        # the loudest eight bars of the song are where the chain is checked, benched and compared (Owner 2026-11-02:
+        # the loudest section first, since that is the peak; the intro said nothing about the Imager in run 34)
+        try:
+            import soundfile as sf
+
+            audio, rate = sf.read(str(mix.path), always_2d=True)
+            start, end, lufs = auditing.loudest_bars(audio, rate, job.bpm, CHECK_BARS)
+            job.check_range = (max(start, 1), min(end, job.end_bar))
+            log(f"   the loudest {CHECK_BARS} bars: {job.check_range[0]} to {job.check_range[1]} ({lufs} LUFS); "
+                "the chain is checked and benched there")
+        except Exception as exc:   # noqa: BLE001
+            log(f"   the loudest bars could not be read ({type(exc).__name__}); bars {CHECK_RANGE[0]} to {CHECK_RANGE[1]} stand")
 
     # 2. the audit, against the references the artist owns
     log("2. the audit")

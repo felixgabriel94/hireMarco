@@ -124,3 +124,16 @@ def test_two_notes_taking_turns_in_one_bin_are_named_as_the_part_not_a_ring():
     assert set(top.notes.replace("%", "").split(", ")) >= {"B3 50", "C4 50"} or top.notes.count(",") == 1
     line = next(n for n in audit.findings(a) if n.startswith("resonance at"))
     assert "second by second" in line and "two notes of the part share this bin" in line
+
+
+def test_the_loudest_eight_bars_are_found_from_the_print():
+    rate, bpm = 22050, 120.0                      # a bar is 2 s
+    bar = 2 * rate
+    rng = np.random.default_rng(9)
+    quiet = 0.02 * rng.standard_normal(bar)
+    loud = 0.3 * rng.standard_normal(bar)
+    song = np.concatenate([quiet] * 16 + [loud] * 8 + [quiet] * 8)   # bars 1-16 quiet, 17-24 loud, 25-32 quiet
+    start, end, lufs = audit.loudest_bars(song, rate, bpm, 8)
+    assert (start, end) == (17, 25) and lufs > -30
+    short = np.concatenate([loud] * 3)
+    assert audit.loudest_bars(short, rate, bpm, 8)[:2] == (1, 4)
