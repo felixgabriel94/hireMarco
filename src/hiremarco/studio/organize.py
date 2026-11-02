@@ -295,3 +295,34 @@ def apply(plan: Plan, *, select: Callable[[str, int], None], rename: Callable[[s
     if off:
         raise RuntimeError("renames did not take: " + ", ".join(f"{n} reads {after.get(n)!r}" for n, _, _ in off))
     return done
+
+
+def live_apply(plan: Plan, *, log: Callable[[str], None] = print, conn=None) -> list[tuple[int, str, str]]:
+    """The plan's renames made in Logic with Marco's real hands: each track selected by its number (names repeat),
+    renamed through the track's name editor, and the whole list read back at the end."""
+    import subprocess
+
+    from hiremarco.studio.beat_in import BeatLoader
+    from hiremarco.studio.tracks import Tracks, parse_list
+
+    loader, hands = BeatLoader(conn=conn), Tracks(conn=conn)
+
+    def select(name: str, number: int) -> None:
+        # the Tracks window to the front: the tall Mixer window sits over the headers (live 2026-11-02)
+        subprocess.run(["osascript", "-e", 'tell application "Logic Pro" to activate'], check=False, timeout=10)
+        time.sleep(0.3)
+        subprocess.run(["osascript", "-e", 'tell application "System Events" to tell process "Logic Pro"\n'
+                        'repeat with w in (every window)\nif (name of w) ends with " - Tracks" then perform action '
+                        '"AXRaise" of w\nend repeat\nend tell'], check=False, timeout=15)
+        time.sleep(0.4)
+        loader.select(f"Track {number}")
+
+    def read_names() -> dict[int, str]:
+        return {t.number: t.name for t in parse_list(hands.run(["list"]))}
+
+    return apply(plan, select=select, rename=hands.rename, read_names=read_names, log=log)
+
+
+def load_plan(path: Path) -> Plan:
+    data = json.loads(Path(path).read_text())
+    return Plan(list(data.get("sections", [])), list(data.get("tracks", [])), str(data.get("said", "")))

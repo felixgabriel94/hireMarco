@@ -576,9 +576,17 @@ on run argv
 		set header to part(main, "Tracks header")
 		tell application "System Events"
 			set trk to missing value
-			repeat with t in (every UI element of header whose role is "AXLayoutItem")
-				if (description of t) ends with ("“" & wanted & "”") then set trk to contents of t
-			end repeat
+			if wanted starts with "Track " then
+				-- by number ("Track 14"): a session can hold many tracks with one name (live 2026-11-02, thirteen
+				-- called after the channel strip preset); one filter call, not a loop over forty headers
+				try
+					set trk to (first UI element of header whose description starts with (wanted & " "))
+				end try
+			else
+				try
+					set trk to (first UI element of header whose description ends with ("“" & wanted & "”"))
+				end try
+			end if
 			if trk is missing value then return "missing"
 			set p to position of trk
 			set z to size of trk

@@ -1450,6 +1450,32 @@ def cmd_audit(args) -> int:
     return 0
 
 
+def cmd_organize(args) -> int:
+    import json as _json
+    import time as _time
+    from pathlib import Path as _Path
+
+    from hiremarco.studio import organize
+
+    out = _Path(args.out) if args.out else _Path.home() / "Music" / "hireMarco Bounces" / "organize"
+    out.mkdir(parents=True, exist_ok=True)
+    if args.plan:
+        done = organize.live_apply(organize.load_plan(_Path(args.plan)))
+        print(f"organize: {len(done)} tracks renamed and read back")
+        return 0
+    stamp = _time.strftime("%Y-%m-%d_%H-%M")
+    layout = organize.survey()
+    (out / f"survey {stamp}.json").write_text(_json.dumps(layout.as_dict(), indent=1))
+    print(f"organize: {len(layout.tracks)} tracks surveyed")
+    plan = organize.propose(layout, direction=args.direction)
+    (out / f"plan {stamp}.json").write_text(_json.dumps(plan.as_dict(), indent=1))
+    (out / f"plan {stamp}.md").write_text("## Sections\n" + "\n".join(
+        f"- {s['name']}: bars {s['start_bar']:g} to {s['end_bar']:g}. {s['evidence']}" for s in plan.sections)
+        + "\n\n## Tracks\n" + plan.table() + f"\n\n{plan.said}\n")
+    print(f"organize: {len(plan.changes())} renames proposed; the plan is {out / f'plan {stamp}.json'}")
+    return 0
+
+
 def cmd_master(args) -> int:
     """Marco masters the open session: the mix print, the audit, the plan, the chain on the Stereo Out, the master
     print read back, and both WAVs to the Owner (Owner 2026-11-02: the film's ending)."""
@@ -1864,6 +1890,12 @@ def main(argv: list[str] | None = None) -> int:
     au.add_argument("file")
     au.add_argument("--references", metavar="DIR")
     au.set_defaults(func=cmd_audit)
+
+    og = sub.add_parser("organize", help="organize the open session: survey every track and region, plan the names, rename on go")
+    og.add_argument("--plan", metavar="JSON", help="apply this plan's renames (the Owner's go); without it, survey and propose")
+    og.add_argument("--out", metavar="DIR", help="where the survey and the plan are written (default ~/Music/hireMarco Bounces/organize)")
+    og.add_argument("--direction", default="", help="the Owner's words for this pass, if any")
+    og.set_defaults(func=cmd_organize)
 
     ma = sub.add_parser("master", help="master the open session: audit, plan, chain on the Stereo Out, both prints, the WAVs")
     ma.add_argument("--song", help="the song's name, used in the file names (default: the beat the session was set up from)")
