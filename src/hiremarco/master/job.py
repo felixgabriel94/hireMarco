@@ -272,8 +272,9 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     for role, plugin in result.plan.chain.items():
         if role == "meter":
             continue  # meters are read by the audit, not by eye; nothing to insert for the print
-        there = role_filled(role, names, claimed, room)
+        there = role_filled(role, names, set(), room)
         if there is not None:
+            names.remove(there)   # that one row is taken; a second Pro-Q 3 on the strip can fill the next EQ role
             claimed.add(there)
             plugin_of[there] = plugin
             log(f"   {role} is already on the strip ({there})")

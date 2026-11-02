@@ -92,7 +92,12 @@ def run_live(song: str | None = None, end_bar: int | None = None, *, purpose: st
                         'repeat with w in (every window)\nif (name of w) ends with " - Tracks" then perform action '
                         '"AXRaise" of w\nend repeat\nend tell'], check=False, timeout=15)
         time.sleep(0.5)
-        BeatLoader().select(track)
+        try:
+            BeatLoader().select(track)
+        except Exception as exc:   # noqa: BLE001
+            # the output chain is read from the Mixer's own strip since 2026-11-02, so a header click that did
+            # not take (the Tracks window on the TV, run 24) is logged, not fatal
+            log(f"   could not select {track!r} for the Inspector: {type(exc).__name__}: {str(exc)[-100:]}")
 
     job = jobs.Job(song, end_bar, (bounces or BOUNCES / song), purpose=purpose, direction=direction,
                    stock_only=stock_only, references=references)

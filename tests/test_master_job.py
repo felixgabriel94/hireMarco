@@ -255,3 +255,17 @@ def test_a_chain_left_bypassed_by_a_dead_run_is_reused_not_doubled(tmp_path, mon
 def test_a_plugin_outside_the_room_never_fills_a_role():
     assert jobs.role_filled("glue", ["Shadow Hil"], set(), room={"Pro-L 2"}) is None
     assert jobs.role_filled("glue", ["UAD Shadow"], set(), room={"UAD Shadow Hills Mastering Comp"}) == "UAD Shadow"
+
+
+def test_two_of_the_same_eq_on_the_strip_fill_two_eq_roles(tmp_path, monkeypatch):
+    strip = FakeStrip()
+    strip.inserts += [Insert("Pro-Q 3", False, 585, 180), Insert("Pro-Q 3", False, 585, 197), Insert("Pro-L 2", False, 585, 214)]
+    bouncer, channel = FakeBouncer(tmp_path, [-30.0, -20.0, -12.0]), FakeChannel()
+    plan = MasterPlan([{"role": "corrective_eq", "plugin": "Pro-Q 3", "why": "254 Hz"}, {"role": "tonal_eq", "plugin": "Pro-Q 3", "why": "tilt"},
+                       {"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}], -12.0, -1.0, "ok", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings([], ""))
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+             toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-Q 3", "Pro-L 2"}, log=lambda s: None)
+    assert not any(isinstance(e, tuple) and e[0] == "insert" for e in strip.log)   # a third Pro-Q 3 was not added
