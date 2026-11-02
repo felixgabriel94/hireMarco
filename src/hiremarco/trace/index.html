@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Marco Live Trace</title>
+<style>
+  :root {
+    --paper: #0B0B0D; --card: #141417; --line: #26262B; --ink: #F5F5F7; --ink2: #C7C7CC; --mute: #8E8E93;
+    --blue: #5AA9FF; --green: #34C759; --amber: #FF9F0A; --red: #FF453A;
+    --u: 1px;
+  }
+  html, body { margin: 0; padding: 0; background: var(--paper); color: var(--ink); height: 100%; overflow: hidden;
+    font-family: -apple-system, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
+  .mono { font-family: "SF Mono", ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+  header { position: fixed; top: 0; left: 0; right: 0; height: calc(var(--u) * 112); padding: 0 calc(var(--u) * 56);
+    display: flex; align-items: center; justify-content: space-between; background: var(--paper); border-bottom: 1px solid var(--line); z-index: 2; }
+  .brand { display: flex; flex-direction: column; gap: calc(var(--u) * 6); }
+  .brand .name { font-size: calc(var(--u) * 30); font-weight: 700; letter-spacing: 0.08em; }
+  .brand .sub { font-size: calc(var(--u) * 20); font-weight: 600; letter-spacing: 0.10em; color: var(--mute); }
+  .indicators { display: flex; gap: calc(var(--u) * 44); align-items: center; font-size: calc(var(--u) * 22); font-weight: 600; letter-spacing: 0.08em; color: var(--ink2); }
+  .indicators .k { color: var(--mute); margin-right: calc(var(--u) * 10); font-weight: 600; }
+  .dot { display: inline-block; width: calc(var(--u) * 14); height: calc(var(--u) * 14); border-radius: 50%; background: var(--blue); margin-right: calc(var(--u) * 12); vertical-align: middle; }
+  .dot.idle { background: var(--mute); } .dot.replay { background: var(--amber); }
+  main { position: absolute; top: calc(var(--u) * 112); bottom: 0; left: 0; right: 0; overflow: hidden; padding: calc(var(--u) * 40) calc(var(--u) * 56);
+    display: flex; flex-direction: column; justify-content: flex-end; box-sizing: border-box; }
+  #column { display: flex; flex-direction: column; gap: calc(var(--u) * 36); flex: 0 0 auto; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: calc(var(--u) * 16); padding: calc(var(--u) * 34) calc(var(--u) * 40);
+    opacity: 0; transform: translateY(calc(var(--u) * 8)); transition: opacity 240ms ease, transform 240ms ease; }
+  .card.in { opacity: 1; transform: none; }
+  .card.gone { opacity: 0; transition: opacity 300ms ease; }
+  .id { display: flex; justify-content: space-between; align-items: baseline; }
+  .who { font-size: calc(var(--u) * 28); font-weight: 700; letter-spacing: 0.10em; }
+  .who.meta { color: var(--blue); } .who.marco { color: var(--ink); }
+  .op { font-size: calc(var(--u) * 24); font-weight: 500; letter-spacing: 0.06em; color: var(--ink2); margin-top: calc(var(--u) * 6); text-transform: uppercase; }
+  .ts { font-size: calc(var(--u) * 22); color: var(--mute); }
+  .primary { font-size: calc(var(--u) * 42); font-weight: 600; line-height: 1.22; margin-top: calc(var(--u) * 22); letter-spacing: -0.005em; }
+  .detail { font-size: calc(var(--u) * 24); color: var(--ink2); margin-top: calc(var(--u) * 10); line-height: 1.35; }
+  .metrics { display: grid; grid-template-columns: 1fr auto; column-gap: calc(var(--u) * 40); row-gap: calc(var(--u) * 10); margin-top: calc(var(--u) * 22); max-width: calc(var(--u) * 760); }
+  .metrics .l { font-size: calc(var(--u) * 24); color: var(--mute); font-weight: 500; }
+  .metrics .v { font-size: calc(var(--u) * 30); color: var(--ink); font-weight: 500; text-align: right; white-space: nowrap; }
+  .metrics .v span { color: var(--mute); font-size: calc(var(--u) * 22); margin-left: calc(var(--u) * 8); }
+  .foot { display: flex; justify-content: space-between; align-items: baseline; margin-top: calc(var(--u) * 24); }
+  .status { font-size: calc(var(--u) * 24); font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+  .status.ok { color: var(--green); } .status.running { color: var(--blue); } .status.failed { color: var(--red); }
+  .status.retry, .status.low_confidence { color: var(--amber); } .status.refused { color: var(--amber); }
+  .pulse { display: inline-block; width: calc(var(--u) * 12); height: calc(var(--u) * 12); border-radius: 50%; background: var(--blue); margin-left: calc(var(--u) * 12); animation: breathe 1s ease-in-out infinite; vertical-align: middle; }
+  @keyframes breathe { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+  .meta2 { font-size: calc(var(--u) * 22); color: var(--mute); display: flex; gap: calc(var(--u) * 32); }
+  #drawer { position: fixed; right: 0; top: calc(var(--u) * 112); bottom: 0; width: 42%; background: #0E0E11; border-left: 1px solid var(--line);
+    padding: calc(var(--u) * 32) calc(var(--u) * 36); overflow: hidden; display: none; z-index: 3; }
+  #drawer.on { display: block; }
+  #drawer h2 { font-size: calc(var(--u) * 22); letter-spacing: 0.10em; color: var(--mute); margin: 0 0 calc(var(--u) * 18) 0; font-weight: 700; }
+  #drawer pre { font-size: calc(var(--u) * 19); line-height: 1.45; color: var(--ink2); white-space: pre-wrap; word-break: break-word; margin: 0; }
+  #drawer .k { color: var(--blue); }
+  body.detail main { right: 42%; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><div class="name">MARCO</div><div class="sub">LIVE MODEL TRACE</div></div>
+  <div class="indicators">
+    <span><span id="live-dot" class="dot idle"></span><span id="live">IDLE</span></span>
+    <span><span class="k">META MODEL API</span><span id="api">—</span></span>
+    <span><span class="k">MODEL</span><span id="model">—</span></span>
+    <span><span class="k">REQUEST</span><span id="request" class="mono">—</span></span>
+    <span><span id="latency" class="mono">—</span></span>
+  </div>
+</header>
+<main><div id="column"></div></main>
+<aside id="drawer"><h2>DETAIL · RAW EVENT</h2><pre id="raw">select an event</pre></aside>
+<script>
+(function () {
+  const MAX = 6;                         // cards kept in the column
+  const col = document.getElementById('column');
+  const cards = new Map();               // call_id or event index -> element
+  const state = { lastTs: 0, lastModel: '', lastRequest: '', lastLatency: null, apiOk: null, apiTs: 0, replay: false, detail: false, last: null };
+  const words = (m) => (m || '').split(/[-_]/).map(p => p.toUpperCase()).join(' ');
+  const hhmm = (ts) => { const d = new Date(ts); const p = n => String(n).padStart(2, '0'); return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${String(d.getMilliseconds()).padStart(3, '0')}`; };
+  const statusWord = (e) => {
+    const k = e.kind, s = e.status;
+    if (s === 'running') return k.startsWith('model') ? 'CALLING' : k.startsWith('verification') ? 'CHECKING' : 'RUNNING';
+    if (s === 'ok') return k === 'model_call_completed' ? 'RESPONSE RECEIVED' : k === 'verification_completed' ? 'VERIFIED' : k === 'tool_completed' ? 'COMPLETE' : k === 'decision_made' ? 'DECIDED' : k === 'analysis_generated' ? 'ANALYSIS COMPLETE' : 'OK';
+    if (s === 'failed') return k === 'verification_completed' ? 'NOT VERIFIED' : k.startsWith('model') ? 'MODEL CALL FAILED' : 'FAILED';
+    if (s === 'retry') return 'MODEL CALL FAILED · RETRYING';
+    if (s === 'low_confidence') return 'LOW CONFIDENCE';
+    if (s === 'refused') return 'HELD';
+    return s.toUpperCase();
+  };
+  const mark = (s) => s === 'ok' ? '✓ ' : (s === 'failed' ? '✗ ' : (s === 'retry' || s === 'low_confidence' || s === 'refused') ? '! ' : '');
+  function render(e, el) {
+    const meta = e.source === 'meta';
+    const who = meta ? words(e.model) : 'MARCO';
+    const kindWord = { analysis_generated: 'ANALYSIS', decision_made: 'DECISION', tool_invoked: 'ACTION', tool_completed: 'ACTION', verification_started: 'VERIFICATION', verification_completed: 'VERIFICATION', note: 'NOTE' }[e.kind];
+    const op = meta ? (e.operation || '') : [kindWord, e.tool ? e.tool.toUpperCase() : '', e.kind === 'decision_made' ? (e.operation || '').toUpperCase() : ''].filter(Boolean).join(' · ');
+    const running = e.status === 'running';
+    const metrics = (e.metrics || []).map(m => `<div class="l">${esc(m.label)}</div><div class="v mono">${esc(m.value)}${m.unit ? `<span>${esc(m.unit)}</span>` : ''}</div>`).join('');
+    const lat = e.latency_ms != null ? `${(e.latency_ms / 1000).toFixed(2)} s` : '';
+    const conf = e.confidence != null ? `confidence ${(e.confidence * 100).toFixed(0)}%` : '';
+    const attempt = e.attempt ? `attempt ${e.attempt}` : '';
+    const req = e.request_id ? `REQUEST ${e.request_id}` : '';
+    el.innerHTML = `
+      <div class="id"><div><div class="who ${meta ? 'meta' : 'marco'}">${esc(who)}</div><div class="op">${esc(op)}${running ? '<span class="pulse"></span>' : ''}</div></div><div class="ts mono">${hhmm(e.ts)}</div></div>
+      ${!running && e.summary ? `<div class="primary">${esc(e.summary)}</div>` : ''}
+      ${e.detail ? `<div class="detail">${esc(e.detail)}</div>` : ''}
+      ${metrics ? `<div class="metrics">${metrics}</div>` : ''}
+      <div class="foot"><div class="status ${e.status}">${mark(e.status)}${statusWord(e)}</div><div class="meta2 mono">${[attempt, conf, lat, req].filter(Boolean).map(esc).map(s => `<span>${s}</span>`).join('')}</div></div>`;
+    el.dataset.raw = JSON.stringify(e, null, 2);
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+  function place(e) {
+    const key = e.call_id ? e.call_id : (e.kind === 'tool_completed' && state.lastTool && state.lastTool.summary === e.summary && state.lastTool.tool === e.tool) ? state.lastTool.key : `n${++place.n}`;
+    if (e.kind === 'tool_invoked') state.lastTool = { key, summary: e.summary, tool: e.tool };
+    let el = cards.get(key);
+    if (!el) {
+      el = document.createElement('section'); el.className = 'card'; col.appendChild(el); cards.set(key, el);
+      requestAnimationFrame(() => el.classList.add('in'));
+      while (col.children.length > MAX) { const old = col.firstElementChild; for (const [k, v] of cards) if (v === old) cards.delete(k); old.remove(); }
+    }
+    render(e, el);
+    el.onclick = () => { document.getElementById('raw').innerHTML = esc(el.dataset.raw).replace(/"([a-z_]+)":/g, '<span class="k">"$1":</span>'); };
+    state.last = el;
+  }
+  place.n = 0;
+  function header(e) {
+    const t = Date.parse(e.ts); if (t > state.lastTs) state.lastTs = t;
+    if (e.kind.startsWith('model_call')) { state.lastModel = e.model; if (e.request_id) state.lastRequest = e.request_id; }
+    // the API is reachable when a reply came back at all; only no reply or an HTTP error means unreachable
+    if (e.kind === 'model_call_completed') { state.apiOk = true; state.apiTs = t; if (e.latency_ms != null) state.lastLatency = e.latency_ms; }
+    if (e.kind === 'model_call_failed' && e.status === 'failed') { state.apiOk = !/^(no reply|HTTP )/.test(e.summary || ''); state.apiTs = t; }
+  }
+  function tick() {
+    const now = Date.now(), fresh = state.lastTs && now - state.lastTs < 5 * 60e3;
+    const dot = document.getElementById('live-dot'), live = document.getElementById('live');
+    if (state.replay) { dot.className = 'dot replay'; live.textContent = 'REPLAY'; }
+    else if (fresh) { dot.className = 'dot'; live.textContent = 'LIVE'; }
+    else { dot.className = 'dot idle'; live.textContent = 'IDLE'; }
+    document.getElementById('api').textContent = state.apiTs && now - state.apiTs < 10 * 60e3 ? (state.apiOk ? 'CONNECTED' : 'UNREACHABLE') : '—';
+    document.getElementById('model').textContent = state.lastModel ? words(state.lastModel) : '—';
+    document.getElementById('request').textContent = state.lastRequest || '—';
+    document.getElementById('latency').textContent = state.lastLatency != null ? `${state.lastLatency} ms` : '—';
+  }
+  window.marco = {
+    push(events) { for (const e of events) { try { header(e); place(e); } catch (err) { console.error(err); } } tick(); },
+    replay(on) { state.replay = !!on; tick(); },
+    detail(on) { state.detail = !!on; document.body.classList.toggle('detail', state.detail); document.getElementById('drawer').classList.toggle('on', state.detail); if (state.detail && state.last) state.last.onclick(); },
+    scale(u) { document.documentElement.style.setProperty('--u', `${u}px`); }
+  };
+  setInterval(tick, 1000);
+})();
+</script>
+</body>
+</html>

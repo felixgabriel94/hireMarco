@@ -83,7 +83,15 @@ def read_face(png: bytes, *, client: MuseSpark | None = None, tokens: int = 2000
     )
     try:
         data = json.loads(reply.text)
-        return Face(bool(data["licensed"]), str(data.get("notice", "")).strip()[:200], str(data.get("plugin", "")).strip()[:80])
+        face = Face(bool(data["licensed"]), str(data.get("notice", "")).strip()[:200], str(data.get("plugin", "")).strip()[:80])
+        from hiremarco import events
+
+        events.emit("analysis_generated", source="meta", model=MODEL, operation="plug-in face",
+                    status="ok" if face.licensed else "low_confidence",
+                    summary=f"{face.plugin or 'the plug-in'}: {'licensed' if face.licensed else face.notice or 'a license notice'}",
+                    metrics=[("Plug-in", face.plugin or "?", ""), ("Licensed", "yes" if face.licensed else "no", ""),
+                             ("Notice", face.notice or "none", "")])
+        return face
     except (ValueError, KeyError, TypeError) as exc:
         keep(png, reply.text, "unreadable")
         raise ValueError(f"the face reading came back unreadable ({reply.finish_reason or 'no finish reason'}, "
@@ -131,6 +139,10 @@ def look(name: str = "Stereo Out", *, client: MuseSpark | None = None,
                 if log is not None:
                     log(f"   the face of {name} could not be read twice: {str(exc)[-120:]}")
                 return None
+            from hiremarco import events
+
+            events.emit("model_call_failed", source="meta", model=MODEL, operation="plug-in face", status="retry",
+                        summary="the reading came back unreadable; looking once more with more room", attempt=2)
         except Exception as exc:   # noqa: BLE001
             if log is not None:
                 log(f"   the face of {name} could not be read: {type(exc).__name__}: {str(exc)[-120:]}")

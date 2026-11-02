@@ -114,6 +114,11 @@ def segment_masks(image: bytes, phrase: str, *, mime: str = "image/jpeg", min_co
         ]}],
         "metadata": {"include_confidence": "true", "mask_encoding": "one_bit"},
     }
+    from hiremarco import events
+
+    call_id, request_id = events.new_call_id(), events.next_request_id()
+    events.emit("model_call_started", source="meta", model=MODEL, operation=events.operation_words("segment"),
+                status="running", summary=f"looking for {phrase}", request_id=request_id, call_id=call_id)
     started = time.monotonic()
     try:
         with httpx.Client(base_url=BASE_URL, timeout=timeout, transport=transport,
@@ -121,11 +126,16 @@ def segment_masks(image: bytes, phrase: str, *, mime: str = "image/jpeg", min_co
             response = http.post("/responses", json=body)
     except httpx.HTTPError as exc:
         joblog.append(JobRow(job="segment", model=MODEL, ok=False, note=f"transport: {type(exc).__name__}"))
+        events.emit("model_call_failed", source="meta", model=MODEL, operation=events.operation_words("segment"),
+                    status="failed", summary=f"no reply: {type(exc).__name__}", request_id=request_id, call_id=call_id)
         raise SamError(f"request failed: {type(exc).__name__}") from exc
     duration_ms = int((time.monotonic() - started) * 1000)
     if response.status_code >= 400:
         joblog.append(JobRow(job="segment", model=MODEL, ok=False, duration_ms=duration_ms,
                              note=f"http {response.status_code}"))
+        events.emit("model_call_failed", source="meta", model=MODEL, operation=events.operation_words("segment"),
+                    status="failed", summary=f"HTTP {response.status_code} from the Meta Model API",
+                    latency_ms=duration_ms, request_id=request_id, call_id=call_id)
         raise SamError(f"Meta Model API returned HTTP {response.status_code}")
     data = response.json()
     text = data.get("output_text") or "".join(
@@ -136,4 +146,8 @@ def segment_masks(image: bytes, phrase: str, *, mime: str = "image/jpeg", min_co
     found = [f for f in parse_found(text) if f.box.confidence >= min_confidence]
     joblog.append(JobRow(job="segment", model=MODEL, cost_usd=PRICES_PER_IMAGE[MODEL], duration_ms=duration_ms,
                          ok=True, note=f"{phrase}: {len(found)} found"))
+    events.emit("model_call_completed", source="meta", model=MODEL, operation=events.operation_words("segment"),
+                status="ok" if found else "low_confidence", summary=f"{phrase}: {len(found)} found",
+                metrics=[("Found", str(len(found)), ""), ("Confidence", f"{max((f.box.confidence for f in found), default=0):.0%}", "")],
+                latency_ms=duration_ms, request_id=request_id, call_id=call_id, cost_usd=PRICES_PER_IMAGE[MODEL])
     return found

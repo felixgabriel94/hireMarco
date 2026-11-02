@@ -264,12 +264,22 @@ def execute_effect(
     ``critic`` takes a plain description of the action and returns
     (approved, reason). An exception from it counts as a refusal.
     """
+    from hiremarco import events
+
     fields = dict(
         tenant_id=tenant_id, idempotency_key=idempotency_key, capability=capability, channel=channel,
         target=target, message=message, department=department, workflow_name=workflow_name,
     )
-    check_outbound(conn, **fields, today=today, rules_path=rules_path, owner_request=owner_request, offer=offer,
-                   confirmed=confirmed)
+    tool = events.tool_words(channel)
+    try:
+        check_outbound(conn, **fields, today=today, rules_path=rules_path, owner_request=owner_request, offer=offer,
+                       confirmed=confirmed)
+    except Refused as held:
+        events.emit("tool_invoked", source="marco", tool=tool, operation=capability.replace("_", " "), status="refused",
+                    summary=message, detail=f"held by the rules: {held}")
+        raise
+    events.emit("tool_invoked", source="marco", tool=tool, operation=capability.replace("_", " "), status="running",
+                summary=message)
     if critic is not None:
         # The Owner's number is private (RULES.md keeps it in the env file), so the critic is told whose it is
         # instead of seeing it; without that it held the first call to the Owner as having no switch.
@@ -288,15 +298,26 @@ def execute_effect(
         try:
             approved, reason = critic(description)
         except Exception as exc:
+            events.emit("tool_completed", source="marco", tool=tool, operation=capability.replace("_", " "),
+                        status="refused", summary=message, detail=f"critic unavailable ({type(exc).__name__})")
             raise Refused(f"critic unavailable ({type(exc).__name__}), so holding") from exc
         if not approved:
+            events.emit("tool_completed", source="marco", tool=tool, operation=capability.replace("_", " "),
+                        status="refused", summary=message, detail=f"the critic held it: {reason}")
             raise Refused(f"critic held it: {reason}")
+    began = time.monotonic()
     try:
         result = run()
-    except Exception:
+    except Exception as exc:
         record_effect(conn, **fields, ok=False, today=today)
+        events.emit("tool_completed", source="marco", tool=tool, operation=capability.replace("_", " "), status="failed",
+                    summary=message, detail=f"{type(exc).__name__}: {str(exc)[-100:]}",
+                    latency_ms=int((time.monotonic() - began) * 1000))
         raise
     record_effect(conn, **fields, ok=True, today=today)
+    events.emit("tool_completed", source="marco", tool=tool, operation=capability.replace("_", " "), status="ok",
+                summary=message, detail=str(result)[:120] if isinstance(result, str) else "",
+                latency_ms=int((time.monotonic() - began) * 1000))
     return result
 
 

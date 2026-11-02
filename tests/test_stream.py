@@ -25,6 +25,7 @@ def test_nothing_private_is_written(tmp_path):
     assert text == "replied to [email] and [number]; token [key] [bearer]"
     assert stream.clean("Pro-Q 3 at 254 Hz, -1.5 dB, Q 6, bar 21 to 45") == "Pro-Q 3 at 254 Hz, -1.5 dB, Q 6, bar 21 to 45"
     assert stream.clean("mix 2026-11-02.wav at 48000 Hz, 2026-11-02T13:15:54") == "mix 2026-11-02.wav at 48000 Hz, 2026-11-02T13:15:54"
+    assert stream.clean("master v2 2026-11-02 (3).wav against the mix") == "master v2 2026-11-02 (3).wav against the mix"
 
 
 def test_the_job_log_feeds_the_stream_with_the_model_first(tmp_path):

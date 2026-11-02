@@ -160,6 +160,11 @@ def _ask(client: MuseSpark, instructions: str, payload: dict, *, job: str, schem
         except MuseSparkError as exc:
             if attempt == len(RETRY_WAITS) or not _passing(exc):
                 raise
+            from hiremarco import events
+
+            events.emit("model_call_failed", source="meta", model=MODEL, operation=events.operation_words(job), status="retry",
+                        summary=f"retrying in {RETRY_WAITS[attempt]:g} s, attempt {attempt + 2} of {len(RETRY_WAITS) + 1}",
+                        attempt=attempt + 2)
             sleep(RETRY_WAITS[attempt])
     if reply.finish_reason == "length":
         if retried:

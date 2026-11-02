@@ -1200,6 +1200,30 @@ def cmd_takes(args) -> int:
     return 0
 
 
+def cmd_trace(args) -> int:
+    """The live trace: ``marco trace`` opens it on the TV; ``replay FILE`` plays a recorded stream; ``detail on|off``."""
+    from pathlib import Path
+
+    from hiremarco import tracewindow
+
+    if args.action == "detail":
+        flag = tracewindow.detail_flag()
+        if args.words and args.words[0] == "on":
+            flag.parent.mkdir(parents=True, exist_ok=True)
+            flag.write_text("on")
+            print("detail drawer on")
+        else:
+            flag.unlink(missing_ok=True)
+            print("detail drawer off")
+        return 0
+    replay = Path(args.words[0]).expanduser() if args.action == "replay" and args.words else None
+    if args.action == "replay" and replay is None:
+        print("marco trace replay FILE")
+        return 2
+    tracewindow.show(screen=args.screen, fill=args.fill, unit=args.unit, replay=replay, speed=args.speed)
+    return 0
+
+
 def cmd_log(args) -> int:
     """Marco's running log: ``marco log [N]`` prints the last N lines; ``--window`` opens the film's window."""
     from pathlib import Path
@@ -1928,6 +1952,15 @@ def main(argv: list[str] | None = None) -> int:
     tk.add_argument("--key", help="the song's key when known; read from the take otherwise")
     tk.add_argument("--above", type=float, default=5.0, help="dB over its octave a line must stand, per window (5)")
     tk.set_defaults(func=cmd_takes)
+
+    tr = sub.add_parser("trace", help="the live model trace: show (default) | replay FILE | detail on|off")
+    tr.add_argument("action", nargs="?", choices=["show", "replay", "detail"], default="show")
+    tr.add_argument("words", nargs="*")
+    tr.add_argument("--screen", type=int, default=2, help="which display: 2 is the TV, 1 the Mac's own")
+    tr.add_argument("--fill", type=float, default=1.0, help="share of the display (1.0 fills it, borderless)")
+    tr.add_argument("--unit", type=float, help="type scale: 1.0 on a 1920-point display; smaller shrinks everything")
+    tr.add_argument("--speed", type=float, default=1.0, help="replay speed (1.0 is true timing)")
+    tr.set_defaults(func=cmd_trace)
 
     lg = sub.add_parser("log", help="Marco's running log, one line per step all day: the last lines, or --window for the film's window")
     lg.add_argument("lines", nargs="?", type=int, default=8)

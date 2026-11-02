@@ -26,6 +26,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
+from hiremarco import events
 from hiremarco.master import plan as planning
 from hiremarco.master import roles
 from hiremarco.master.rules import PURPOSES
@@ -304,6 +305,30 @@ def ensure_range(bouncer: bouncing.Bouncer, end_bar: int, toggle_cycle: Callable
     raise RuntimeError(f"the Bounce dialog would not take bars 1 to {end_bar}")
 
 
+def emit_analysis(audit, hearing) -> None:
+    """The audit as the trace shows it: what stands out, then the whole-song numbers."""
+    try:
+        a, b = audit, audit.base
+        stands = []
+        if a.resonances:
+            r = a.resonances[0]
+            stands.append(("Resonance", f"{r.hz:g} Hz {r.note}".strip(), ""))
+        if a.key:
+            stands.append(("Key", a.key, ""))
+        if b.low_mono is not None:
+            stands.append(("Low-end correlation", f"{b.low_mono:.2f}", ""))
+        stems = (hearing or {}).get("stems") if isinstance(hearing, dict) else None
+        if isinstance(stems, dict) and isinstance(stems.get("lufs"), dict) and "vocals" in stems["lufs"]:
+            rest = [v for k, v in stems["lufs"].items() if k != "vocals"]
+            if rest:
+                stands.append(("Vocal balance", f"{stems['lufs']['vocals'] - max(rest):+.1f}", "dB"))
+        events.emit("analysis_generated", source="marco", operation="mastering analysis", status="ok",
+                    summary=f"{b.lufs} LUFS, {b.true_peak_db} dBTP, crest {b.crest_db} dB, range {a.loudness_range} LU",
+                    metrics=stands[:4], confidence=a.key_confidence if a.key else None)
+    except Exception:   # noqa: BLE001  (the trace never stops the work)
+        pass
+
+
 def climb_ladder(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycle, channel, job: Job, result: Result,
                  listen, log) -> dict | None:
     """The limiter's gain up one dB at a time on the loudest bars until a clean bar breaks (master.ladder)."""
@@ -366,6 +391,11 @@ def climb_ladder(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_c
     finally:
         locators(1, job.end_bar)
         ensure_range(bouncer, job.end_bar, toggle_cycle, log)
+    if out.ceiling_gain_db is not None:
+        events.emit("decision_made", source="marco", operation="loudness ceiling", status="ok",
+                    summary=f"ceiling: limiter gain {out.ceiling_gain_db:+.1f} dB, {out.ceiling_lufs:.1f} LUFS on the loudest bars",
+                    detail=f"what gave first: {out.gave_first}" if out.gave_first else "nothing gave within the ladder",
+                    metrics=[("Steps", str(len(out.steps)), ""), ("Ceiling", f"{out.ceiling_lufs:.1f}", "LUFS")])
     return out.as_dict()
 
 
@@ -397,7 +427,7 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
 
 
 def inserts_ledger(song: str) -> Path:
-    from hiremarco import config
+    from hiremarco import config, events
 
     folder = Path(config.STATE_DIR) / "inserts"
     folder.mkdir(parents=True, exist_ok=True)
@@ -503,6 +533,8 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
         for line in listening.highlights(result.hearing):
             log(f"   {line}")
 
+    emit_analysis(result.audit_mix, result.hearing)
+
     # 3. the plan, from the deepest brain, judged by the critic
     log("3. the plan")
     result.plan = planning.roles_for(result.audit_mix, deltas, room, purpose=job.purpose, direction=job.direction,
@@ -514,6 +546,9 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
         log(f"   {r['role']}: {r['plugin']}. {r['why']}")
         if as_model:
             as_model("")
+        events.emit("decision_made", source="marco", operation=r["role"].replace("_", " "), status="ok",
+                    summary=f"{r['role'].replace('_', ' ')}: {r['plugin']}", detail=str(r.get("why", ""))[:120],
+                    metrics=[("Measured", str(r.get("measured", ""))[:24], "")] if r.get("measured") else None)
     log(f"   target {result.plan.target_lufs} LUFS, ceiling {result.plan.ceiling_dbtp} dBTP")
     if result.plan.critic:
         log(f"   critic: {'approved' if result.plan.critic[0] else 'held'}: {result.plan.critic[1]}")

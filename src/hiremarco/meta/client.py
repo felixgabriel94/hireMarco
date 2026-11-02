@@ -89,17 +89,28 @@ class MuseSpark:
         if reasoning_effort is not None:
             body["reasoning_effort"] = reasoning_effort
 
+        from hiremarco import events
+
+        call_id, request_id = events.new_call_id(), events.next_request_id()
+        operation = events.operation_words(job)
+        events.emit("model_call_started", source="meta", model=model, operation=operation, status="running",
+                    summary=f"{operation}, {len(messages)} message{'s' if len(messages) != 1 else ''} in", request_id=request_id, call_id=call_id)
         started = time.monotonic()
         try:
             response = self._client.post("/chat/completions", json=body)
         except httpx.HTTPError as exc:
             self.joblog.append(JobRow(job=job, model=model, ok=False, note=f"transport: {type(exc).__name__}"))
+            events.emit("model_call_failed", source="meta", model=model, operation=operation, status="failed",
+                        summary=f"no reply: {type(exc).__name__}", request_id=request_id, call_id=call_id)
             raise MuseSparkError(f"request failed: {type(exc).__name__}") from exc
         duration_ms = int((time.monotonic() - started) * 1000)
 
         if response.status_code >= 400:
             # The body may echo the request; log only the status, never the text.
             self.joblog.append(JobRow(job=job, model=model, ok=False, duration_ms=duration_ms, note=f"http {response.status_code}"))
+            events.emit("model_call_failed", source="meta", model=model, operation=operation, status="failed",
+                        summary=f"HTTP {response.status_code} from the Meta Model API", latency_ms=duration_ms,
+                        request_id=request_id, call_id=call_id)
             raise MuseSparkError(f"Meta Model API returned HTTP {response.status_code}")
 
         data = response.json()
@@ -125,6 +136,13 @@ class MuseSpark:
             job=job, model=model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             cached_tokens=cached_tokens, cost_usd=reply.cost_usd, duration_ms=duration_ms, ok=True,
         ))
+        cut_short = reply.finish_reason == "length" and not reply.text.strip()
+        events.emit("model_call_completed", source="meta", model=reply.model or model, operation=operation,
+                    status="failed" if cut_short else "ok",
+                    summary="ran out of room before it answered" if cut_short else events.reply_summary(reply.text),
+                    latency_ms=duration_ms, request_id=request_id, call_id=call_id,
+                    tokens={"prompt": prompt_tokens, "completion": completion_tokens, "cached": cached_tokens},
+                    cost_usd=reply.cost_usd)
         return reply
 
     def ask(self, prompt: str, *, developer: str | None = None, **kwargs: Any) -> Reply:
