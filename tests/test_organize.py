@@ -77,3 +77,8 @@ def test_apply_renames_each_change_and_reads_the_names_back():
                           rename=lambda new: names.__setitem__(6, new) or "renamed", read_names=lambda: dict(names),
                           log=lambda s: None)
     assert done == [(6, "intro lead", "Lead Intro")] and log == [("select", "intro lead", 6)]
+
+
+def test_names_read_back_by_logics_track_number_not_the_row():
+    listing = "1\tTrack 1 \u201cBEAT\u201d\t13\n2\tTrack 4 \u201cVOCALS\u201d\t0\n3\tTrack 6 \u201cLead Vox 1\u201d, mute\t19\n"
+    assert organize.names_by_track_number(listing) == {1: "BEAT", 4: "VOCALS", 6: "Lead Vox 1"}

@@ -318,9 +318,23 @@ def live_apply(plan: Plan, *, log: Callable[[str], None] = print, conn=None) -> 
         loader.select(f"Track {number}")
 
     def read_names() -> dict[int, str]:
-        return {t.number: t.name for t in parse_list(hands.run(["list"]))}
+        # keyed by Logic's own track number ("Track 14"), the number the survey and the plan use; the list's row
+        # index is not it once a track is hidden or inside a closed stack (live 2026-11-02: every name read one off)
+        return names_by_track_number(hands.run(["list"]))
 
     return apply(plan, select=select, rename=hands.rename, read_names=read_names, log=log)
+
+
+def names_by_track_number(listing: str) -> dict[int, str]:
+    """'3<TAB>Track 6 “intro lead”<TAB>19' lines read as {6: "intro lead"}: Logic's track number, not the row."""
+    import re
+
+    out = {}
+    for line in listing.splitlines():
+        m = re.match(r"\s*\d+\t(?:Track (\d+))?\s*[\u201c\"](.*?)[\u201d\"]", line)
+        if m and m.group(1):
+            out[int(m.group(1))] = m.group(2)
+    return out
 
 
 def load_plan(path: Path) -> Plan:
