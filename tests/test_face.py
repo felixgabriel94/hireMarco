@@ -32,3 +32,20 @@ def test_a_plain_face_reads_as_licensed(tmp_path):
     reply = json.dumps({"licensed": True, "notice": "", "plugin": "Pro-L 2"})
     f = face.look(client=spark(tmp_path, reply, []), shoot=lambda name: b"png")
     assert f.licensed and f.notice == "" and f.plugin == "Pro-L 2"
+
+
+def test_an_unreadable_face_is_no_reading_not_a_stop(tmp_path, monkeypatch):
+    from hiremarco import config
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
+    said = []
+    assert face.look(client=spark(tmp_path, "", []), shoot=lambda name: b"png", log=said.append) is None
+    assert said and "could not be read" in said[0] and "unreadable" in said[0]
+    assert any(p.suffix == ".png" for p in (tmp_path / "capture").iterdir())
+
+
+def test_a_capture_that_fails_is_no_reading_either(tmp_path):
+    def boom(name):
+        raise RuntimeError("no window named FG Master")
+
+    assert face.look("FG Master", client=spark(tmp_path, "{}", []), shoot=boom) is None

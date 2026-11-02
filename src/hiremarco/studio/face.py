@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -75,17 +76,40 @@ def read_face(png: bytes, *, client: MuseSpark | None = None) -> Face:
                 {"type": "image_url", "image_url": {"url": data_url(png, "image/png")}},
             ]},
         ],
-        job="plugin_face", model=MODEL, max_completion_tokens=600,
+        job="plugin_face", model=MODEL, max_completion_tokens=2000,   # 600 ran out before the JSON (live 2026-11-02)
         response_format={"type": "json_schema", "json_schema": {"name": "face", "schema": SCHEMA, "strict": True}},
     )
     try:
         data = json.loads(reply.text)
         return Face(bool(data["licensed"]), str(data.get("notice", "")).strip()[:200], str(data.get("plugin", "")).strip()[:80])
     except (ValueError, KeyError, TypeError) as exc:
-        raise ValueError("the face reading came back unreadable") from exc
+        keep(png, reply.text, "unreadable")
+        raise ValueError(f"the face reading came back unreadable ({reply.finish_reason or 'no finish reason'}, "
+                         f"{len(reply.text or '')} chars)") from exc
+
+
+def keep(png: bytes, text: str, why: str) -> None:
+    """The capture and the raw reply kept in the state folder when a reading fails, so it can be read later."""
+    try:
+        from hiremarco import config
+
+        folder = Path(config.STATE_DIR) / "capture"
+        folder.mkdir(parents=True, exist_ok=True)
+        stamp = time.strftime("%Y-%m-%dT%H-%M-%S")
+        (folder / f"{stamp}_face_{why}.png").write_bytes(png)
+        (folder / f"{stamp}_face_{why}.txt").write_text(text or "")
+    except Exception:
+        pass
 
 
 def look(name: str = "Stereo Out", *, client: MuseSpark | None = None,
-         shoot: Callable[[str], bytes] = capture_window) -> Face:
-    """Capture the plug-in window that just opened and read its face."""
-    return read_face(shoot(name), client=client)
+         shoot: Callable[[str], bytes] = capture_window, log: Callable[[str], None] | None = None) -> Face | None:
+    """Capture the plug-in window that just opened and read its face; None when the window could not be captured
+    or the reading did not come back (live 2026-11-02: an empty reply), so the audio check stays the second line
+    and the job goes on."""
+    try:
+        return read_face(shoot(name), client=client)
+    except Exception as exc:   # noqa: BLE001
+        if log is not None:
+            log(f"   the face of {name} could not be read: {type(exc).__name__}: {str(exc)[-120:]}")
+        return None
