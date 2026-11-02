@@ -129,8 +129,9 @@ class StereoOut:
     def menus(self) -> list[list[float]]:
         return json.loads(self.jxa("menu_bounds.js") or "[]")
 
-    def insert(self, name: str) -> Strip:
-        """``name`` as Logic's plug-in menu finds it; the first search result's first variant goes in."""
+    def insert(self, name: str, *, look: Callable[[], object] | None = None) -> Strip:
+        """``name`` as Logic's plug-in menu finds it; the first search result's first variant goes in. ``look``
+        runs while the plug-in's own window is still open, before it is closed: Marco reads its face there."""
         if self.dry_run:
             self._gated(None, "insert", f"insert {name} on the Stereo Out")
             return Strip(None, [], None)
@@ -194,7 +195,13 @@ class StereoOut:
         if len(after.inserts) != len(before.inserts) + 1:
             self._snapshot(f"{name} did not land")
             raise RuntimeError(f"{name} did not land on the Stereo Out (reads {[i.name for i in after.inserts]})")
-        self.close_windows()
+        if look is not None:
+            try:
+                look()
+            finally:
+                self.close_windows()
+        else:
+            self.close_windows()
         return after
 
     def _snapshot(self, why: str) -> None:

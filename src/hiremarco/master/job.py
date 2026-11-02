@@ -188,7 +188,8 @@ def mark_in_ledger(plugin: str, status: str, why: str) -> None:
 def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Channel, locators: Callable[[int, int], None],
         toggle_cycle: Callable[[], None], select_track: Callable[[], None], room: set[str] | None = None,
         client=None, critic=None, deliver: Callable[[Path, str], str] | None = None, log: Callable[[str], None] = print,
-        sleep=time.sleep, mark_plugin: Callable[[str, str, str], None] | None = mark_in_ledger) -> Result:
+        sleep=time.sleep, mark_plugin: Callable[[str, str, str], None] | None = mark_in_ledger,
+        look_at_face: Callable[[], object] | None = None) -> Result:
     result = Result()
     bounces = Path(job.bounces).expanduser()
     bounces.mkdir(parents=True, exist_ok=True)
@@ -261,12 +262,33 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
             plugin_of[there] = plugin
             log(f"   {role} is already on the strip ({there})")
             continue
-        after = strip.insert(plugin)
-        landed = [i.name for i in after.inserts if i.name not in names] or [plugin]
-        names = [i.name for i in after.inserts]
-        claimed.add(landed[-1])
-        plugin_of[landed[-1]] = plugin
-        log(f"   {landed[-1]} in ({role})")
+        # the plug-in the plan named, then the room's next candidates for the role when a face says it is not
+        # licensed (Owner 2026-11-02): out of the room, in the ledger, bypassed here; the audio check is the second line
+        candidates = [plugin] + [c for c in roles.CANDIDATES.get(role, ()) if c in room and c != plugin and c not in result.dead]
+        for candidate in candidates:
+            seen_face: list = []
+            after = strip.insert(candidate, look=(lambda: seen_face.append(look_at_face())) if look_at_face else None)
+            landed = [i.name for i in after.inserts if i.name not in names] or [candidate]
+            names = [i.name for i in after.inserts]
+            claimed.add(landed[-1])
+            plugin_of[landed[-1]] = candidate
+            face = seen_face[0] if seen_face else None
+            if face is None or face.licensed:
+                if candidate != plugin:
+                    for entry in result.plan.roles:   # the record names what landed, not what was planned
+                        if entry["role"] == role:
+                            entry["plugin"] = candidate
+                log(f"   {landed[-1]} in ({role})" + ("; its face reads licensed" if face is not None else ""))
+                break
+            log(f"   {landed[-1]} shows a notice on its face: {face.notice!r}; left out")
+            row = [i for i in after.inserts if i.name == landed[-1]][-1]
+            strip.bypass(True, rows=[row.y])
+            if mark_plugin is not None:
+                mark_plugin(candidate, "inactive", f"its window said {face.notice!r} on {job.today}")
+            result.dead.append(candidate)
+            seen.add((landed[-1], round(row.y)))   # not to be brought back in after the chain
+        else:
+            log(f"   nothing licensed in the room for {role}; the chain goes on without it")
     back_in = [i.y for i in strip.read().inserts
                if i.marcos and ((i.name, round(i.y)) in was_in or (i.name, round(i.y)) not in seen)]
     if back_in:
@@ -274,7 +296,8 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
 
     # 4b. the chain proves it passes audio before anything is set or printed for real
     log("4b. the chain check")
-    result.dead = prove_chain(strip, bouncer, locators, toggle_cycle, job, log, plugin_of=plugin_of, mark=mark_plugin)
+    result.dead += [d for d in prove_chain(strip, bouncer, locators, toggle_cycle, job, log, plugin_of=plugin_of, mark=mark_plugin)
+                    if d not in result.dead]
 
     # 5. the settings, read and set through the Inspector's output strip
     log("5. the settings")

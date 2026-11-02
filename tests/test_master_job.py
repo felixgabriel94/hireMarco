@@ -45,9 +45,11 @@ class FakeStrip:
                 i.bypassed = on
         return self.read()
 
-    def insert(self, name):
+    def insert(self, name, look=None):
         self.log.append(("insert", name))
         self.inserts.append(Insert(name[:30], False, 585, 180 + 17 * len(self.inserts)))
+        if look is not None:
+            look()
         return self.read()
 
 
@@ -151,6 +153,31 @@ def test_a_silent_chain_names_the_insert_that_eats_the_sound(tmp_path, monkeypat
     assert result.master is not None and result.audit_master.base.lufs > -60
 
 
+def test_a_face_with_a_notice_puts_the_plugin_out_before_any_print(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    strip = FakeStrip()
+    bouncer, channel = FakeBouncer(tmp_path, [-30.0, -20.0, -12.0]), FakeChannel()   # mix, chain check, master
+    plan = MasterPlan([{"role": "glue", "plugin": "Shadow Hills Mastering Compress", "why": "2 dB"},
+                       {"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}], -12.0, -1.0, "ok", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings(
+        [{"slot": 1, "parameter": "Gain", "value": 6, "unit": "dB", "why": "6 dB"}], "Up."))
+    faces = iter([SimpleNamespace(licensed=False, notice="SUBSCRIPTION NOT ACTIVE", plugin="Shadow Hills"),
+                  SimpleNamespace(licensed=True, notice="", plugin="Pro-L 2")])
+    marked = []
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+                      toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2", "Shadow Hills Mastering Compress"},
+                      log=lambda s: None, mark_plugin=lambda p, s, w: marked.append((p, s, w)),
+                      look_at_face=lambda: next(faces))
+    assert marked[0][:2] == ("Shadow Hills Mastering Compress", "inactive") and "SUBSCRIPTION NOT ACTIVE" in marked[0][2]
+    assert result.dead == ["Shadow Hills Mastering Compress"]
+    states = {i.name: i.bypassed for i in strip.inserts}
+    assert states["Shadow Hills Mastering Compress"[:30]] is True and states["Pro-L 2"] is False
+    assert result.master is not None
+
+
 def test_a_print_off_target_gets_one_more_round(tmp_path, monkeypatch):
     # prints: the mix, the chain check, a master under target, the second master
     strip, bouncer, channel = FakeStrip(), FakeBouncer(tmp_path, [-30.0, -20.0, -20.0, -12.0]), FakeChannel()
@@ -164,3 +191,29 @@ def test_a_print_off_target_gets_one_more_round(tmp_path, monkeypatch):
                       toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2"}, log=lambda s: None)
     assert result.rounds == 2 and "under the target" in seen[1]
     assert result.master.name == "song - master v2 2026-11-02.wav"
+
+
+def test_a_notice_sends_in_the_rooms_next_candidate_for_the_role(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    from hiremarco.master import roles
+
+    fallback = roles.CANDIDATES["glue"][-1]
+    strip = FakeStrip()
+    bouncer, channel = FakeBouncer(tmp_path, [-30.0, -20.0, -12.0]), FakeChannel()
+    plan = MasterPlan([{"role": "glue", "plugin": "Shadow Hills Mastering Compress", "why": "2 dB"},
+                       {"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}], -12.0, -1.0, "ok", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings([], "Nothing."))
+    faces = iter([SimpleNamespace(licensed=False, notice="DEMO MODE", plugin="Shadow Hills"),
+                  SimpleNamespace(licensed=True, notice="", plugin=fallback),
+                  SimpleNamespace(licensed=True, notice="", plugin="Pro-L 2")])
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+                      toggle_cycle=lambda: None, select_track=lambda: None,
+                      room={"Pro-L 2", "Shadow Hills Mastering Compress", fallback}, log=lambda s: None,
+                      mark_plugin=lambda p, s, w: None, look_at_face=lambda: next(faces))
+    inserted = [e[1] for e in strip.log if isinstance(e, tuple) and e[0] == "insert"]
+    assert inserted == ["Shadow Hills Mastering Compress", fallback, "Pro-L 2"]
+    assert result.plan.chain["glue"] == fallback and result.dead == ["Shadow Hills Mastering Compress"]
+    assert json.loads(result.record.read_text())["plan"]["roles"][0]["plugin"] == fallback
