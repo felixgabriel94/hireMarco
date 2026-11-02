@@ -134,6 +134,9 @@ def chain_for_model(chain) -> list[dict]:
 
 def profile(reads: list[PartRead], audit: dict | None, hearing: dict | None, *, artist: str = "the artist",
             client: MuseSpark | None = None) -> Profile:
+    if not any(r.inserts or r.flow for r in reads):
+        # with nothing read the brain answered placeholders (live 2026-11-02: "bye", "hello"); a profile needs reads
+        raise RuntimeError("no part was read from Logic; nothing to learn from: " + "; ".join(r.error for r in reads if r.error)[:300])
     client = client or MuseSpark(timeout=THINK_TIMEOUT)
     from hiremarco.mix import listen as listening
 

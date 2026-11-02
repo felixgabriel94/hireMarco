@@ -58,3 +58,11 @@ def test_the_profile_is_written_part_by_part_with_its_evidence(tmp_path):
     assert sent["parts"][0]["inserts"][0]["plugin"] == "UAD Auto-Tune" and sent["hearing"]["audiobox_aesthetics"]["heard"]["mix"]["PQ"] == 8.3
     md = prof.markdown("What Marco learned about FEGA's sound")
     assert "**lead.** He tunes hard" in md and "- The tape slap on the lead." in md and "—" not in md
+
+
+def test_nothing_read_means_no_profile_call(tmp_path):
+    import pytest
+
+    reads = [taste.PartRead("lead", 7, "Lead Chorus", [], [], "RuntimeError: no Single view button")]
+    with pytest.raises(RuntimeError, match="no part was read"):
+        taste.profile(reads, None, None, artist="FEGA", client=MuseSpark(api_key="k", joblog=JobLog(tmp_path / "j.jsonl")))
