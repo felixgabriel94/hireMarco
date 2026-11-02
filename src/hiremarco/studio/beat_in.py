@@ -61,6 +61,16 @@ SETUP_RECORD = ".last-setup.json"  # in the inbox: the booth's last setup and it
 SIDECAR = ".session"  # beside a beat in the inbox: the session name the artist asked for
 
 
+def _scroll_to(value: float) -> str:
+    """The Tracks area's scroll bar set in one move (0 top, 1 bottom)."""
+    done = subprocess.run(["osascript", "-l", "JavaScript",
+                           str(Path(__file__).parent / "scripts" / "tracks_scroll_top.js"), f"{value:g}"],
+                          capture_output=True, text=True, timeout=120)
+    if done.returncode != 0:
+        raise LoadError(done.stderr.strip()[-200:] or f"osascript exit {done.returncode}")
+    return done.stdout.strip()
+
+
 class LoadError(RuntimeError):
     pass
 
@@ -478,8 +488,10 @@ class BeatLoader:
                  sleep: Callable[[float], None] = time.sleep, template: Path = TEMPLATE, sessions: Path = SESSIONS,
                  conn=None, rules_path: Path | None = None, today: Callable[[], date] = date.today,
                  wait_s: float = 180.0, wake: Callable[[], None] = wake_display,
-                 notices: Callable[[], str] = dismiss_notices, asking: Callable[..., str] = save_question):
+                 notices: Callable[[], str] = dismiss_notices, asking: Callable[..., str] = save_question,
+                 jump: Callable[[float], str] | None = None):
         self.run, self.front, self.click, self.scroll = run, front, click, scroll
+        self.jump = jump or _scroll_to
         self.open_app = open_app or (lambda p: subprocess.run(["open", "-a", "Logic Pro", str(p)], check=True,
                                                               timeout=30))
         self.go_to_start, self.sleep = go_to_start, sleep
@@ -507,7 +519,12 @@ class BeatLoader:
             found = self._header(name)
         if found is None:
             raise LoadError(f"the session has no track named {name!r}")
-        for _ in range(30):
+        if not (VISIBLE[0] <= found.middle <= VISIBLE[1]):
+            # one jump of the Tracks area's scroll bar to its top or bottom, not a crawl of wheel ticks: each
+            # re-read of a header costs 20 s in a forty-track session (live 2026-11-02, the BEAT header at y -1092)
+            self.jump(0.0 if found.middle < VISIBLE[0] else 1.0)
+            found = self._header(name) or found
+        for _ in range(8):
             if VISIBLE[0] <= found.middle <= VISIBLE[1]:
                 return found
             self._in_front()

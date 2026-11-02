@@ -99,8 +99,9 @@ def run_live(song: str | None = None, end_bar: int | None = None, *, purpose: st
     from hiremarco.mix import listen as listening
     from hiremarco.studio.face import look as look_at_face
 
-    return jobs.run(job, strip=StereoOut(conn=conn), bouncer=Bouncer(conn=conn), channel=Channel(conn=conn, strip="output"),
+    strip = StereoOut(conn=conn)
+    return jobs.run(job, strip=strip, bouncer=Bouncer(conn=conn), channel=Channel(conn=conn, strip="output"),
                     locators=live_arranger(conn).locators, toggle_cycle=toggle_cycle, select_track=select_track,
-                    look_at_face=lambda: look_at_face("Stereo Out"), listen=listening.listen,
+                    look_at_face=lambda: look_at_face(strip.name), listen=listening.listen,
                     critic=Critic(effort="max", tokens=4000, timeout=600.0),
                     deliver=deliver, log=log)

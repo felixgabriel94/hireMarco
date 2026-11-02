@@ -48,6 +48,7 @@ class Strip:
     slot: tuple[float, float, float, float] | None
     inserts: list[Insert]
     assistant: tuple[float, float, float, float] | None
+    name: str = "Stereo Out"          # the output strip as the artist named it ("FG Master", live 2026-11-02)
 
 
 def _jxa(script: str, *args: str) -> str:
@@ -77,7 +78,8 @@ def parse_strip(report: str) -> Strip:
     data = json.loads(report)
     return Strip(tuple(data["slot"]) if data.get("slot") else None,
                  [Insert(str(n), bool(b), float(x), float(y)) for n, b, x, y in data.get("inserts", [])],
-                 tuple(data["assistant"]) if data.get("assistant") else None)
+                 tuple(data["assistant"]) if data.get("assistant") else None,
+                 str(data.get("name") or "Stereo Out"))
 
 
 def front_is_logic() -> None:
@@ -95,6 +97,7 @@ class StereoOut:
         self.hover = hover or _hover
         self.conn, self.rules_path, self.dry_run = conn, rules_path, dry_run
         self.planned: list[str] = []
+        self.name = "Stereo Out"          # the output strip's name as last read
 
     def _gated(self, run, capability: str, message: str):
         if self.dry_run:
@@ -120,11 +123,16 @@ class StereoOut:
                 self.sleep(1.0)
             placed = self.jxa("mixer_window.js")
             self.sleep(0.4)
-            return f"mixer window {placed}"
+            # Single view: the selected track's flow ending at the output, on screen whatever the session's size
+            strips = self.jxa("mixer_single.js")
+            self.sleep(0.4)
+            return f"mixer window {placed}, single view {strips}"
         self._gated(run, "mixer_window", "open the Mixer window, tall")
 
     def read(self) -> Strip:
-        return parse_strip(self.jxa("stereo_out.js"))
+        strip = parse_strip(self.jxa("stereo_out.js"))
+        self.name = strip.name
+        return strip
 
     def menus(self) -> list[list[float]]:
         return json.loads(self.jxa("menu_bounds.js") or "[]")
