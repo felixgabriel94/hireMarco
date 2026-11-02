@@ -48,7 +48,8 @@ def test_bypass_that_does_not_take_is_an_error(monkeypatch):
 
 
 def test_insert_types_in_pieces_then_walks_the_list_by_keyboard(monkeypatch):
-    reads = iter([strip_json([["Gain", False, 585, 180]]),
+    # read before, again just before the slot click (windows closed, Mixer raised), and after the pick
+    reads = iter([strip_json([["Gain", False, 585, 180]]), strip_json([["Gain", False, 585, 180]]),
                   strip_json([["Gain", False, 585, 180], ["UAD Shadow", False, 585, 197]])])
     # read before anything (nothing open), after the slot click, after the search click, after typing, after Return
     menus = iter(["[]", "[[586, 195, 230, 527]]", "[[586, 195, 230, 527]]", "[[586, 195, 230, 527]]", "[]"])
@@ -77,7 +78,8 @@ def test_insert_types_in_pieces_then_walks_the_list_by_keyboard(monkeypatch):
 
 
 def test_a_menu_left_open_after_the_pick_is_closed_and_the_strip_decides(monkeypatch):
-    reads = iter([strip_json([["Gain", False, 585, 180]]), strip_json([["Gain", False, 585, 180], ["Gain", False, 585, 197]])])
+    reads = iter([strip_json([["Gain", False, 585, 180]]), strip_json([["Gain", False, 585, 180]]),
+                  strip_json([["Gain", False, 585, 180], ["Gain", False, 585, 197]])])
     menus = iter(["[]", "[[586, 195, 230, 527]]", "[[586, 195, 230, 527]]", "[[586, 195, 230, 527]]",
                   "[[586, 195, 230, 109]]", "[]"])
     keys = []

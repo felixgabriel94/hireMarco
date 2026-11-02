@@ -147,11 +147,18 @@ class StereoOut:
             self.osa('tell application "Logic Pro" to activate')
             self.sleep(0.3)
             front_is_logic()
-            x, y, w, h = before.slot
+            # a plug-in window left floating over the strip took the click (live 2026-11-02, run 12): every one is
+            # closed and the Mixer window brought to the front before the slot is clicked
+            self.close_windows()
+            self.osa('tell application "System Events" to tell process "Logic Pro"\nrepeat with w in (every window)\n'
+                     'if (name of w) contains "Mixer" then perform action "AXRaise" of w\nend repeat\nend tell')
+            self.sleep(0.4)
+            x, y, w, h = self.read().slot or before.slot
             self.click(x + w / 2, y + h / 2)
             self.sleep(0.9)
             menus = self.menus()
             if not menus:
+                self._snapshot(f"menu did not open for {name}")
                 raise RuntimeError("the plug-in menu did not open")
             mx, my, mw, _ = menus[0]
             self.click(mx + mw / 2, my + SEARCH_Y)     # the search field, across the top of the menu
