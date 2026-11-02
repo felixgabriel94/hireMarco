@@ -49,7 +49,10 @@ What mastering is:
 - A mix that arrives already loud and compressed leaves little to work with; say so and ask for the mix with
   headroom instead of forcing it [Merrill]. A problem in the mix is fixed in the mix, not on the master [Joshua].
 - No fixed toolset: the track decides the chain, and the chain is as short as the track allows; a typical song is
-  an EQ or two, an occasional compressor and a limiter [Becker; iZotope; Ghenea].
+  an EQ or two, an occasional compressor and a limiter [Becker; iZotope; Ghenea; Owsinski].
+- The best mixers treat the bus as part of the record, built as the mix develops and mixed into from the start, so
+  a master receives a record, not a problem; what the mix bus already does is read before the master adds to it
+  [Gudwin; Joshua; Ghenea].
 
 The audit first (what the plan reads before any move):
 - Integrated loudness, short-term and momentary maxima, loudness range, true peak, peak-to-loudness ratio

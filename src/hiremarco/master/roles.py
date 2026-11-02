@@ -14,7 +14,9 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from hiremarco.studio.ledger import MAPS
+from hiremarco import config
+
+MAPS = Path(config.STATE_DIR) / "maps"   # logic_plugins.json and license_ledger.json, written by `marco ledger build`
 
 ORDER = ("gain", "corrective_eq", "dynamics", "glue", "tonal_eq", "color", "width", "limiter", "meter")
 
