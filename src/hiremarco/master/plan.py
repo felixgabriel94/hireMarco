@@ -30,6 +30,7 @@ MODEL = "muse-wonder-1.0"
 TENANT = "owner"
 EFFORT = "max"
 TOKENS = 16000
+THINK_TIMEOUT = 900.0   # seconds: at max effort the plan took over two minutes live (2026-11-02), the client's 60 s cut it
 
 AUDIT_INSTRUCTIONS = (
     "You are Marco, a mastering engineer reading a track before you touch it. You get the track's measured audit "
@@ -128,7 +129,7 @@ def roles_for(audit: Audit, deltas: Deltas | None, room: set[str], *, purpose: s
     """What this track needs: the roles, their plugins, the targets and the audit in Marco's words."""
     if purpose not in PURPOSES:
         raise ValueError(f"no purpose {purpose!r}; one of {', '.join(PURPOSES)}")
-    client = client or MuseSpark()
+    client = client or MuseSpark(timeout=THINK_TIMEOUT)
     payload = {"purpose": purpose, "purpose_targets": PURPOSES[purpose], "direction": direction,
                "stock_only": stock_only, "audit": audit_for_model(audit, deltas), "room": roles_.for_model(room),
                "rulebook": RULEBOOK, "sources": SOURCES}
@@ -159,7 +160,7 @@ def roles_for(audit: Audit, deltas: Deltas | None, room: set[str], *, purpose: s
 def settings_for(chain: Chain, audit: Audit, deltas: Deltas | None, plan: MasterPlan, *, direction: str = "",
                  client: MuseSpark | None = None) -> Settings:
     """The controls, in the chain as it stands; validated and bounded by ``studio.chain`` when applied."""
-    client = client or MuseSpark()
+    client = client or MuseSpark(timeout=THINK_TIMEOUT)
     payload = {
         "direction": direction, "purpose": plan.purpose,
         "targets": {"lufs": plan.target_lufs, "ceiling_dbtp": plan.ceiling_dbtp},

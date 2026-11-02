@@ -12,9 +12,9 @@ from hiremarco.studio import bounce
 def test_the_two_specs_differ_only_where_they_should():
     assert bounce.MIX.bits == "32-bit float" and bounce.MASTER.bits == "24-bit"
     for spec in (bounce.MIX, bounce.MASTER):
-        assert spec.file_type == "WAVE" and spec.dither == "None" and spec.mode == "Offline"
+        assert spec.file_type == "WAVE" and spec.dither == "None" and spec.mode == "Realtime"
         assert spec.normalize == "Off" and spec.tail and not spec.add_to_project
-    assert bounce.MIX.args() == ["WAVE", "32-bit float", "keep", "Interleaved", "None", "Offline", "Off", "1", "0", "0"]
+    assert bounce.MIX.args() == ["WAVE", "32-bit float", "keep", "Interleaved", "None", "Realtime", "Off", "1", "0", "0"]
 
 
 def test_the_dialog_report_is_read_including_the_time():

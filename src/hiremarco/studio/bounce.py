@@ -36,7 +36,8 @@ class Spec:
     rate: str = "keep"               # the session's rate unless one of RATES' names
     fmt: str = "Interleaved"         # Split | Interleaved
     dither: str = "None"             # None only above 16-bit; a 16-bit print names a POW-r
-    mode: str = "Offline"            # Automatic | Offline | Realtime
+    mode: str = "Realtime"           # Automatic | Offline | Realtime: offline printed silence with a UAD DSP plugin
+                                     # on the Stereo Out (live 2026-11-02, Console Recall), so a print runs in real time
     normalize: str = "Off"
     tail: bool = True
     tempo: bool = False

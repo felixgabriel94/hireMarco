@@ -40,17 +40,18 @@ def parse(text: str) -> tuple[bool, str]:
 
 class Critic:
     def __init__(self, client: MuseSpark | None = None, rules_path: Path | None = None, model: str = CRITIC_MODEL,
-                 effort: str = "low", tokens: int = 600):
+                 effort: str = "low", tokens: int = 600, timeout: float = 60.0):
         """``effort`` low for the sends that happen all day; ``max`` where the critic judges a mix or a master plan
-        (Owner 2026-11-02: deep thinking on every mix and master decision), with ``tokens`` raised to match."""
+        (Owner 2026-11-02: deep thinking on every mix and master decision), with ``tokens`` and ``timeout`` raised
+        to match."""
         self.client = client
         self.rules_path = rules_path or rules.RULES_PATH
         self.model = model
-        self.effort, self.tokens = effort, tokens
+        self.effort, self.tokens, self.timeout = effort, tokens, timeout
 
     def __call__(self, description: str) -> tuple[bool, str]:
         system = INSTRUCTIONS + self.rules_path.read_text()
-        client = self.client or MuseSpark()
+        client = self.client or MuseSpark(timeout=self.timeout)
         gate.check_model_call(TENANT, model=self.model, system=system, prompt=description, joblog=client.joblog)
         # Muse Wonder reasons before it answers: at 40 tokens (live 2026-10-31) 38 went to reasoning, the answer was
         # empty and the first call was held as unreadable. Room for both, and still a hold on anything unreadable.

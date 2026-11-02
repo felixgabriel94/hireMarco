@@ -1441,55 +1441,19 @@ def cmd_load_beat(args) -> int:
 def cmd_master(args) -> int:
     """Marco masters the open session: the mix print, the audit, the plan, the chain on the Stereo Out, the master
     print read back, and both WAVs to the Owner (Owner 2026-11-02: the film's ending)."""
-    import subprocess
-    import time
     from pathlib import Path
 
-    from hiremarco.critic import Critic
-    from hiremarco.master import job as jobs
-    from hiremarco.studio.arrange import live_arranger
-    from hiremarco.studio.beat_in import BeatLoader
-    from hiremarco.studio.bounce import Bouncer
-    from hiremarco.studio.chain import Channel
-    from hiremarco.studio.logic import Press, _osascript as press_keys, _script
+    from hiremarco.master.live import run_live
     from hiremarco.studio.plugins import PluginError
-    from hiremarco.studio.stereo_out import StereoOut, front_is_logic
 
-    trace = Trace(f"master: {args.song}")
-    conn = gate.connect()
-
-    def toggle_cycle() -> None:
-        def run() -> str:
-            subprocess.run(["osascript", "-e", 'tell application "Logic Pro" to activate'], check=False, timeout=10)
-            time.sleep(0.3)
-            front_is_logic()
-            press_keys(_script(Press("c", ())))
-            return "cycle toggled"
-        gate.execute_effect(conn, run, tenant_id="owner", idempotency_key=f"logic:{time.time_ns()}",
-                            capability="cycle", channel="logic", target="*", message="toggle Cycle", department="studio")
-
-    if args.send:
-        from hiremarco.whatsapp.client import WhatsApp
-
-        wa, owner = WhatsApp(), config.require("OWNER_WHATSAPP")
-
-        def deliver(path: Path, caption: str) -> str:
-            wa.send_document(owner, path.read_bytes(), path.name, caption, mime="audio/wav",
-                             idempotency_key=f"master:{path.name}")
-            return f"sent {path.name} to the Owner"
-    else:
-        def deliver(path: Path, caption: str) -> str:
-            return f"{path} ({caption})"
-
-    bounces = Path(args.bounces).expanduser() if args.bounces else Path.home() / "Music" / "hireMarco Bounces" / args.song
-    job = jobs.Job(args.song, args.end_bar, bounces, purpose=args.purpose, direction=args.direction or "",
-                   stock_only=args.stock_only,
-                   references=Path(args.references).expanduser() if args.references else None)
+    trace = Trace(f"master: {args.song or 'the session'}")
     try:
-        result = jobs.run(job, strip=StereoOut(conn=conn), bouncer=Bouncer(conn=conn), channel=Channel(conn=conn, strip="output"),
-                          locators=live_arranger(conn).locators, toggle_cycle=toggle_cycle,
-                          select_track=lambda: BeatLoader().select(args.track), critic=Critic(effort="max", tokens=4000),
-                          deliver=deliver, log=lambda line: print(line, flush=True))
+        result = run_live(args.song, args.end_bar, purpose=args.purpose, direction=args.direction or "",
+                          stock_only=args.stock_only,
+                          references=Path(args.references).expanduser() if args.references else None,
+                          track=args.track, send=args.send,
+                          bounces=Path(args.bounces).expanduser() if args.bounces else None,
+                          log=lambda line: print(line, flush=True))
     except (gate.Refused, PluginError, RuntimeError, TimeoutError, FileExistsError) as stopped:
         trace.done(f"stopped: {getattr(stopped, 'reason', stopped)}")
         return 1
@@ -1885,8 +1849,8 @@ def main(argv: list[str] | None = None) -> int:
     lb.set_defaults(func=cmd_load_beat)
 
     ma = sub.add_parser("master", help="master the open session: audit, plan, chain on the Stereo Out, both prints, the WAVs")
-    ma.add_argument("--song", required=True, help="the song's name, used in the file names")
-    ma.add_argument("--end-bar", type=int, required=True, help="the bar the bounce ends on (the song plus a bar of tail)")
+    ma.add_argument("--song", help="the song's name, used in the file names (default: the beat the session was set up from)")
+    ma.add_argument("--end-bar", type=int, help="the bar the bounce ends on (default: the beat's length at the session's tempo)")
     ma.add_argument("--purpose", choices=["demo", "streaming", "mix"], default="demo")
     ma.add_argument("--direction", default="", help="the artist's words for this master, if any")
     ma.add_argument("--stock-only", action="store_true", help="Logic's own plugins only, as an artist without premium ones")

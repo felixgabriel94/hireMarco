@@ -176,6 +176,7 @@ class Booth:
     lifter: object | None = None                      # studio.gain.Lifter: a word or a line raised by itself
     text_owner: Callable[[str], str] | None = None    # one WhatsApp text to the artist; None: the line is said only
     last_setup: dict = field(default_factory=dict)    # the key, tempo and beat gain the session was last set to
+    master: Callable[[str], str] | None = None        # master.live.run_live on this session, the WAVs texted; its summary
 
     def beat_arrived(self, path: Path, name: str | None = None) -> str:
         """A beat in his inbox (Owner 2026-10-29): a new session from the template with the beat on the Beat track
@@ -884,6 +885,41 @@ class Booth:
                   "key": key, "moved": moved}, f"It's on {where or 'the track'}.")
         return f"sound: {made.path.name} ({made.seconds:.0f} s, {key}{moved}) at bar {bar or 'here'} on '{name}'"
 
+    def _master(self, command: Command) -> str:
+        """"Send it to mix" (Owner 2026-11-02): the mix printed as it stands, the audit, his chain on the Stereo Out,
+        the master printed and read back, both WAVs texted. It takes minutes and drives Logic, so it runs beside the
+        booth and he says when it is done; nothing else in Logic is touched while it runs."""
+        if self.master is None:
+            return "no mastering in this booth"
+        if self.rolling:
+            return "holding the master until the take stops"
+        if self.busy:
+            return "already printing"
+        words = (command.text or "").strip()
+        self._say("the artist asked for the mix and master to be printed and sent; say what happens next",
+                  {"direction": words}, "On it. Printing the mix, then the master. I'll text you both.")
+
+        def run() -> None:
+            self.busy = True
+            try:
+                summary = self.master(words)
+                self.log(f"   master: {summary}")
+                self._say("the master is printed and texted; say so in one short line with its loudness",
+                          {"result": summary}, "Master's done. It's on your phone.")
+            except Exception as exc:  # the job reports its own stop; the booth only says it stopped
+                self.log(f"   master stopped: {type(exc).__name__}: {str(exc)[-160:]}")
+                self._say("the master stopped before it was done; say so and what stopped it, plainly",
+                          {"stopped": str(exc)[-160:]}, "The master stopped. I'll tell you why on your phone.")
+                if self.text_owner is not None:
+                    try:
+                        self.text_owner(f"The master stopped: {str(exc)[-200:]}")
+                    except Exception:
+                        pass
+            finally:
+                self.busy = False
+        threading.Thread(target=run, daemon=True).start()
+        return "mastering started"
+
     def _split_stems(self, track: str) -> str:
         """Logic's own Stem Splitter on the track's region (Owner 2026-10-31): the region alone selected, then the
         splitter; the stems land in their own stack under it."""
@@ -1264,7 +1300,7 @@ class Booth:
         if a == "preset" and self.rolling:
             return "holding the preset until the take stops"
         if a == "export":
-            return "export is its own step: marco export-dialog, then the ready-to-mix check"
+            return self._master(command)
         if a in ARRANGING:
             return self._arrange(command)
         if a == "lift":
@@ -1464,6 +1500,14 @@ def _shortcut_listener(booth: "Booth", sock) -> None:
             booth.hear("Marco, give me the live view")
         elif data.strip() in (b"place booth", b"place desk") and booth.on_place is not None:
             booth.on_place(data.strip().split()[1].decode())  # the menu bar's "Listen at"
+
+
+def _booth_master(direction: str) -> str:
+    """The master job on the open session, the WAVs texted to the artist; its one-line summary."""
+    from hiremarco.master.live import run_live
+
+    result = run_live(direction=direction, send=True, log=lambda line: print(f"   {line}", flush=True))
+    return result.stopped or result.caption
 
 
 def _result_on(message_id: str) -> bool:
@@ -1675,6 +1719,7 @@ def run_booth(*, dry_run: bool = False) -> int:
                   load_beat=None if dry_run else __import__("hiremarco.studio.beat_in", fromlist=["BeatLoader"])
                   .BeatLoader().load,
                   text_owner=None if dry_run else _text_owner_plain,
+                  master=None if dry_run else _booth_master,
                   result_on=None if dry_run else _result_on,
                   arranger=None if dry_run else __import__("hiremarco.studio.arrange", fromlist=["live_arranger"])
                   .live_arranger(),

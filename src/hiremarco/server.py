@@ -13,6 +13,8 @@ booth puts it on the Beat track of a new session.
 from __future__ import annotations
 
 import re
+import threading
+import time
 from datetime import date
 from pathlib import Path
 
@@ -183,6 +185,32 @@ def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Pa
     return None
 
 
+_MASTERING = threading.Lock()
+
+
+def start_master(wa: WhatsApp, sender: str, direction: str, run=None, start=None) -> str:
+    """The master job beside the webhook (Owner 2026-11-02: "send it to mix" by text): one at a time, the WAVs
+    texted by the job itself, a stop texted here. ``run`` and ``start`` are swapped in tests."""
+    if not _MASTERING.acquire(blocking=False):
+        return "a master is already printing"
+
+    def work() -> None:
+        try:
+            runner = run or __import__("hiremarco.master.live", fromlist=["run_live"]).run_live
+            result = runner(direction=direction, send=True, log=lambda line: print(f"   master: {line}", flush=True))
+            if getattr(result, "stopped", ""):
+                wa.send_text(sender, f"The master stopped: {result.stopped}", idempotency_key=f"master-stop:{time.time_ns()}")
+        except Exception as exc:
+            try:
+                wa.send_text(sender, f"The master stopped: {str(exc)[-200:]}", idempotency_key=f"master-stop:{time.time_ns()}")
+            except Exception:
+                pass
+        finally:
+            _MASTERING.release()
+    (start or (lambda f: threading.Thread(target=f, daemon=True).start()))(work)
+    return "mastering started"
+
+
 def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None, booth=ensure_booth,
         earlier: dict | None = None) -> str:
     """The brain's choice carried out, then its text sent; when the studio says the choice cannot be done, the text
@@ -220,6 +248,10 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
         did = f"cancelled: {back.name} back in received" if back else "nothing waiting to cancel"
         if back is None:
             text = "Nothing's waiting to be set up."
+    elif decision.action == "master":
+        did = start_master(wa, sender, decision.title or "")
+        if not did.startswith("mastering"):
+            text = "I can't print it right now: " + did + "."
     kept = [f for f in decision.remember if keep(wa.conn, f)]
     gone = [g for f in decision.forget for g in forget(wa.conn, f)]
     working = decision.action in ("start", "retry") and did.startswith(("session started", "retrying"))

@@ -120,6 +120,10 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     # 2. the audit, against the references the artist owns
     log("2. the audit")
     result.audit_mix = auditing.audit_file(mix.path)
+    if result.audit_mix.base.silent:
+        result.stopped = f"the mix print is silent ({mix.path.name}); nothing to master"
+        log(f"   {result.stopped}")
+        return result
     refs = auditing.references(job.references) if job.references and Path(job.references).exists() else []
     deltas = auditing.compare(result.audit_mix, refs)
     for line in auditing.summary(result.audit_mix, deltas).splitlines():

@@ -18,7 +18,7 @@ from pathlib import Path
 from hiremarco.whatsapp.memory import recall, when
 from hiremarco.whatsapp.reactions import MODEL_PICKS
 
-ACTIONS = ("reply", "start", "retry", "rename", "cancel")
+ACTIONS = ("reply", "start", "retry", "rename", "cancel", "master")
 SCHEMA = {
     "type": "object",
     "properties": {
@@ -46,9 +46,12 @@ and also asks to set it up or try again, the action is retry, with the fixed nam
 - rename: he is giving or correcting the song's title. title is required. To undo a wrong title, rename it back \
 to the beat's file name without its extension.
 - cancel: he does not want the waiting beat set up.
+- master: he asks for the song to be mixed down, mastered, bounced, exported or sent to mix ("send it to mix", \
+"master it", "bounce it", "print it"). The open session is printed as it stands and as a master, and both WAVs are \
+texted to him; it takes minutes. Put any direction he gives about the sound in title ("louder", "warmer", "like X").
 - reply: everything else: a question, a status, chat, or when you are not sure what he wants.
 
-Choose start, retry, rename or cancel only when his words, read with the conversation, clearly ask for it. A short \
+Choose start, retry, rename, cancel or master only when his words, read with the conversation, clearly ask for it. A short \
 reaction ("no", "wait", "what?", "try again") is never a song title. When an instruction is unclear, ask one short \
 question with reply. For a status, answer from studio, never from memory.
 
