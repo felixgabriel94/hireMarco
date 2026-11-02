@@ -1476,6 +1476,21 @@ def cmd_organize(args) -> int:
     return 0
 
 
+def cmd_taste(args) -> int:
+    from pathlib import Path as _Path
+
+    from hiremarco.studio import taste
+
+    parts = []
+    for pair in str(args.parts).split(","):
+        name, _, number = pair.strip().rpartition("=")
+        parts.append((name.strip(), int(number), name.strip()))
+    prof, path = taste.run_live(parts, _Path(args.mix_print) if args.mix_print else None, artist=args.artist, out=_Path(args.out))
+    print(f"taste: {path}")
+    print(prof.summary)
+    return 0
+
+
 def cmd_master(args) -> int:
     """Marco masters the open session: the mix print, the audit, the plan, the chain on the Stereo Out, the master
     print read back, and both WAVs to the Owner (Owner 2026-11-02: the film's ending)."""
@@ -1896,6 +1911,13 @@ def main(argv: list[str] | None = None) -> int:
     og.add_argument("--out", metavar="DIR", help="where the survey and the plan are written (default ~/Music/hireMarco Bounces/organize)")
     og.add_argument("--direction", default="", help="the Owner's words for this pass, if any")
     og.set_defaults(func=cmd_organize)
+
+    ta = sub.add_parser("taste", help="what Marco learns about the artist from the open session: one track per part, the print, the profile")
+    ta.add_argument("--parts", required=True, help="part=track number pairs, comma separated: 'Lead Chorus=7,BGV Chorus 1=14'")
+    ta.add_argument("--print", dest="mix_print", metavar="WAV", help="the mix print to audit and listen to")
+    ta.add_argument("--artist", default="the artist")
+    ta.add_argument("--out", metavar="DIR", required=True, help="where the profile and the reads are written")
+    ta.set_defaults(func=cmd_taste)
 
     ma = sub.add_parser("master", help="master the open session: audit, plan, chain on the Stereo Out, both prints, the WAVs")
     ma.add_argument("--song", help="the song's name, used in the file names (default: the beat the session was set up from)")
