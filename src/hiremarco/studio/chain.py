@@ -131,6 +131,10 @@ def control_named(answer: str, controls: list[str]) -> str | None:
     sometimes adds (live 2026-11-02: every change of a run was dropped that way); None when nothing matches."""
     if answer in controls:
         return answer
+    bare = re.sub(r"\s*\([^()]*\)\s*$", "", answer).strip()   # "Gain (+5.50 dB)" (live 2026-11-02, run 26)
+    if bare != answer and bare in controls:
+        return bare
+    answer = bare or answer
     tail = answer.split(":")[-1].strip()
     if tail in controls:
         return tail
@@ -295,6 +299,12 @@ class Channel:
             number, value, unit = int(c["slot"]), float(c["value"]), str(c.get("unit", "%"))
             slot = by_number.get(number)
             name = control_named(str(c["parameter"]), slot.state.changeable()) if slot is not None else None
+            if name is None and by_number.get(number + 1) is not None:
+                # the brain counted slots from zero (live 2026-11-02, run 26: "slot 0 Gain" for slot 1): the next
+                # slot is taken when it has the control and the named one does not
+                name = control_named(str(c["parameter"]), by_number[number + 1].state.changeable())
+                if name is not None:
+                    number, slot = number + 1, by_number[number + 1]
             if name is None:
                 continue  # a bypassed slot, an unknown slot, or a control Marco does not move
             self.reasons[(number, name)] = str(c.get("why", "")).strip()

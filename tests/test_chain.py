@@ -186,3 +186,13 @@ def test_a_slot_whose_window_did_not_open_is_read_as_an_error_and_the_rest_still
                           "slot\t2\nplugin\tPro-L 2\nGain\t750\t0\t40000\t+0.75 dB\n")
     assert states[1].fixed["error"].startswith("the plugin window") and states[1].params == {}
     assert states[2].shown["Gain"] == "+0.75 dB"
+
+
+def test_a_control_named_with_its_value_in_brackets_and_a_slot_counted_from_zero_still_land(tmp_path, rules):
+    assert control_named("Gain (+5.50 dB)", ["Gain", "Output Level"]) == "Gain"
+    fake = FakeChain()
+    channel = Channel(run=fake, conn=gate.connect(":memory:"), rules_path=rules)
+    channel.read()
+    # slot 1 is Pro-Q 3 (no Input); the brain's "slot 1 Input" means slot 2, the 76, counted from zero
+    channel.apply_changes([{"slot": 1, "parameter": "Input (+4.00 dB)", "value": 3, "unit": "db", "why": "a dB down"}])
+    assert fake.plugins[2][1]["Input"] == 3000 and fake.plugins[1][1]["Band 1 Gain"] == 30000
