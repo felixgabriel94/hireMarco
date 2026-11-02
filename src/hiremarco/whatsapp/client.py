@@ -60,7 +60,16 @@ def last_inbound(conn: sqlite3.Connection, from_number: str) -> datetime | None:
     return datetime.fromisoformat(row[0]) if row and row[0] else None
 
 
+def latest_inbound(conn: sqlite3.Connection, from_number: str) -> str | None:
+    conn.executescript(INBOUND_SCHEMA)
+    row = conn.execute("select wa_message_id from inbound where from_number = ? order by ts desc, rowid desc limit 1",
+                       (from_number.lstrip("+"),)).fetchone()
+    return row[0] if row else None
+
+
 class WhatsApp:
+    answering: str | None = None  # the message of his this turn answers, set by the handler for the length of the turn
+
     def __init__(
         self,
         token: str | None = None,
@@ -108,6 +117,21 @@ class WhatsApp:
         )
         return (data.get("messages") or [{}])[0].get("id", "")
 
+    def _quote(self, to: str, quote: str | None) -> str | None:
+        """Which of his messages to quote (Owner 2026-11-02): the one named, or the one being answered when he has written
+        since, and never his latest, which needs no pointing at."""
+        quote = quote or self.answering
+        return quote if quote and quote != latest_inbound(self.conn, to) else None
+
+    def _send_quoted(self, to: str, payload: dict[str, Any], quote: str | None, **fields) -> str:
+        """A quote WhatsApp won't take (a message too old, say) doesn't cost him the message: it goes without one."""
+        if quote:
+            try:
+                return self._send(to, {**payload, "context": {"message_id": quote}}, **fields)
+            except WhatsAppError:
+                pass
+        return self._send(to, payload, **fields)
+
     def _plain(self, body: str) -> str:
         """No part of the system reaches the client in words; the raw text, digits masked, goes to the job log."""
         import re as _re
@@ -120,24 +144,25 @@ class WhatsApp:
         return out
 
     def send_text(self, to: str, body: str, *, idempotency_key: str, critic=None,
-                  now: datetime | None = None, exact: bool = False) -> str:
-        """``exact`` leaves the words alone: an email's preview has to read as the email will."""
+                  now: datetime | None = None, exact: bool = False, quote: str | None = None) -> str:
+        """``exact`` leaves the words alone: an email's preview has to read as the email will. ``quote`` is the message
+        of his this text answers, when that is not plain from where it lands."""
         body = body if exact else written(self._plain(body))
-        sent = self._send(to, {"type": "text", "text": {"body": body}}, text_for_gate=body,
-                          idempotency_key=idempotency_key, capability="send_message", critic=critic, now=now)
+        sent = self._send_quoted(to, {"type": "text", "text": {"body": body}}, self._quote(to, quote), text_for_gate=body,
+                                 idempotency_key=idempotency_key, capability="send_message", critic=critic, now=now)
         remember(self.conn, "marco", body)
         return sent
 
     def send_link(self, to: str, body: str, url: str, label: str, *, idempotency_key: str, critic=None,
-                  now: datetime | None = None) -> str:
+                  now: datetime | None = None, quote: str | None = None) -> str:
         """A message with a button that opens the link. A plain link to an address on the home network is not
         made tappable by WhatsApp (live 2026-10-29: the Owner had to copy it out), a button is."""
         body = written(self._plain(body))
         payload = {"type": "interactive", "interactive": {
             "type": "cta_url", "body": {"text": body},
             "action": {"name": "cta_url", "parameters": {"display_text": label[:20], "url": url}}}}
-        sent = self._send(to, payload, text_for_gate=f"{body} {url}", idempotency_key=idempotency_key,
-                          capability="send_message", critic=critic, now=now)
+        sent = self._send_quoted(to, payload, self._quote(to, quote), text_for_gate=f"{body} {url}",
+                                 idempotency_key=idempotency_key, capability="send_message", critic=critic, now=now)
         remember(self.conn, "marco", f"{body} [button: {label}]")
         return sent
 

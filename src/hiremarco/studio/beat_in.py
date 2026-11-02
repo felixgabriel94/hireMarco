@@ -180,7 +180,7 @@ def latest_received(inbox: Path = INBOX) -> Path | None:
     return max(beats, key=lambda p: p.stat().st_mtime) if beats else None
 
 
-def start_session(inbox: Path = INBOX, name: str | None = None) -> Path | None:
+def start_session(inbox: Path = INBOX, name: str | None = None, asked: str = "") -> Path | None:
     """His instruction: the last beat he sent moves into the inbox, with the song name beside it, and the booth sets
     the session up. None when no beat is waiting."""
     beat = latest_received(inbox)
@@ -192,6 +192,8 @@ def start_session(inbox: Path = INBOX, name: str | None = None) -> Path | None:
         target, n = inbox / f"{beat.stem} {n}{beat.suffix}", n + 1
     if name:  # beside the beat before the beat appears, so the booth sees both at once
         sidecar(target).write_text(name)
+    if asked:  # the message of his that asked: "session's ready" quotes it
+        asked_file(target).write_text(asked)
     sidecar(beat).unlink(missing_ok=True)
     shutil.move(str(beat), target)
     return target
@@ -283,6 +285,20 @@ def last_loaded(inbox: Path = INBOX, within_s: float = 6 * 3600, now: float | No
 def title(text: str) -> str:
     """A song title as Marco keeps it: as the artist wrote it, tidied at the edges and safe for a file name."""
     return re.sub(r"[/:\x00]", "-", " ".join(text.split()).strip(" .!\"'“”"))[:60]
+
+
+def asked_file(path: Path) -> Path:
+    return path.with_name(path.name + ".asked")
+
+
+def asked_for(path: Path) -> str:
+    """The message of his that asked for this session, read once: the file goes with the reading."""
+    try:
+        said = asked_file(path).read_text().strip()
+        asked_file(path).unlink()
+        return said
+    except OSError:
+        return ""
 
 
 def sidecar(path: Path) -> Path:

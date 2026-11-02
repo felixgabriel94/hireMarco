@@ -54,7 +54,7 @@ create table if not exists offers (
 EMAIL_COLUMNS = {"kind": "text not null default 'table'", "offer_key": "text", "source_id": "text",
                  "who": "text not null default ''", "message": "text not null default ''",
                  "yes_by": "text not null default ''", "texted_at": "text", "spoken_at": "text",
-                 "minute": "integer not null default 0"}
+                 "minute": "integer not null default 0", "asked_id": "text"}
 HOLD_MAX = timedelta(hours=24)
 
 
@@ -80,6 +80,7 @@ class CallOffer:
     texted_at: datetime | None = None
     spoken_at: datetime | None = None
     minute: int = 0
+    asked_id: str | None = None  # the message of his that said yes: its result quotes it
 
     def clock(self) -> str:
         """The time as he reads it: 8pm, 8:30pm, noon."""
@@ -123,7 +124,7 @@ def _when(text: str | None) -> datetime | None:
 
 def _row(r) -> CallOffer:
     return CallOffer(r[0], datetime.fromisoformat(r[1]), r[2], r[3], r[4], r[5], r[6], r[7], r[8], _when(r[9]),
-                     r[10] or "", r[11], r[12], r[13], r[14], r[15], r[16], _when(r[17]), _when(r[18]), r[19])
+                     r[10] or "", r[11], r[12], r[13], r[14], r[15], r[16], _when(r[17]), _when(r[18]), r[19], r[20])
 
 
 def record_offer(conn: sqlite3.Connection, place: Place, *, weekday: str, day: str, hour: int, party_size: int,
@@ -181,6 +182,12 @@ def mark_texted(conn: sqlite3.Connection, offer: CallOffer, now: datetime | None
 
 def held(conn: sqlite3.Connection) -> list[CallOffer]:
     return [_row(r) for r in conn.execute("select * from offers where status = 'held' order by id").fetchall()]
+
+
+def set_asked(conn: sqlite3.Connection, offer_id: int, message_id: str) -> None:
+    """The message of his that started this, once; a later reply doesn't move it."""
+    conn.execute("update offers set asked_id = coalesce(asked_id, ?) where id = ?", (message_id, offer_id))
+    conn.commit()
 
 
 def set_yes_by(conn: sqlite3.Connection, offer_id: int, how: str) -> CallOffer:

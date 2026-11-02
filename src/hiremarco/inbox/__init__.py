@@ -136,6 +136,8 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.executescript(SQL)
+    if not any(row[1] == "asked_id" for row in conn.execute("pragma table_info(tasks)")):
+        conn.execute("alter table tasks add column asked_id text")
     for old, new in RENAMED.items():  # rows from the first label set read under Felix's labels
         conn.execute("update applied set label = ? where label = ?", (new, old))
         conn.execute("update overrides set label = ? where label = ?", (new, old))
@@ -149,11 +151,17 @@ def _now() -> str:
 
 # the task ledger
 
-def open_task(conn: sqlite3.Connection, task_id: str, name: str, expect: dict) -> Task:
-    conn.execute("insert or ignore into tasks (id, name, expect, opened_at, status) values (?, ?, ?, ?, 'open')",
-                 (task_id, name, json.dumps(expect, ensure_ascii=False), _now()))
+def open_task(conn: sqlite3.Connection, task_id: str, name: str, expect: dict, asked_id: str | None = None) -> Task:
+    conn.execute("insert or ignore into tasks (id, name, expect, opened_at, status, asked_id) values (?, ?, ?, ?, 'open', ?)",
+                 (task_id, name, json.dumps(expect, ensure_ascii=False), _now(), asked_id))
     conn.commit()
     return get_task(conn, task_id)
+
+
+def asked_of(conn: sqlite3.Connection, task_id: str) -> dict:
+    """The keyword a task's proof takes to quote the message of his that started it; nothing when none was kept."""
+    row = conn.execute("select asked_id from tasks where id = ?", (task_id,)).fetchone()
+    return {"quote": row[0]} if row and row[0] else {}
 
 
 def get_task(conn: sqlite3.Connection, task_id: str) -> Task | None:

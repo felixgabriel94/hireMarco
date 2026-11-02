@@ -335,9 +335,9 @@ def cmd_inbox(args) -> int:
     labelled = inbox.apply_labels(mail, conn, pairs)
     learned = inbox.learn_corrections(mail, conn)
     expired = _cleanup.expire_watch(mail, listed) + _cleanup.expire_reminders(mail, listed)
-    proof_text = sent(lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-proof:{tid}"))
-    proof_link = sent(lambda tid, text, url: wa.send_link(owner, text, url, "View booking",
-                                                          idempotency_key=f"task-proof:{tid}"))
+    proof_text = sent(lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-proof:{tid}", **inbox.asked_of(conn, tid)))
+    proof_link = sent(lambda tid, text, url: wa.send_link(owner, text, url, "View booking", idempotency_key=f"task-proof:{tid}",
+                                                          **inbox.asked_of(conn, tid)))
     closed = inbox.link_tasks(conn, pairs, proof_text, proof_link)
     nudged = inbox.nudge_stale(conn, sent(lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-nudge:{tid}")))
     Trace("inbox: sorted").done(f"{len(pairs)} new, {len(moved)} from the auto-trash list to Trash, {expired} expired,"
@@ -449,9 +449,9 @@ def _inbox_tasks(args, conn) -> int:
     pairs = inbox.match_tasks(mail, MuseSpark(), conn, tasks, newer_than=f"{args.days}d", limit=args.limit, status=status)
     labelled = inbox.apply_labels(mail, conn, pairs)
     closed = inbox.link_tasks(conn, pairs,
-                              _sent(lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-proof:{tid}"), unsent),
-                              _sent(lambda tid, text, url: wa.send_link(owner, text, url, "View booking",
-                                                                        idempotency_key=f"task-proof:{tid}"), unsent))
+                              _sent(lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-proof:{tid}", **inbox.asked_of(conn, tid)), unsent),
+                              _sent(lambda tid, text, url: wa.send_link(owner, text, url, "View booking", idempotency_key=f"task-proof:{tid}",
+                                                                        **inbox.asked_of(conn, tid)), unsent))
     nudged = inbox.nudge_stale(conn, _sent(lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-nudge:{tid}"), unsent))
     Trace("inbox: tasks").done(f"{len(tasks)} open, {labelled} labelled, {len(closed)} proved, {nudged} nudged"
                                + (f", stopped: {status['capped']}" if "capped" in status else "")

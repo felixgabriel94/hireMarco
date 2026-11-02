@@ -26,10 +26,11 @@ SCHEMA = {
         "title": {"type": "string"},
         "reply": {"type": "string"},
         "reaction": {"type": "string", "enum": ["", *MODEL_PICKS]},
+        "quote": {"type": "string", "description": "the ref of one message in his_earlier_messages, else empty"},
         "remember": {"type": "array", "items": {"type": "string"}},
         "forget": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["action", "title", "reply", "reaction", "remember", "forget"],
+    "required": ["action", "title", "reply", "reaction", "quote", "remember", "forget"],
     "additionalProperties": False,
 }
 RULES = """You are answering Felix on WhatsApp. Each message you get carries the time, who Felix is (about_felix), \
@@ -69,6 +70,9 @@ did his part), money (money came in), big_win (a rare big win), laugh (his joke 
 A reaction replaces the text only when nothing needs saying: then leave reply empty, with action reply, and never add \
 "noted" or "you're welcome". If he asked something, or you have anything to say or ask, write it in reply. Only one reaction.
 
+Quoting. Leave quote empty. Fill it only when your text asks about one specific earlier message of his, from \
+his_earlier_messages, and he would not know which you mean; then give that message's ref. Never for his latest message.
+
 Memory. remember: anything lasting he states in this message, each as one short sentence in his words, kept \
 exactly as he meant it: a preference, a plan, a fact about his music, his people, his schedule. Not the beat he \
 just sent, not a one-off instruction, not a question, never your guess; most messages give an empty list. forget: \
@@ -84,6 +88,7 @@ class Decision:
     remember: list[str] = field(default_factory=list)
     forget: list[str] = field(default_factory=list)
     reaction: str = ""  # one of MODEL_PICKS by name, or none
+    quote: str = ""     # the ref of the earlier message of his this text asks about, or none
 
 
 def studio(inbox: Path, running: Callable[[], bool]) -> dict:
@@ -158,4 +163,5 @@ def decide(marco, said: str, state: dict, turns: list[dict], *, instructions: st
         raise ValueError(f"the brain answered outside the schema: {str(data)[:80]}")
     return Decision(data["action"], str(data.get("title") or "").strip(), str(data.get("reply", "")).strip(),
                     [str(f).strip() for f in data.get("remember") or [] if str(f).strip()][:3],
-                    [str(f).strip() for f in data.get("forget") or [] if str(f).strip()][:3], reaction)
+                    [str(f).strip() for f in data.get("forget") or [] if str(f).strip()][:3], reaction,
+                    str(data.get("quote") or "").strip())

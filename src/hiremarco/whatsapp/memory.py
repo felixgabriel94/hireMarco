@@ -45,3 +45,19 @@ def when(ts: datetime) -> str:
 
     local = ts.astimezone(HOME)
     return f"{local.strftime('%a %b %-d')}, {clock_time(local.hour, local.minute)}"
+
+
+def note_words(conn: sqlite3.Connection, message_id: str, said: str) -> None:
+    """His words under their message id, so a later question can point at the exact message."""
+    conn.execute("create table if not exists his_words (wa_message_id text primary key, ts text not null, said text not null)")
+    conn.execute("insert or ignore into his_words (wa_message_id, ts, said) values (?, ?, ?)",
+                 (message_id, datetime.now(timezone.utc).isoformat(), said))
+    conn.commit()
+
+
+def earlier_words(conn: sqlite3.Connection, but: str, limit: int = 6) -> dict[str, tuple[str, str]]:
+    """His last messages before this one, by a short ref the brain can name: {"a": (message id, words)}, oldest first."""
+    conn.execute("create table if not exists his_words (wa_message_id text primary key, ts text not null, said text not null)")
+    rows = conn.execute("select wa_message_id, said from his_words where wa_message_id != ? order by ts desc limit ?",
+                        (but, limit)).fetchall()
+    return {"abcdef"[n]: row for n, row in enumerate(reversed(rows))}

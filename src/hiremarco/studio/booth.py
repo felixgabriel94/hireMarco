@@ -158,6 +158,7 @@ class Booth:
     voice_takes: dict = field(default_factory=dict)   # track name -> (its last take's audio, its take_start)
     harmony: object | None = None                     # studio.harmony.Stack over the last take's line
     auto_note: bool = False                           # a note after every take of AUTO_NOTE_SECONDS or more
+    _asked: str = ""                                  # the message of his this beat's texts answer
     email_offers: object | None = None                # an email offer he texted: one line after a take, a spoken yes
     _offer_line: str = ""                             # his line about it, while it is still the last thing he said
     _implied: bool = False                            # this line came without his name, inside the awake window
@@ -183,6 +184,9 @@ class Booth:
             return "no beat loader in this booth"
         if self.rolling:
             return "holding the beat until the take stops"
+        from hiremarco.studio.beat_in import asked_for
+
+        self._asked = asked_for(path)
         self.operating = True  # the halo comes up first, then Logic opens (Owner 2026-10-31)
         time.sleep(1.5)
         self._say("a beat arrived; opening a session from the template with it on the Beat track",
@@ -208,9 +212,9 @@ class Booth:
         song = name or path.stem
         if done and "CHECK BAR" in loaded:  # the 1 is a guess: he hears that, never a quiet guess (Owner 2026-10-31)
             where = loaded.split("CHECK BAR ", 1)[1].split(":", 1)[0]
-            sent = self._text(f"session's ready. check bar {where}: I'm not sure that's where the 1 is.")
+            sent = self._text(f"Session's ready. Check bar {where}: I'm not sure that's where the 1 is.")
         elif done:  # Owner 2026-10-30: the text is just "session's ready."; the details are in Logic and the log
-            sent = self._text("session's ready.")
+            sent = self._text("Session's ready.")
         else:
             sent = self._text(f"{song} is on the Beat track, but I couldn't read its key and tempo.")
         return f"{loaded}; {read}; set: {setup or 'nothing'}; {sent}"
@@ -219,6 +223,8 @@ class Booth:
         if self.text_owner is None:
             return "no text line"
         try:
+            if self._asked:  # a result that lands later quotes the message of his that asked for it
+                return f"texted: {self.text_owner(body, quote=self._asked)}"
             return f"texted: {self.text_owner(body)}"
         except Exception as exc:  # outside the window, held by the gate, or the line is down; the log says which
             return f"not texted: {type(exc).__name__}: {str(exc)[-80:]}"
@@ -1450,12 +1456,12 @@ def _shortcut_listener(booth: "Booth", sock) -> None:
             booth.on_place(data.strip().split()[1].decode())  # the menu bar's "Listen at"
 
 
-def _text_owner_plain(body: str) -> str:
+def _text_owner_plain(body: str, quote: str | None = None) -> str:
     """One WhatsApp text to the artist, through the gate, inside the 24-hour window his own message opened."""
     from hiremarco.whatsapp import WhatsApp
 
     owner = config.require("OWNER_WHATSAPP")
-    return WhatsApp().send_text(owner, body, idempotency_key=f"booth-text:{time.time_ns()}") or "sent"
+    return WhatsApp().send_text(owner, body, idempotency_key=f"booth-text:{time.time_ns()}", quote=quote) or "sent"
 
 
 def _text_owner(body: str, url: str) -> str:

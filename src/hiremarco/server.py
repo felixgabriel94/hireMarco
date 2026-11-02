@@ -22,7 +22,7 @@ from hiremarco.style import NAME_RULE, TIME_RULE
 from hiremarco.whatsapp import Inbound, WhatsApp, make_app, reactions
 from hiremarco.whatsapp.brain import context, decide, history
 from hiremarco.whatsapp.facts import forget, keep
-from hiremarco.whatsapp.memory import remember
+from hiremarco.whatsapp.memory import earlier_words, note_words, remember
 
 
 def _inbox() -> Path:
@@ -52,7 +52,7 @@ def save_beat(message: Inbound, wa: WhatsApp, inbox: Path | None = None) -> tupl
     folder = inbox or INBOX
     kept = keep_received(data, name, folder)
     if wants_session(message.caption):
-        return start_session(folder, session_name(message.caption)) or kept, True
+        return start_session(folder, session_name(message.caption), asked=message.id) or kept, True
     return kept, False
 
 
@@ -162,7 +162,7 @@ def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Pa
     if wants_session(said) or (kept is not None and AFFIRM.search(said)):
         song = session_name(said)
         if kept is not None:
-            started = start_session(folder, song)
+            started = start_session(folder, song, asked=message_id)
             reply(f"On it. Setting up {song or started.stem}.", "start")
             return f"session started for {started.name}" + (f" as {song!r}" if song else "") + f"; {booth()}"
         if waiting:
@@ -182,13 +182,15 @@ def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Pa
     return None
 
 
-def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None, booth=ensure_booth) -> str:
+def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None, booth=ensure_booth,
+        earlier: dict | None = None) -> str:
     """The brain's choice carried out, then its text sent; when the studio says the choice cannot be done, the text
     says what is true instead of what the brain hoped."""
     from hiremarco.studio.beat_in import INBOX, cancel_pending, name_received, pending, rename_pending, \
         requested_name, retry_pending, start_session, title
 
     folder = inbox or INBOX
+    earlier = earlier or {}
     text, did = decision.reply, "replied"
     name = title(decision.title) if decision.title else None
     if decision.action == "start" or decision.action == "retry":
@@ -196,7 +198,7 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
             if name:
                 rename_pending(name, folder)
             did = f"retrying {retry_pending(folder).name}; {booth()}"
-        elif (started := start_session(folder, name)) is not None:
+        elif (started := start_session(folder, name, asked=message_id)) is not None:
             named = requested_name(started)
             did = f"session started for {started.name}" + (f" as {named!r}" if named else "") + f"; {booth()}"
         elif pending(folder):
@@ -224,7 +226,8 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
     if text:
         if emoji:
             reactions.react(wa, sender, message_id, emoji)
-        wa.send_text(sender, text, idempotency_key=f"brain:{message_id}")
+        pointed = earlier.get(decision.quote, ("",))[0]  # only a message on the list he was shown, never one of Marco's
+        wa.send_text(sender, text, idempotency_key=f"brain:{message_id}", **({"quote": pointed} if pointed else {}))
     elif emoji:  # nothing needs saying: the reaction is the reply, and a short line if it can't go
         reactions.react_or_say(wa, sender, message_id, emoji, f"brain:{message_id}")
     memory = (f"; kept {len(kept)}" if kept else "") + (f"; forgot {len(gone)}" if gone else "")
@@ -299,6 +302,8 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
         offer = offers.pending(conn, now)
         if offer is None or offer.kind != "table":  # a reply or a heads-up has its own words (email_offer_words)
             return None
+    if not message_id.startswith("booth-"):  # a spoken yes has no message of his to quote
+        offers.set_asked(conn, offer.id, message_id)
     place = offers.place_for(offer, places)
     if place is None:
         offers.set_status(conn, offer.id, "no such place")
@@ -335,8 +340,9 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
         offers.wait_for_result(lambda: calls._json("GET", f"/convai/conversations/{placed['conversation_id']}"))
         # saved and logged like `marco call transcript`: the cost, and what the brief did not cover, for next time
         data = _json.loads(calls.transcript(placed["conversation_id"]).read_text())
+        asked = offers.get(conn, offer.id).asked_id  # the result lands long after: it quotes the yes that started it
         wa.send_text(sender, offers.result_text(place, taken, data, off_brief(data)),
-                     idempotency_key=f"offer-result:{offer.id}")
+                     idempotency_key=f"offer-result:{offer.id}", **({"quote": asked} if asked else {}))
         if data.get("status") == "done" and offers.outcome(data)[0] in ("booked", "waitlisted"):
             # the proof comes from the inbox: a task in the ledger, matched by meaning against each new email
             from hiremarco import inbox
@@ -346,7 +352,7 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
             got = lambda key: _briefs.unspell(str((collected.get(key) or {}).get("value") or "").strip())  # noqa: E731
             inbox.open_task(inbox.connect(), f"offer-{offer.id}", f"{place.name} booking",
                             {"place": place.name, "agreed": got("agreed"), "next_step": got("next_step"),
-                             "name": _briefs.load_profile().get("full_name", "")})
+                             "name": _briefs.load_profile().get("full_name", "")}, asked_id=asked)
 
     (start or (lambda f: threading.Thread(target=f, daemon=True).start()))(report)
     return f"offer {offer.id}: calling {place.name}, conversation {placed['conversation_id']}"
@@ -401,6 +407,8 @@ def email_offer_words(said: str, sender: str, message_id: str, wa: WhatsApp, *, 
         reply("What do you need on it?", "email-offer-help")
         return f"offer {offer.id}: asked what he needs"
     offers.ask_what_to_say(conn, offer, when)
+    if not message_id.startswith("booth-"):
+        offers.set_asked(conn, offer.id, message_id)
     days = _open_days(calendar, when)
     reply("What should I say?" + (f" You're open {', '.join(days)}, if a day helps." if days else ""), "email-offer-say")
     return f"offer {offer.id}: asked what to say, {len(days)} open days offered"
@@ -636,6 +644,7 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
     from hiremarco.whatsapp.client import WhatsAppError
 
     wa = wa or WhatsApp()
+    wa.answering = message.id  # when he has written since, the answer quotes what it answers
     booth, running = booth or ensure_booth, running or booth_running
     heard = message.text or f"[{message.kind}]"
     trace = Trace(f"heard: {heard[:60]}")
@@ -703,6 +712,8 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
             return trace.done(f"{message.kind} noted, no handler yet")
         if photo is None:
             remember(wa.conn, "felix", said or "[an empty voice note]")
+            if said:
+                note_words(wa.conn, message.id, said)
             if dress.wants_dressing(said):
                 photo = photos.wait_for(wa.conn, message.sender)  # it may still be downloading
                 if photo is None:
@@ -745,14 +756,16 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         if said:
             try:
                 marco = marco or Marco()
-                decision = decide(marco, said, context(wa.conn, inbox or _inbox(), running, said), turns,
-                                  instructions=ENGLISH, photo=photo)
+                earlier = earlier_words(wa.conn, message.id)
+                state = {**context(wa.conn, inbox or _inbox(), running, said),
+                         "his_earlier_messages": [{"ref": ref, "says": said_then} for ref, (_, said_then) in earlier.items()]}
+                decision = decide(marco, said, state, turns, instructions=ENGLISH, photo=photo)
             except gate.Refused:
                 raise
             except Exception as exc:  # the brain is unreachable or answered off-schema: the fixed patterns answer
                 trace.add(f"brain unavailable: {type(exc).__name__}")
             else:
-                return trace.done(act(decision, message.sender, message.id, wa, inbox, booth=booth))
+                return trace.done(act(decision, message.sender, message.id, wa, inbox, booth=booth, earlier=earlier))
         if message.kind == "image":  # the brain could not be reached: Marco still looks at the photo
             text = photos.see(photo, message.caption, (marco or Marco()).client, instructions=ENGLISH)
             if not text:
@@ -773,6 +786,8 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         return trace.done(f"held: {refused.reason}")
     except Exception as exc:  # the webhook must keep running; the log says what broke
         return trace.done(f"error: {type(exc).__name__}")
+    finally:
+        wa.answering = None
 
 
 def admit_only(app, allowed: set[str]):
