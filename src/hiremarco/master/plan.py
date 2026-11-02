@@ -169,6 +169,8 @@ def roles_for(audit: Audit, deltas: Deltas | None, room: set[str], *, purpose: s
     kept = []
     for row in data.get("roles", []):
         role, plugin = str(row.get("role", "")), str(row.get("plugin", ""))
+        if any(k["role"] == role for k in kept):
+            continue  # a role named twice (live 2026-11-02: the critic held a plan with two glues) is kept once
         if role in roles_.ORDER and plugin in room and plugin in roles_.CANDIDATES.get(role, []) + roles_.WHOLE_CHAIN:
             if stock_only and plugin not in roles_.STOCK:
                 plugin = roles_.fill(role, room, stock_only=True) or ""

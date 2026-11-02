@@ -39,6 +39,7 @@ def test_roles_for_keeps_only_roles_the_room_fills_in_order(tmp_path, track):
         {"role": "glue", "plugin": "Rented Comp", "why": "not in the room, 2 dB of glue"},
         {"role": "width", "plugin": "Ozone 11 Imager", "why": "chorus 3 dB narrower than the references"},
         {"role": "karaoke", "plugin": "Pro-Q 3", "why": "no such role"},
+        {"role": "limiter", "plugin": "Pro-L 2", "why": "named twice: 6 dB"},
     ], "target_lufs": -10.0, "ceiling_dbtp": -0.3, "audit": "The track is a clean Afrobeat mix. It needs little."})
     room = {"Pro-L 2", "Pro-Q 3", "Ozone 11 Imager", "Channel EQ", "Adaptive Limiter"}
     p = plan.roles_for(track, None, room, purpose="demo", client=wonder(tmp_path, reply, seen))
