@@ -159,6 +159,7 @@ class Booth:
     harmony: object | None = None                     # studio.harmony.Stack over the last take's line
     auto_note: bool = False                           # a note after every take of AUTO_NOTE_SECONDS or more
     _asked: str = ""                                  # the message of his this beat's texts answer
+    result_on: Callable[[str], object] | None = None  # the result reaction on one of his messages
     email_offers: object | None = None                # an email offer he texted: one line after a take, a spoken yes
     _offer_line: str = ""                             # his line about it, while it is still the last thing he said
     _implied: bool = False                            # this line came without his name, inside the awake window
@@ -213,11 +214,20 @@ class Booth:
         if done and "CHECK BAR" in loaded:  # the 1 is a guess: he hears that, never a quiet guess (Owner 2026-10-31)
             where = loaded.split("CHECK BAR ", 1)[1].split(":", 1)[0]
             sent = self._text(f"Session's ready. Check bar {where}: I'm not sure that's where the 1 is.")
+            self._result()
         elif done:  # Owner 2026-10-30: the text is just "session's ready."; the details are in Logic and the log
             sent = self._text("Session's ready.")
+            self._result()
         else:
             sent = self._text(f"{song} is on the Beat track, but I couldn't read its key and tempo.")
         return f"{loaded}; {read}; set: {setup or 'nothing'}; {sent}"
+
+    def _result(self) -> None:
+        if self._asked and self.result_on is not None:
+            try:
+                self.result_on(self._asked)
+            except Exception as exc:  # the text already told him; a reaction that fails changes nothing
+                self.log(f"   (no result reaction: {type(exc).__name__})")
 
     def _text(self, body: str) -> str:
         if self.text_owner is None:
@@ -1456,6 +1466,13 @@ def _shortcut_listener(booth: "Booth", sock) -> None:
             booth.on_place(data.strip().split()[1].decode())  # the menu bar's "Listen at"
 
 
+def _result_on(message_id: str) -> bool:
+    """The session is ready: the fax takes the place of "on it" on the message that asked."""
+    from hiremarco.whatsapp import WhatsApp, reactions
+
+    return reactions.react(WhatsApp(), config.require("OWNER_WHATSAPP"), message_id, reactions.RESULT)
+
+
 def _text_owner_plain(body: str, quote: str | None = None) -> str:
     """One WhatsApp text to the artist, through the gate, inside the 24-hour window his own message opened."""
     from hiremarco.whatsapp import WhatsApp
@@ -1658,6 +1675,7 @@ def run_booth(*, dry_run: bool = False) -> int:
                   load_beat=None if dry_run else __import__("hiremarco.studio.beat_in", fromlist=["BeatLoader"])
                   .BeatLoader().load,
                   text_owner=None if dry_run else _text_owner_plain,
+                  result_on=None if dry_run else _result_on,
                   arranger=None if dry_run else __import__("hiremarco.studio.arrange", fromlist=["live_arranger"])
                   .live_arranger(),
                   lifter=None if dry_run else __import__("hiremarco.studio.gain", fromlist=["Lifter"]).Lifter(),

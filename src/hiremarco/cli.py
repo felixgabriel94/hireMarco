@@ -339,6 +339,8 @@ def cmd_inbox(args) -> int:
     proof_link = sent(lambda tid, text, url: wa.send_link(owner, text, url, "View booking", idempotency_key=f"task-proof:{tid}",
                                                           **inbox.asked_of(conn, tid)))
     closed = inbox.link_tasks(conn, pairs, proof_text, proof_link)
+    for task, _ in closed:
+        sent(_proved)(wa, owner, conn, task.id)
     nudged = inbox.nudge_stale(conn, sent(lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-nudge:{tid}")))
     Trace("inbox: sorted").done(f"{len(pairs)} new, {len(moved)} from the auto-trash list to Trash, {expired} expired,"
                                 f" {labelled} labelled, {len(closed)} tasks proved, {nudged} nudged, {learned} corrections"
@@ -346,6 +348,16 @@ def cmd_inbox(args) -> int:
                                 + (f", {status['unread']} left for the next run" if "unread" in status else "")
                                 + (f", {len(unsent)} WhatsApp not sent" if unsent else ""))
     return 0
+
+
+def _proved(wa, owner: str, conn, task_id: str) -> None:
+    """A booking's proof came in: the page is out, on the message of his that asked."""
+    from hiremarco import inbox
+    from hiremarco.whatsapp import reactions
+
+    asked = inbox.asked_of(conn, task_id).get("quote")
+    if asked:
+        reactions.react(wa, owner, asked, reactions.RESULT)
 
 
 def _sent(send, unsent: list):
@@ -452,6 +464,8 @@ def _inbox_tasks(args, conn) -> int:
                               _sent(lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-proof:{tid}", **inbox.asked_of(conn, tid)), unsent),
                               _sent(lambda tid, text, url: wa.send_link(owner, text, url, "View booking", idempotency_key=f"task-proof:{tid}",
                                                                         **inbox.asked_of(conn, tid)), unsent))
+    for task, _ in closed:
+        _sent(_proved, unsent)(wa, owner, conn, task.id)
     nudged = inbox.nudge_stale(conn, _sent(lambda tid, text: wa.send_text(owner, text, idempotency_key=f"task-nudge:{tid}"), unsent))
     Trace("inbox: tasks").done(f"{len(tasks)} open, {labelled} labelled, {len(closed)} proved, {nudged} nudged"
                                + (f", stopped: {status['capped']}" if "capped" in status else "")

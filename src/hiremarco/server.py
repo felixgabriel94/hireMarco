@@ -335,6 +335,8 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
         return f"offer {offer.id}: held: {getattr(held, 'reason', held)}"
     offers.set_status(conn, offer.id, "called")
     reply(f"Calling {place.name} now. I'll tell you how it goes.", "offer-calling")
+    asked_by = offers.get(conn, offer.id).asked_id or message_id  # one message of his shows the phone, then the fax
+    reactions.react(wa, sender, asked_by, reactions.CALLING)
 
     def report() -> None:
         import json as _json
@@ -345,6 +347,8 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
         asked = offers.get(conn, offer.id).asked_id  # the result lands long after: it quotes the yes that started it
         wa.send_text(sender, offers.result_text(place, taken, data, off_brief(data)),
                      idempotency_key=f"offer-result:{offer.id}", **({"quote": asked} if asked else {}))
+        if data.get("status") == "done" and offers.outcome(data)[0] == "booked":
+            reactions.react(wa, sender, asked_by, reactions.RESULT)
         if data.get("status") == "done" and offers.outcome(data)[0] in ("booked", "waitlisted"):
             # the proof comes from the inbox: a task in the ledger, matched by meaning against each new email
             from hiremarco import inbox
@@ -644,6 +648,7 @@ def dress_me(photo, said: str, sender: str, message_id: str, wa: WhatsApp, marco
     except SamError as failed:
         plain("I couldn't read the photo just now. Send it again?", "sam")
         return f"dress me: {failed}"
+    reactions.react(wa, sender, message_id, reactions.RESULT)
     thrown = f"; threw out pieces {done.looks.dropped}" if done.looks.dropped else ""
     return (f"dress me: {len(done.pieces)} pieces, what SAM sees and the board sent, {done.looks.recommend} "
             f"recommended{thrown}")
@@ -697,6 +702,7 @@ def selects_me(said: str, sender: str, message_id: str, wa: WhatsApp, marco=None
         raise
     numbers = [n for n, _ in done.picks.picks]
     selects.finish(wa.conn, row, "done", numbers, str(done.folder))
+    reactions.react(wa, sender, message_id, reactions.RESULT)
     notes = "".join(f"; {line}" for line in done.log)
     return f"selects: {len(frames)} frames, picked {numbers} in {done.seconds['total']:.0f}s{notes}"
 
@@ -806,8 +812,6 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         else:
             offered = email_offer_words(said, message.sender, message.id, wa) if words else None
         if offered is not None:
-            if ": calling " in offered:
-                reactions.react(wa, message.sender, message.id, reactions.CALLING)
             if "draft shown" in offered:
                 reactions.react(wa, message.sender, message.id, reactions.DRAFT)
             return trace.done(offered)
@@ -822,8 +826,6 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
                 return trace.done(written)
         called = offer_yes(said, message.sender, message.id, wa) if words and not message.quoted else None
         if called is not None:
-            if ": calling " in called:
-                reactions.react(wa, message.sender, message.id, reactions.CALLING)
             return trace.done(called)
         if said:
             try:

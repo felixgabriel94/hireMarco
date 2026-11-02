@@ -114,9 +114,11 @@ def connect(path: Path | str | None = None) -> sqlite3.Connection:
         Path(path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.executescript(SQL)
-    if not any(row[1] == "preview_ids" for row in conn.execute("pragma table_info(outbox)")):
-        conn.execute("alter table outbox add column preview_ids text not null default ''")
-        conn.commit()
+    have = {row[1] for row in conn.execute("pragma table_info(outbox)")}
+    for column, kind in (("preview_ids", "text not null default ''"), ("asked_id", "text")):
+        if column not in have:
+            conn.execute(f"alter table outbox add column {column} {kind}")
+    conn.commit()
     return conn
 
 
@@ -318,9 +320,9 @@ def _make_draft(conn, mail, wa, sender: str, message_id: str, *, kind: str, to: 
     content = read_content(mail.draft_raw(draft_id))
     conn.execute("update outbox set status = 'set aside', done_at = ? where status = 'waiting'", (_now().isoformat(),))
     cur = conn.execute("insert into outbox (kind, status, draft_id, digest, to_addr, cc, subject, body, source_id,"
-                       " source_line, thread_id, words, asked_at) values (?, 'waiting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                       " source_line, thread_id, words, asked_at, asked_id) values (?, 'waiting', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                        (kind, draft_id, content.digest, content.to, content.cc, content.subject, body, source_id,
-                        source_line, thread_id, words, _now().isoformat()))
+                        source_line, thread_id, words, _now().isoformat(), message_id))
     conn.commit()
     _log("mail-draft", f"{kind} draft saved in Gmail, {len(body)} characters")
     _show(conn, wa, sender, message_id, cur.lastrowid, content, source_line)
@@ -480,6 +482,11 @@ def _send(row: Row, sender, message_id, wa, conn, mail, gate_conn, rules_path, n
     _log("mail-send", f"{row.kind} sent to {len(ADDRESS.findall(content.to + ' ' + content.cc + ' ' + content.bcc))} people")
     who = parseaddr(content.to)[1] or content.to
     _say(wa, sender, f"Sent to {who}.", f"mail-sent:{message_id}")
+    asked = conn.execute("select asked_id from outbox where id = ?", (row.id,)).fetchone()
+    if asked and asked[0]:  # the fax takes the place of the envelope on the message that asked for the email
+        from hiremarco.whatsapp import reactions
+
+        reactions.react(wa, sender, asked[0], reactions.RESULT)
     return "mail: sent on his word"
 
 

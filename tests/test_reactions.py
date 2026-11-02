@@ -14,7 +14,7 @@ from hiremarco.whatsapp.brain import RULES, SCHEMA
 from hiremarco.whatsapp.client import record_inbound
 
 OWNER = "15551230000"
-THE_FOURTEEN = "👍 👨‍💻 🤝 📞 💽 📎 📸 🛒 ✉️ 📆 ✅ 💸 😤 😂".split()
+THE_SET = "👍 👨‍💻 📠 🤝 📞 💽 📎 📸 🛒 ✉️ 📆 ✅ 💸 😤 😂".split()
 
 
 class Brain:
@@ -64,15 +64,15 @@ def kinds(line):
     return [(m["type"], m["reaction"]["emoji"] if m["type"] == "reaction" else m.get("text", {}).get("body")) for m in line["sent"]]
 
 
-def test_the_fourteen_are_exactly_these_all_plain():
-    assert sorted(reactions.ALLOWED) == sorted(THE_FOURTEEN) and len(set(reactions.ALLOWED)) == 14
+def test_the_fifteen_are_exactly_these_all_plain():
+    assert sorted(reactions.ALLOWED) == sorted(THE_SET) and len(set(reactions.ALLOWED)) == 15
     assert not [e for e in reactions.ALLOWED if any(0x1F3FB <= ord(c) <= 0x1F3FF for c in e)]  # no skin tone anywhere
     assert not set("🎚️ 🎙️ 💪".split()) & set(reactions.ALLOWED)
 
 
 def test_the_brain_picks_only_from_its_list_and_cant_claim_work_with_one():
     assert SCHEMA["properties"]["reaction"]["enum"] == ["", *reactions.MODEL_PICKS]
-    assert not {reactions.ON_IT, reactions.CALLING, reactions.DRAFT, reactions.FILE, reactions.PHOTOS} & set(reactions.MODEL_PICKS.values())
+    assert not {reactions.ON_IT, reactions.RESULT, reactions.CALLING, reactions.DRAFT, reactions.FILE, reactions.PHOTOS} & set(reactions.MODEL_PICKS.values())
     assert "never type an emoji" in RULES
 
 
@@ -136,17 +136,6 @@ def test_a_file_gets_the_clip_and_nothing_else_and_a_line_if_that_fails(line):
     line["refuse"]["reaction"] = True
     handle(message("w2", kind="document", media_id="m/1", filename="contract2.xyz", mime_type="application/x-thing"), wa=line["wa"], inbox=line["inbox"])
     assert kinds(line) == [("text", "Got your file.")]
-
-
-def test_a_call_going_gets_the_phone_and_keeps_its_words(line, monkeypatch):
-    def placed(said, sender, message_id, wa, **kw):
-        wa.send_text(sender, "Calling Test Kitchen now.", idempotency_key="c")
-        return "offer 1: calling Test Kitchen, conversation c"
-
-    monkeypatch.setattr(server, "email_words", lambda *a, **k: None)
-    monkeypatch.setattr(server, "offer_yes", placed)
-    run(line, "yes", Brain())
-    assert kinds(line) == [("text", "Calling Test Kitchen now."), ("reaction", "📞")]
 
 
 def test_the_questions_before_a_call_get_no_phone(line, monkeypatch):
@@ -214,3 +203,109 @@ def test_a_shoot_gets_the_camera_once_on_its_last_frame(tmp_path, monkeypatch):
     reacted = [m for m in line.sent if m["type"] == "reaction"]
     assert [(m["reaction"]["emoji"], m["reaction"]["message_id"]) for m in reacted] == [("📸", "f5")]
     assert line.texts() == ["Got 6 frames."]
+
+
+# the result: the page coming out of the fax
+
+@pytest.mark.parametrize("data, faxed", [
+    ({"status": "done", "transcript": [{"role": "agent", "message": "See you then."}], "analysis": {}}, True),
+    ({"status": "done", "transcript": [{"role": "agent", "message": "Okay, bye."}], "analysis": {}}, False),
+    ({"status": "done", "transcript": [{"role": "agent", "message": "Thanks for adding us to the waitlist."}], "analysis": {}}, False),
+    ({"status": "failed"}, False),
+])
+def test_a_call_shows_the_phone_then_the_fax_only_on_a_booking_on_the_message_that_asked(line, monkeypatch, tmp_path, data, faxed):
+    from hiremarco.calls import brief as briefs
+    from hiremarco.calls import offers
+    from hiremarco.offer import Place
+    from hiremarco.server import offer_yes
+
+    kitchen = Place("kitchen", "Test Kitchen", "15557770000")
+
+    class Calls:
+        def place(self, *a, **k):
+            return {"conversation_id": "c"}
+
+        def _json(self, *a, **k):
+            return data
+
+        def transcript(self, cid):
+            path = tmp_path / "t.json"
+            path.write_text(json.dumps(data))
+            return path
+
+    monkeypatch.setattr(briefs, "build", lambda *a, **k: "brief")
+    conn = offers.connect(":memory:")
+    made = offers.record_offer(conn, kitchen, weekday="thursday", day="2026-11-05", hour=20, party_size=4, now=datetime.now(timezone.utc))
+    offer_yes("yes", OWNER, "the-yes", line["wa"], conn=conn, places=[kitchen])
+    assert offers.get(conn, made.id).asked_id == "the-yes"
+    offer_yes("whatever works", OWNER, "the-reply", line["wa"], conn=conn, calls=Calls(), places=[kitchen], start=lambda f: f())
+    got = [(m["reaction"]["emoji"], m["reaction"]["message_id"]) for m in line["sent"] if m["type"] == "reaction"]
+    assert got == [("📞", "the-yes")] + ([("📠", "the-yes")] if faxed else [])
+    assert any("Calling Test Kitchen now" in str(m) for m in line["sent"])
+
+
+def test_a_job_that_fails_keeps_on_it_and_never_gets_the_fax(line, monkeypatch):
+    from hiremarco import dress
+    from hiremarco.server import dress_me
+
+    def fails(*a, **k):
+        raise dress.NoClothesFound()
+
+    monkeypatch.setattr(dress, "dress", fails)
+    monkeypatch.setattr(dress, "film_dir", lambda: None)
+    dress_me(type("P", (), {"path": "x"})(), "dress me", OWNER, "w1", line["wa"])
+    assert [m["reaction"]["emoji"] for m in line["sent"] if m["type"] == "reaction"] == ["👨‍💻"]
+
+
+def test_a_job_that_finishes_gets_the_fax_after_on_it(line, monkeypatch):
+    from hiremarco import dress
+    from hiremarco.server import dress_me
+
+    looks = type("L", (), {"dropped": [], "recommend": "B"})()
+    monkeypatch.setattr(dress, "dress", lambda *a, **k: type("D", (), {"looks": looks, "pieces": [1]})())
+    monkeypatch.setattr(dress, "film_dir", lambda: None)
+    dress_me(type("P", (), {"path": "x"})(), "dress me", OWNER, "w1", line["wa"])
+    assert [m["reaction"]["emoji"] for m in line["sent"] if m["type"] == "reaction"] == ["👨‍💻", "📠"]
+
+
+def test_session_ready_changes_on_it_to_the_fax_on_the_message_that_asked():
+    from hiremarco.studio.booth import Booth, Tape
+
+    faxed = []
+    b = Booth(understand=lambda l: None, logic=lambda c: c.describe(), say=lambda t: None, feedback=lambda a, r: None,
+              tape=Tape(1000, seconds=1), log=lambda l: None, result_on=faxed.append)
+    b._result()
+    assert faxed == []  # nothing kept to put it on
+    b._asked = "ask-1"
+    b._result()
+    assert faxed == ["ask-1"]
+
+
+def test_a_failed_result_reaction_stops_nothing():
+    from hiremarco.studio.booth import Booth, Tape
+
+    logged = []
+    b = Booth(understand=lambda l: None, logic=lambda c: c.describe(), say=lambda t: None, feedback=lambda a, r: None,
+              tape=Tape(1000, seconds=1), log=logged.append, result_on=lambda m: 1 / 0)
+    b._asked = "ask-1"
+    b._result()
+    assert "no result reaction" in logged[0]
+
+
+def test_a_booking_proof_puts_the_fax_on_the_message_that_asked(line):
+    from hiremarco import inbox as mailbox
+    from hiremarco.cli import _proved
+
+    conn = mailbox.connect(":memory:")
+    mailbox.open_task(conn, "offer-1", "Test Kitchen booking", {}, asked_id="yes-1")
+    mailbox.open_task(conn, "offer-2", "Other", {})
+    _proved(line["wa"], OWNER, conn, "offer-1")
+    _proved(line["wa"], OWNER, conn, "offer-2")
+    assert [(m["reaction"]["emoji"], m["reaction"]["message_id"]) for m in line["sent"]] == [("📠", "yes-1")]
+
+
+def test_the_brain_cannot_choose_the_fax(line):
+    assert reactions.RESULT not in reactions.MODEL_PICKS.values()
+    run(line, "done?", Brain("result", reply="Yes."))
+    run(line, "done now?", Brain("\N{FAX MACHINE}", reply="Yes, done."))
+    assert not [m for m in line["sent"] if m["type"] == "reaction"]

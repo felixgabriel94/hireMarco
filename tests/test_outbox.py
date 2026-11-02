@@ -76,9 +76,13 @@ class Muse:
 class FakeWhatsApp:
     def __init__(self):
         self.sent = []
+        self.conn = gate.connect(":memory:")
 
     def send_text(self, to, text, idempotency_key=None, exact=False):
         self.sent.append((text, exact))
+
+    def react(self, to, message_id, emoji):
+        self.reacted = (message_id, emoji)
 
 
 def intent(action="reply", find="from:kai", to="", cc="", subject="", reply_all=False, instructions="tuesday works"):

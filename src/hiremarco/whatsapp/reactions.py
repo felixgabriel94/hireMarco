@@ -1,4 +1,7 @@
-"""Marco's reactions on Felix's WhatsApp messages (Owner 2026-11-02): fourteen, plain skin tone, and nothing else.
+"""Marco's reactions on Felix's WhatsApp messages (Owner 2026-11-02): fifteen, plain skin tone, and nothing else.
+
+The fax is the result: the page coming out. It takes the place of "on it" or "calling" on the message of his that asked,
+when the work really came through. The code alone sets it, never the brain and never on a failure or an unsettled end.
 
 The code picks when the event is certain: a beat, a file, the last frame of a shoot, a call going, a draft ready, a job
 started. The brain picks for chat, from ``MODEL_PICKS`` only. A reaction replaces a text only when nothing needs saying,
@@ -16,7 +19,8 @@ from hiremarco.whatsapp.memory import remember
 
 NOTED = "\N{THUMBS UP SIGN}"
 ON_IT = "\N{MAN}‍\N{PERSONAL COMPUTER}"
-DEAL = "\N{HANDSHAKE}"
+RESULT = "\N{FAX MACHINE}"
+DEAL = "\N{HANDSHAKE}"  # a deal or thanks; a delivered result is the fax
 CALLING = "\N{TELEPHONE RECEIVER}"
 AUDIO = "\N{MINIDISC}"
 FILE = "\N{PAPERCLIP}"
@@ -28,7 +32,7 @@ DONE_BY_HIM = "\N{WHITE HEAVY CHECK MARK}"
 MONEY = "\N{MONEY WITH WINGS}"
 BIG_WIN = "\N{FACE WITH LOOK OF TRIUMPH}"
 LAUGH = "\N{FACE WITH TEARS OF JOY}"
-ALLOWED = (NOTED, ON_IT, DEAL, CALLING, AUDIO, FILE, PHOTOS, PURCHASE, DRAFT, DATE, DONE_BY_HIM, MONEY, BIG_WIN, LAUGH)
+ALLOWED = (NOTED, ON_IT, RESULT, DEAL, CALLING, AUDIO, FILE, PHOTOS, PURCHASE, DRAFT, DATE, DONE_BY_HIM, MONEY, BIG_WIN, LAUGH)
 
 # what the brain may choose, by name: these say nothing happened, so it can't claim work with one
 MODEL_PICKS = {"noted": NOTED, "deal": DEAL, "audio": AUDIO, "purchase": PURCHASE, "date": DATE, "did_it": DONE_BY_HIM,
@@ -36,7 +40,7 @@ MODEL_PICKS = {"noted": NOTED, "deal": DEAL, "audio": AUDIO, "purchase": PURCHAS
 # the short line in its place when WhatsApp refuses a reaction and nothing else was going to be said
 SAID_INSTEAD = {NOTED: "Noted.", DEAL: "Anytime.", AUDIO: "Got it.", PURCHASE: "Noted.", DATE: "Date noted.",
                 DONE_BY_HIM: "Good.", MONEY: "Nice.", BIG_WIN: "Let's go.", LAUGH: "Ha.", FILE: "Got your file.",
-                PHOTOS: "Got your photos.", ON_IT: "On it.", CALLING: "Calling now.", DRAFT: "Your draft's ready."}
+                PHOTOS: "Got your photos.", ON_IT: "On it.", RESULT: "Done.", CALLING: "Calling now.", DRAFT: "Your draft's ready."}
 
 
 def react(wa, sender: str, message_id: str, emoji: str) -> bool:

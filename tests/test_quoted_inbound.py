@@ -72,7 +72,7 @@ def deliver(line, key, kind="table", place="kitchen", now=None):
 
 
 def said_last(line):
-    return line["sent"][-1]["text"]["body"]
+    return [m for m in line["sent"] if m["type"] == "text"][-1]["text"]["body"]
 
 
 def test_the_webhook_keeps_what_he_quoted():
@@ -285,3 +285,16 @@ def test_a_quoted_cancel_deletes_only_that_draft(line, mail):
     mail["draft"]("b@example.com", "two")
     assert mail["words"]("cancel", quoted=first) == "mail: draft cancelled"
     assert mail["drafts"].deleted == ["d1"] and "d2" in mail["drafts"].raws
+
+
+def test_a_sent_email_puts_the_fax_on_the_message_that_asked_for_it(line, mail):
+    first = mail["draft"]("a@example.com", "one")
+    assert mail["words"]("send", quoted=first) == "mail: sent on his word"
+    faxed = [m["reaction"] for m in line["sent"] if m["type"] == "reaction"]
+    assert faxed == [{"message_id": "one", "emoji": "\N{FAX MACHINE}"}]
+
+
+def test_a_send_that_doesnt_go_gets_no_fax(line, mail):
+    mail["draft"]("a@example.com", "one")
+    mail["words"]("send", quoted="wamid.chat")
+    assert not [m for m in line["sent"] if m["type"] == "reaction"]

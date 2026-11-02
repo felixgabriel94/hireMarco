@@ -36,7 +36,9 @@ def world(tmp_path, monkeypatch):
     texts, dialed = [], []
 
     def wa_handler(request):
-        texts.append(json.loads(request.content)["text"]["body"])
+        body = json.loads(request.content)
+        if body.get("type") == "text":
+            texts.append(body["text"]["body"])
         return httpx.Response(200, json={"messages": [{"id": "wamid.o"}]})
 
     def el_handler(request):
