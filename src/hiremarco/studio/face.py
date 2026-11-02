@@ -64,7 +64,7 @@ def capture_window(name: str = "Stereo Out") -> bytes:
         return path.read_bytes()
 
 
-def read_face(png: bytes, *, client: MuseSpark | None = None) -> Face:
+def read_face(png: bytes, *, client: MuseSpark | None = None, tokens: int = 2000, effort: str | None = None) -> Face:
     prompt = "Is this plug-in licensed and working, or does its window show a notice?"
     gate.check_model_call(TENANT, model=MODEL, system=INSTRUCTIONS, prompt=prompt,
                           joblog=client.joblog if client else None)
@@ -77,8 +77,9 @@ def read_face(png: bytes, *, client: MuseSpark | None = None) -> Face:
                 {"type": "image_url", "image_url": {"url": data_url(png, "image/png")}},
             ]},
         ],
-        job="plugin_face", model=MODEL, max_completion_tokens=2000,   # 600 ran out before the JSON (live 2026-11-02)
+        job="plugin_face", model=MODEL, max_completion_tokens=tokens,   # 600 ran out before the JSON (live 2026-11-02)
         response_format={"type": "json_schema", "json_schema": {"name": "face", "schema": SCHEMA, "strict": True}},
+        **({"reasoning_effort": effort} if effort else {}),
     )
     try:
         data = json.loads(reply.text)
@@ -122,7 +123,9 @@ def look(name: str = "Stereo Out", *, client: MuseSpark | None = None,
             time.sleep(0.6)
     for attempt in range(2):
         try:
-            return read_face(png, client=client)
+            # the second look gets three times the room and the least reasoning: a reply that ran out of room with
+            # no text (finish reason "length", 0 chars, 2026-11-02) was the model thinking past its budget
+            return read_face(png, client=client, tokens=2000 if attempt == 0 else 6000, effort=None if attempt == 0 else "low")
         except ValueError as exc:
             if attempt == 1:
                 if log is not None:

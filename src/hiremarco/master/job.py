@@ -15,6 +15,7 @@ stops the job and says so.
 from __future__ import annotations
 
 import json
+import re
 import os
 import math
 import time
@@ -76,6 +77,7 @@ class Result:
     manifest: list[dict] = field(default_factory=list)   # every insert on the output: yours, planned or stray
     verdict: object | None = None                   # the master against the mix (mix.verify.Verdict)
     bench: list[dict] = field(default_factory=list)      # each insert with and without, measured; what earned its place
+    ladder: dict | None = None                            # the loudness ladder on the loudest bars: steps, ceiling, what gave
 
     @property
     def caption(self) -> str:
@@ -302,6 +304,71 @@ def ensure_range(bouncer: bouncing.Bouncer, end_bar: int, toggle_cycle: Callable
     raise RuntimeError(f"the Bounce dialog would not take bars 1 to {end_bar}")
 
 
+def climb_ladder(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycle, channel, job: Job, result: Result,
+                 listen, log) -> dict | None:
+    """The limiter's gain up one dB at a time on the loudest bars until a clean bar breaks (master.ladder)."""
+    from hiremarco.master import ladder as ladders
+
+    limiter_name = result.plan.chain.get("limiter") if result.plan else None
+    if not limiter_name:
+        log("   no limiter in the chain; no ladder")
+        return None
+    chain = channel.read(fresh=True)
+    slot = next((s for s in chain.active() if s.state and same_plugin(limiter_name, s.name)), None)
+    if slot is None or not slot.state or "Gain" not in (slot.state.shown or {}):
+        log(f"   the limiter {limiter_name} shows no Gain control to climb; no ladder")
+        return None
+    m = re.search(r"-?\d+(?:\.\d+)?", str(slot.state.shown["Gain"]))
+    if not m:
+        log(f"   the limiter's Gain reads {slot.state.shown['Gain']!r}; no ladder")
+        return None
+    start = float(m.group(0))
+    bars = check_range_of(job)
+    folder = Path(job.bounces).expanduser() / "ladder"
+    folder.mkdir(parents=True, exist_ok=True)
+    start_s, length_s = (bars[0] - 1) * job.bar_s, (bars[1] - bars[0]) * job.bar_s
+
+    def set_gain(value: float) -> float:
+        states = channel.apply_changes([{"slot": slot.number, "parameter": "Gain", "value": value, "unit": "dB",
+                                         "why": "the loudness ladder, one dB at a time"}], chain=chain)
+        shown = (states.get(slot.number).shown or {}).get("Gain", "") if states.get(slot.number) else ""
+        found = re.search(r"-?\d+(?:\.\d+)?", str(shown))
+        return float(found.group(0)) if found else value
+
+    def print_bars(label: str) -> Path:
+        locators(*bars)
+        ensure_range(bouncer, bars[1], toggle_cycle, log)
+        name = bouncing.free_name(folder, bouncing.print_name(job.song, label, job.today))
+        return bouncer.print(bouncing.MASTER, folder, name).path
+
+    def compare(path: Path):
+        return verifying.compare(result.mix, path, job.bpm, start_s=start_s, length_s=length_s)
+
+    def lufs_of(path: Path) -> float:
+        return auditing.audit_file(path).base.lufs
+
+    hear = mix_hearing = None
+    if listen is not None:
+        try:
+            import soundfile as sf
+
+            audio, rate = sf.read(str(result.mix), start=int(start_s * 0), always_2d=True)
+            lo, hi = int(start_s * rate), int((start_s + length_s) * rate)
+            bars_path = folder / f"{bouncing.print_name(job.song, 'mix bars', job.today)}.wav"
+            sf.write(str(bars_path), audio[lo:hi], rate, subtype="FLOAT")
+            mix_hearing = listen(bars_path)
+            hear = lambda path: listen(path, bars_path)   # noqa: E731
+        except Exception as exc:   # noqa: BLE001
+            log(f"   the ears sit this ladder out ({type(exc).__name__})")
+    try:
+        out = ladders.climb(start_gain_db=start, set_gain=set_gain, print_bars=print_bars, compare=compare, lufs_of=lufs_of,
+                            hear=hear, mix_hearing=mix_hearing, log=log)
+    finally:
+        locators(1, job.end_bar)
+        ensure_range(bouncer, job.end_bar, toggle_cycle, log)
+    return out.as_dict()
+
+
 def mark_in_ledger(plugin: str, status: str, why: str) -> None:
     """A finding about a plug-in written to the license ledger, as Logic names it."""
     from hiremarco.studio.ledger import mark
@@ -314,7 +381,7 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
         client=None, critic=None, deliver: Callable[[Path, str], str] | None = None, log: Callable[[str], None] = print,
         sleep=time.sleep, mark_plugin: Callable[[str, str, str], None] | None = mark_in_ledger,
         look_at_face: Callable[[], object] | None = None,
-        listen: Callable[..., dict | None] | None = None, bench: bool = False) -> Result:
+        listen: Callable[..., dict | None] | None = None, bench: bool = False, ladder: bool = False) -> Result:
     result = Result()
     bounces = Path(job.bounces).expanduser()
     bounces.mkdir(parents=True, exist_ok=True)
@@ -323,7 +390,8 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     try:
         return _run(job, result, bounces, room, strip=strip, bouncer=bouncer, channel=channel, locators=locators,
                     toggle_cycle=toggle_cycle, select_track=select_track, client=client, critic=critic, deliver=deliver,
-                    log=log, sleep=sleep, mark_plugin=mark_plugin, look_at_face=look_at_face, listen=listen, bench=bench)
+                    log=log, sleep=sleep, mark_plugin=mark_plugin, look_at_face=look_at_face, listen=listen, bench=bench,
+                    ladder=ladder)
     finally:
         release_lock(lock)
 
@@ -378,7 +446,7 @@ def release_lock(path: Path | None) -> None:
 
 
 def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, bouncer, channel, locators, toggle_cycle,
-         select_track, client, critic, deliver, log, sleep, mark_plugin, look_at_face, listen, bench) -> Result:
+         select_track, client, critic, deliver, log, sleep, mark_plugin, look_at_face, listen, bench, ladder=False) -> Result:
 
     # 1. the mix as it stands: Marco's own inserts bypassed, the artist's untouched
     log("1. the mix print")
@@ -620,6 +688,14 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             if any(not row["earned"] for row in result.bench):
                 chain = channel.read(fresh=True)
 
+        if ladder and round_no == 1 and job.bpm and job.bar_s:
+            # 5c. the loudness ladder: as loud as this mix stays clean, on its loudest bars (Owner 2026-11-02)
+            log("5c. the loudness ladder")
+            try:
+                result.ladder = climb_ladder(strip, bouncer, locators, toggle_cycle, channel, job, result, listen, log)
+            except Exception as exc:   # noqa: BLE001
+                log(f"   the ladder could not run ({type(exc).__name__}: {str(exc)[-120:]}); the plan's level stands")
+
         # 6. the master print, read back
         log(f"6. the master print (round {round_no})")
         name = bouncing.free_name(bounces, bouncing.print_name(job.song, "master" if round_no == 1 else f"master v{round_no}",
@@ -643,6 +719,10 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
                 break
         gap = result.plan.target_lufs - am.base.lufs
         over = am.base.true_peak_db - result.plan.ceiling_dbtp
+        if result.ladder and result.ladder.get("ceiling_gain_db") is not None and over <= CEILING_TOLERANCE:
+            log(f"   the ladder set the level: {result.ladder['ceiling_lufs']} LUFS on the loudest bars, "
+                f"{am.base.lufs} LUFS integrated; no second round")
+            break
         if abs(gap) <= LUFS_TOLERANCE and over <= CEILING_TOLERANCE:
             break
         # the exact figure, not a description: loudness before the limiter moves one for one with the gain stages, so
@@ -665,7 +745,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
         "deltas": deltas.as_dict() if deltas else None, "references": [r.base.name for r in refs],
         "hearing": result.hearing, "hearing_master": result.hearing_master,
         "manifest": result.manifest, "verdict": (result.verdict.__dict__ if result.verdict is not None else None),
-        "bench": result.bench,
+        "bench": result.bench, "ladder": result.ladder,
     }, indent=1, default=str))
     if deliver is not None and result.master is not None and not result.stopped:
         log("7. the delivery")

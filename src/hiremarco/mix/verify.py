@@ -28,6 +28,9 @@ PUMP_LIMIT_DB = 1.5          # new modulation at the beat or bar rate beyond thi
 BAND_LIMIT_DB = 4.0          # a band moved beyond this, after loudness matching, fails
 PLANNED_BAND_DB = 1.5        # a tonal move the plan asked for may be this big on top
 CREST_LIMIT_DB = 8.0         # a crest drop beyond this is damage, not limiting
+PLR_FLOOR_DB = 8.0           # peak-to-loudness under this is a master limited hard (the audit's own line)
+WIDTH_LIMIT_DB = 1.5         # a band's side-against-mid moved beyond this is width lost or invented
+MONO_LOSS_LIMIT_LU = 0.5     # mono playback losing this much more than the mix did is openness lost
 
 
 @dataclass
@@ -127,6 +130,7 @@ def compare(mix_path: Path, master_path: Path, bpm: float, *, start_s: float | N
 
     lm, ls = lufs(mix, rate), lufs(master, rate)
     v.numbers["mix_lufs"], v.numbers["master_lufs"] = round(lm, 1), round(ls, 1)
+    master_raw = master
     if ls > -60 and lm > -60:
         master = master * 10 ** ((lm - ls) / 20)     # loudness-matched
     v.checked.append(f"loudness-matched the master ({ls:.1f} LUFS) to the mix ({lm:.1f} LUFS) over {n / rate:.0f} s")
@@ -156,6 +160,36 @@ def compare(mix_path: Path, master_path: Path, bpm: float, *, start_s: float | N
             v.passed = False
             v.reasons.append(f"the crest fell from {cm:.1f} to {cs:.1f} dB, more than a limiter takes")
         v.checked.append(f"crest {cm:.1f} to {cs:.1f} dB, within what a limiter takes")
+        # transients kept: the master's own peak-to-loudness, before matching, stays over the floor; a mix that
+        # arrived with less headroom than the floor sets its own, one dB under what it had
+        plr = float(20 * np.log10(max(float(np.max(np.abs(master_raw))), 1e-9))) - ls if ls > -60 else 99.0
+        plr_mix = float(20 * np.log10(max(float(np.max(np.abs(mix))), 1e-9))) - lm if lm > -60 else 99.0
+        floor = min(PLR_FLOOR_DB, plr_mix - 1.0)
+        v.numbers["plr_master_db"], v.numbers["plr_mix_db"] = round(plr, 1), round(plr_mix, 1)
+        if plr < floor:
+            v.passed = False
+            v.reasons.append(f"peak-to-loudness {plr:.1f} dB: limited hard, under the {floor:.1f} dB floor")
+        v.checked.append(f"peak-to-loudness {plr:.1f} dB, over the {floor:.1f} dB floor")
+        # openness kept: width per band and what mono loses, against the mix
+        if mix.ndim == 2 and mix.shape[1] == 2:
+            from hiremarco.mix.audit import mono_loss, stereo_bands
+
+            _, wm = stereo_bands(mix, rate)
+            _, ws = stereo_bands(master, rate)
+            width = {k: round(ws[k] - wm[k], 1) for k in wm if wm[k] is not None and ws[k] is not None}
+            v.numbers["width_deltas_db"] = width
+            for name, d in width.items():
+                if abs(d) > WIDTH_LIMIT_DB:
+                    v.passed = False
+                    v.reasons.append(f"{name} width moved {d:+.1f} dB against the mix")
+            lossm, losss = mono_loss(mix, rate), mono_loss(master, rate)
+            if lossm is not None and losss is not None:
+                v.numbers["mono_loss_new_lu"] = round(losss - lossm, 2)
+                if losss - lossm > MONO_LOSS_LIMIT_LU:
+                    v.passed = False
+                    v.reasons.append(f"mono playback loses {losss:.1f} LU where the mix lost {lossm:.1f}")
+            v.checked.append("width per band and the mono fold within reach of the mix ("
+                             + ", ".join(f"{k} {d:+.1f}" for k, d in width.items()) + ")")
     return v
 
 

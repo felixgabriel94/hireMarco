@@ -40,7 +40,10 @@ def test_an_empty_reply_is_asked_once_more_and_a_late_window_captured_again(tmp_
     monkeypatch.setattr(config, "STATE_DIR", tmp_path)
     replies = iter(["", json.dumps({"licensed": True, "notice": "", "plugin": "Pro-L 2"})])
 
+    asked = []
+
     def handler(request):
+        asked.append(json.loads(request.content))
         return httpx.Response(200, json={"model": "muse-spark-1.3", "choices": [{"message": {"content": next(replies)},
                               "finish_reason": "length"}], "usage": {"prompt_tokens": 9, "completion_tokens": 1}})
 
@@ -56,6 +59,7 @@ def test_an_empty_reply_is_asked_once_more_and_a_late_window_captured_again(tmp_
     monkeypatch.setattr(face.time, "sleep", lambda s: None)
     f = face.look("FG Master", client=client, shoot=late)
     assert f is not None and f.licensed and f.plugin == "Pro-L 2" and shots == ["FG Master", "FG Master"]
+    assert [a["max_completion_tokens"] for a in asked] == [2000, 6000] and asked[1].get("reasoning_effort") == "low"
 
 
 def test_an_unreadable_face_is_no_reading_not_a_stop(tmp_path, monkeypatch):
