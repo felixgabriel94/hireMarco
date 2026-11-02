@@ -120,7 +120,7 @@ class Line:
                 self.uploads.append(request.content)
                 return httpx.Response(200, json={"id": f"up-{len(self.uploads)}"})
             body = json.loads(request.content)
-            if body.get("type") in ("text", "image"):
+            if body.get("type") in ("text", "image", "reaction"):
                 self.sent.append(body)
             return httpx.Response(200, json={"messages": [{"id": "wamid.o"}]})
 

@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from hiremarco.whatsapp.memory import recall, when
+from hiremarco.whatsapp.reactions import MODEL_PICKS
 
 ACTIONS = ("reply", "start", "retry", "rename", "cancel")
 SCHEMA = {
@@ -24,10 +25,11 @@ SCHEMA = {
         "action": {"type": "string", "enum": list(ACTIONS)},
         "title": {"type": "string"},
         "reply": {"type": "string"},
+        "reaction": {"type": "string", "enum": ["", *MODEL_PICKS]},
         "remember": {"type": "array", "items": {"type": "string"}},
         "forget": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["action", "title", "reply", "remember", "forget"],
+    "required": ["action", "title", "reply", "reaction", "remember", "forget"],
     "additionalProperties": False,
 }
 RULES = """You are answering Felix on WhatsApp. Each message you get carries the time, who Felix is (about_felix), \
@@ -59,6 +61,14 @@ say something is done or ready unless studio shows it. After start or retry, say
 ready. If the last setup failed, tell him why in plain words and what you need from him, if anything. Leave title \
 empty unless the action is start, retry or rename.
 
+Reactions. You never type an emoji in the text. You can react to his message with one of these names, or leave reaction \
+empty; most messages get none: noted (FYI, nothing to do, no reply needed), deal (he thanked you or agreed to a plan), \
+audio (a note about the audio, the mix or a session), purchase (he mentions something to buy or that he bought; it never \
+means you ordered it), date (he gives a date to keep in mind; it never means it is on his calendar), did_it (he says he \
+did his part), money (money came in), big_win (a rare big win), laugh (his joke landed; laugh, don't joke back). \
+A reaction replaces the text only when nothing needs saying: then leave reply empty, with action reply, and never add \
+"noted" or "you're welcome". If he asked something, or you have anything to say or ask, write it in reply. Only one reaction.
+
 Memory. remember: anything lasting he states in this message, each as one short sentence in his words, kept \
 exactly as he meant it: a preference, a plan, a fact about his music, his people, his schedule. Not the beat he \
 just sent, not a one-off instruction, not a question, never your guess; most messages give an empty list. forget: \
@@ -73,6 +83,7 @@ class Decision:
     reply: str
     remember: list[str] = field(default_factory=list)
     forget: list[str] = field(default_factory=list)
+    reaction: str = ""  # one of MODEL_PICKS by name, or none
 
 
 def studio(inbox: Path, running: Callable[[], bool]) -> dict:
@@ -141,8 +152,10 @@ def decide(marco, said: str, state: dict, turns: list[dict], *, instructions: st
                            response_format={"type": "json_schema",
                                             "json_schema": {"name": "decision", "schema": SCHEMA, "strict": True}})
     data = json.loads(reply.text)
-    if data.get("action") not in ACTIONS or not str(data.get("reply", "")).strip():
+    reaction = data.get("reaction") if data.get("reaction") in MODEL_PICKS else ""  # anything else is no reaction
+    silent = data.get("action") == "reply" and reaction  # only a plain reply can be the reaction alone
+    if data.get("action") not in ACTIONS or not (str(data.get("reply", "")).strip() or silent):
         raise ValueError(f"the brain answered outside the schema: {str(data)[:80]}")
-    return Decision(data["action"], str(data.get("title") or "").strip(), data["reply"].strip(),
+    return Decision(data["action"], str(data.get("title") or "").strip(), str(data.get("reply", "")).strip(),
                     [str(f).strip() for f in data.get("remember") or [] if str(f).strip()][:3],
-                    [str(f).strip() for f in data.get("forget") or [] if str(f).strip()][:3])
+                    [str(f).strip() for f in data.get("forget") or [] if str(f).strip()][:3], reaction)

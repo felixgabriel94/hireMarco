@@ -19,7 +19,7 @@ from hiremarco import config, gate
 from hiremarco.livelog import Trace
 from hiremarco.marco import Marco
 from hiremarco.style import NAME_RULE, TIME_RULE
-from hiremarco.whatsapp import Inbound, WhatsApp, make_app
+from hiremarco.whatsapp import Inbound, WhatsApp, make_app, reactions
 from hiremarco.whatsapp.brain import context, decide, history
 from hiremarco.whatsapp.facts import forget, keep
 from hiremarco.whatsapp.memory import remember
@@ -219,7 +219,14 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
             text = "Nothing's waiting to be set up."
     kept = [f for f in decision.remember if keep(wa.conn, f)]
     gone = [g for f in decision.forget for g in forget(wa.conn, f)]
-    wa.send_text(sender, text, idempotency_key=f"brain:{message_id}")
+    working = decision.action in ("start", "retry") and did.startswith(("session started", "retrying"))
+    emoji = reactions.ON_IT if working else reactions.MODEL_PICKS.get(decision.reaction)
+    if text:
+        if emoji:
+            reactions.react(wa, sender, message_id, emoji)
+        wa.send_text(sender, text, idempotency_key=f"brain:{message_id}")
+    elif emoji:  # nothing needs saying: the reaction is the reply, and a short line if it can't go
+        reactions.react_or_say(wa, sender, message_id, emoji, f"brain:{message_id}")
     memory = (f"; kept {len(kept)}" if kept else "") + (f"; forgot {len(gone)}" if gone else "")
     return f"brain: {decision.action}; {did}{memory}"
 
@@ -550,6 +557,7 @@ def dress_me(photo, said: str, sender: str, message_id: str, wa: WhatsApp, marco
         wa.send_image(sender, picture, caption, idempotency_key=f"dress-{step}:{message_id}", mime="image/jpeg")
 
     plain = lambda text, tag: wa.send_text(sender, text, idempotency_key=f"dress-{tag}:{message_id}")  # noqa: E731
+    reactions.react(wa, sender, message_id, reactions.ON_IT)
     try:
         done = dress.dress(photo.path, said, conn=wa.conn, send=send, client=getattr(marco, "client", None),
                            film=dress.film_dir(), waiting_row=waiting_row)
@@ -592,6 +600,7 @@ def selects_me(said: str, sender: str, message_id: str, wa: WhatsApp, marco=None
         plain("I don't have any new frames from you. Send them over and ask me again.", "none")
         return "selects: no frames to pick from"
     row = selects.begin(wa.conn, frames[-1].id, len(frames))
+    reactions.react(wa, sender, message_id, reactions.ON_IT)
     noted = f"You sent {total}, so I'm working from the last {selects.CAP}. " if total > selects.CAP else ""
     try:
         done = selects.run([(f.path, f.original) for f in frames], said, conn=wa.conn, send=send,
@@ -637,6 +646,7 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         if beat is not None:
             path, started = beat
             remember(wa.conn, "felix", f"[sent a beat: {path.name}] {message.caption or ''}")
+            reactions.react(wa, message.sender, message.id, reactions.AUDIO)
             if started:
                 wa.send_text(message.sender, "Got the beat. Setting up the session.", idempotency_key=f"beat:{message.id}")
                 return trace.done(f"beat {path.name} received with its instruction; session started; {booth()}")
@@ -680,11 +690,15 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
                         if selects.taken(wa.conn, photo):
                             return trace.done(f"photo {photo.path.name} kept; the selects have it")
                     count = len(selects.shoot(wa.conn)[0])
+                    reactions.react(wa, message.sender, message.id, reactions.PHOTOS)  # once, on the shoot's last frame
                     wa.send_text(message.sender, f"Got {count} frames.", idempotency_key=f"burst:{message.id}")
                     return trace.done(f"burst: {count} frames, one acknowledgement")
         elif message.kind == "audio" and message.voice and message.media_id:
             said = voice_text(message, wa, listen)
             trace.add(f"voice note: {said[:60]}")
+        elif message.kind == "document":  # not a beat and not a photo: a file; nothing to say but that it landed
+            reactions.react_or_say(wa, message.sender, message.id, reactions.FILE, f"file:{message.id}")
+            return trace.done("file received")
         elif message.kind != "text":
             return trace.done(f"{message.kind} noted, no handler yet")
         if photo is None:
@@ -711,6 +725,8 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
             said = said or "(he sent this photo without a word)"
         offered = email_offer_words(said, message.sender, message.id, wa) if said and message.kind != "image" else None
         if offered is not None:
+            if "draft shown" in offered:
+                reactions.react(wa, message.sender, message.id, reactions.DRAFT)
             return trace.done(offered)
         dropped = digest_unsubscribe(said, message.sender, message.id, wa) if said and message.kind != "image" else None
         if dropped is not None:
@@ -718,9 +734,13 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         if said and message.kind != "image":
             written = email_words(said, message.sender, message.id, wa)
             if written is not None:
+                if "draft shown" in written:
+                    reactions.react(wa, message.sender, message.id, reactions.DRAFT)
                 return trace.done(written)
         called = offer_yes(said, message.sender, message.id, wa) if said and message.kind != "image" else None
         if called is not None:
+            if ": calling " in called:
+                reactions.react(wa, message.sender, message.id, reactions.CALLING)
             return trace.done(called)
         if said:
             try:
