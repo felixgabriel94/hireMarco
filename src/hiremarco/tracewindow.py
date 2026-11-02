@@ -26,7 +26,7 @@ def detail_flag() -> Path:
     return Path(config.STATE_DIR) / DETAIL_FLAG
 
 
-def show(*, screen: int = 2, fill: float = 1.0, unit: float | None = None, replay: Path | None = None,
+def show(*, screen: int = 2, fill: float = 0.92, unit: float | None = None, replay: Path | None = None,
          speed: float = 1.0, at: Path | None = None) -> None:
     import AppKit
     import WebKit
@@ -40,21 +40,29 @@ def show(*, screen: int = 2, fill: float = 1.0, unit: float | None = None, repla
     frame = chosen.visibleFrame()
     width, height = frame.size.width * fill, frame.size.height * fill
     left, bottom = frame.origin.x + (frame.size.width - width) / 2, frame.origin.y + (frame.size.height - height) / 2
-    style = (AppKit.NSWindowStyleMaskTitled | AppKit.NSWindowStyleMaskClosable
+    # a titled, resizable panel the Owner can drag by its title bar or its body and resize at its edges
+    # (2026-11-02: a borderless full-screen panel could not be moved or shrunk and sat partly off the TV);
+    # still non-activating, so Logic keeps the front
+    style = (AppKit.NSWindowStyleMaskTitled | AppKit.NSWindowStyleMaskClosable | AppKit.NSWindowStyleMaskResizable
              | AppKit.NSWindowStyleMaskNonactivatingPanel | AppKit.NSWindowStyleMaskUtilityWindow)
-    if fill >= 0.999:
-        style = AppKit.NSWindowStyleMaskBorderless | AppKit.NSWindowStyleMaskNonactivatingPanel
+    screen_frame = chosen.frame()
+    # the screen initializer takes a rect in that screen's own coordinates (origin at its bottom left)
+    rel = NSMakeRect(left - screen_frame.origin.x, bottom - screen_frame.origin.y, width, height)
     panel = AppKit.NSPanel.alloc().initWithContentRect_styleMask_backing_defer_screen_(
-        NSMakeRect(left, bottom, width, height), style, AppKit.NSBackingStoreBuffered, False, chosen)
+        rel, style, AppKit.NSBackingStoreBuffered, False, chosen)
     panel.setTitle_("Marco Live Trace")
     panel.setLevel_(AppKit.NSFloatingWindowLevel)
     panel.setBecomesKeyOnlyIfNeeded_(True)
     panel.setHidesOnDeactivate_(False)
+    panel.setMovableByWindowBackground_(True)
+    panel.setMinSize_((640, 360))
     panel.setBackgroundColor_(AppKit.NSColor.colorWithSRGBRed_green_blue_alpha_(0.043, 0.043, 0.051, 1.0))
     conf = WebKit.WKWebViewConfiguration.alloc().init()
     view = WebKit.WKWebView.alloc().initWithFrame_configuration_(NSMakeRect(0, 0, width, height), conf)
     view.setValue_forKey_(False, "drawsBackground")
+    view.setAutoresizingMask_(AppKit.NSViewWidthSizable | AppKit.NSViewHeightSizable)
     panel.setContentView_(view)
+    panel.setFrame_display_(NSMakeRect(left, bottom, width, height), True)   # absolute, checked after the order front
     view.loadHTMLString_baseURL_(PAGE.read_text(), NSURL.fileURLWithPath_(str(PAGE.parent)))
 
     # the unit scales the page: 1 px per unit on a 1920-point TV; smaller screens scale down
@@ -96,6 +104,9 @@ def show(*, screen: int = 2, fill: float = 1.0, unit: float | None = None, repla
     NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(0.8, ticker, "ready:", None, False)
     NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(TICK_S, ticker, "tick:", None, True)
     panel.orderFrontRegardless()
+    f = panel.frame()
+    print(f"trace panel at x {f.origin.x:.0f} y {f.origin.y:.0f} {f.size.width:.0f} x {f.size.height:.0f} on screen {screen}; "
+          f"drag it by its title bar, resize at its edges; it never takes the front", flush=True)
     AppHelper.runEventLoop()
 
 

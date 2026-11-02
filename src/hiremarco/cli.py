@@ -1957,7 +1957,7 @@ def main(argv: list[str] | None = None) -> int:
     tr.add_argument("action", nargs="?", choices=["show", "replay", "detail"], default="show")
     tr.add_argument("words", nargs="*")
     tr.add_argument("--screen", type=int, default=2, help="which display: 2 is the TV, 1 the Mac's own")
-    tr.add_argument("--fill", type=float, default=1.0, help="share of the display (1.0 fills it, borderless)")
+    tr.add_argument("--fill", type=float, default=0.92, help="share of the display the window takes (0.92); drag and resize it after")
     tr.add_argument("--unit", type=float, help="type scale: 1.0 on a 1920-point display; smaller shrinks everything")
     tr.add_argument("--speed", type=float, default=1.0, help="replay speed (1.0 is true timing)")
     tr.set_defaults(func=cmd_trace)
