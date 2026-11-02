@@ -491,7 +491,7 @@ def cmd_call(args) -> int:
             return 1
         day = next_weekday(args.day.lower(), date.today())
         offer = offers.record_offer(offers.connect(), place, weekday=args.day, day=day.isoformat(), hour=args.hour,
-                                    party_size=args.party)
+                                    minute=args.minute, party_size=args.party)
         try:
             WhatsApp().send_text(config.require("OWNER_WHATSAPP"), offer.text(place),
                                  idempotency_key=f"offer:{offer.id}")
@@ -1622,6 +1622,7 @@ def main(argv: list[str] | None = None) -> int:
     ca.add_argument("--kind", default="", help="reservation or generic (default: from the purpose)")
     ca.add_argument("--day", default="thursday", help="for offer: the weekday")
     ca.add_argument("--hour", type=int, default=20, help="for offer: the hour, 24-hour clock")
+    ca.add_argument("--minute", type=int, default=0, help="for offer: the minutes of that hour")
     ca.add_argument("--party", type=int, default=4, help="for offer: everyone at the table")
     ca.add_argument("--no-critic", action="store_true", help="skip the critic's second look")
     ca.add_argument("--owner-said", default="", help="the Owner's own words naming the number, for anyone but him")

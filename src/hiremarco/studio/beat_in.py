@@ -281,10 +281,8 @@ def last_loaded(inbox: Path = INBOX, within_s: float = 6 * 3600, now: float | No
 
 
 def title(text: str) -> str:
-    """A song title as Marco keeps it: lowercase, the way he texts (Owner 2026-10-30); an all-caps name stays."""
-    from hiremarco.style import casual
-
-    return re.sub(r"[/:\x00]", "-", casual(" ".join(text.split()).strip(" .!\"'“”")))[:60]
+    """A song title as Marco keeps it: as the artist wrote it, tidied at the edges and safe for a file name."""
+    return re.sub(r"[/:\x00]", "-", " ".join(text.split()).strip(" .!\"'“”"))[:60]
 
 
 def sidecar(path: Path) -> Path:

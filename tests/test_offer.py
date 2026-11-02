@@ -54,7 +54,7 @@ def test_offer_same_as_last_time(tmp_path, monkeypatch):
     client, seen = scripted(TASK, {"place_id": "bistro", "reason": "where you meet producers"}, tmp_path=tmp_path)
     cal = Cal()
     offer = make_offer(LUCIE, client, cal, today=TODAY, places=PLACES)
-    assert offer.text() == "Same as last time? Corner Bistro, table for four, Thursday at eight. Your calendar's clear."
+    assert offer.text() == "Same as last time? Corner Bistro, table for four, Thursday at 8pm. Your calendar's clear."
     assert cal.asked[0][0].isoformat() == "2026-11-05T20:00:00-05:00"
     assert "Corner Bistro" in seen[1]["messages"][1]["content"]
     assert seen[0]["response_format"]["json_schema"]["name"] == "task"
@@ -64,7 +64,7 @@ def test_busy_calendar_says_so(tmp_path, monkeypatch):
     monkeypatch.setenv("HIREMARCO_STATE", str(tmp_path))
     client, _ = scripted(TASK, {"place_id": "grill", "reason": "quiet"}, tmp_path=tmp_path)
     offer = make_offer(LUCIE, client, Cal(clear=False), today=TODAY, places=PLACES)
-    assert offer.text() == "Harbor Grill, table for four, Thursday at eight. You have something then, so say if you want another time."
+    assert offer.text() == "Harbor Grill, table for four, Thursday at 8pm. You have something then, so say if you want another time."
 
 
 def test_place_must_come_from_the_list(tmp_path, monkeypatch):

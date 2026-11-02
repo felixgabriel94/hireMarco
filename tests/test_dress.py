@@ -279,8 +279,8 @@ def test_dress_me_with_the_photo_sends_what_sam_sees_then_the_board_then_locks_i
                         caption="Marco, dress me. Studio today, dinner tonight."), wa=wa, marco=marco)
     assert "dress me: 4 pieces, what SAM sees and the board sent, B recommended; threw out pieces [7]" in out
     assert [m["type"] for m in sent] == ["image", "image"]
-    assert sent[0]["image"]["caption"] == "i see 4 pieces. give me a sec to put three looks together."
-    assert sent[1]["image"]["caption"].startswith("b for me")
+    assert sent[0]["image"]["caption"] == "I see 4 pieces. Give me a sec to put three looks together."
+    assert sent[1]["image"]["caption"].startswith("B for me")
     assert len(uploads) == 2 and all(b"image/jpeg" in u and b"marco.jpg" in u for u in uploads)
     film = sorted(p.name for p in (tmp_path / "film").iterdir())
     assert len(film) == 2 and film[0].endswith("-board.png") and film[1].endswith("-what-sam-sees.png")
@@ -319,7 +319,7 @@ def test_dress_me_before_the_photo_waits_for_it(tmp_path, monkeypatch):
     out = handle(arrive(wa, "w1", kind="text", text="Marco, dress me. Studio today, dinner tonight."), wa=wa,
                  marco=marco)
     assert out.split(" > ")[1] == "dress me: waiting for the photo"
-    assert sent[-1]["text"]["body"].startswith("send me a photo of the clothes")
+    assert sent[-1]["text"]["body"].startswith("Send me a photo of the clothes")
     out = handle(arrive(wa, "w2", kind="image", media_id="photo-1"), wa=wa, marco=marco,
                  settle=lambda s: pytest.fail("the waiting instruction takes the photo at once"))
     assert "B recommended" in out and [m["type"] for m in sent[-2:]] == ["image", "image"]
@@ -368,7 +368,7 @@ def test_a_photo_with_no_clothes_says_so(tmp_path, monkeypatch):
     monkeypatch.setattr(dress, "segment_masks", lambda *a, **k: [])
     out = handle(arrive(wa, "w1", kind="image", media_id="photo-1", caption="dress me"), wa=wa,
                  marco=Marco(spark(tmp_path, [])))
-    assert "no clothing found" in out and sent[-1]["text"]["body"].startswith("i couldn't make out any clothes")
+    assert "no clothing found" in out and sent[-1]["text"]["body"].startswith("I couldn't make out any clothes")
 
 
 def test_a_dry_run_writes_both_pictures_and_sends_nothing(tmp_path):

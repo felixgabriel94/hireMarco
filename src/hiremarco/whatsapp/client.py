@@ -18,7 +18,7 @@ from typing import Any
 import httpx
 
 from hiremarco import config, gate
-from hiremarco.style import casual, plain
+from hiremarco.style import plain, written
 from hiremarco.whatsapp.memory import remember
 
 GRAPH_URL = "https://graph.facebook.com/v25.0"
@@ -122,7 +122,7 @@ class WhatsApp:
     def send_text(self, to: str, body: str, *, idempotency_key: str, critic=None,
                   now: datetime | None = None, exact: bool = False) -> str:
         """``exact`` leaves the words alone: an email's preview has to read as the email will."""
-        body = body if exact else casual(self._plain(body))
+        body = body if exact else written(self._plain(body))
         sent = self._send(to, {"type": "text", "text": {"body": body}}, text_for_gate=body,
                           idempotency_key=idempotency_key, capability="send_message", critic=critic, now=now)
         remember(self.conn, "marco", body)
@@ -132,7 +132,7 @@ class WhatsApp:
                   now: datetime | None = None) -> str:
         """A message with a button that opens the link. A plain link to an address on the home network is not
         made tappable by WhatsApp (live 2026-10-29: the Owner had to copy it out), a button is."""
-        body, label = casual(self._plain(body)), casual(label)
+        body = written(self._plain(body))
         payload = {"type": "interactive", "interactive": {
             "type": "cta_url", "body": {"text": body},
             "action": {"name": "cta_url", "parameters": {"display_text": label[:20], "url": url}}}}
@@ -186,7 +186,7 @@ class WhatsApp:
         """A picture with a short caption: uploaded and sent inside one gated action. ``mime`` image/jpeg for a
         photo-heavy picture, which as a PNG can pass WhatsApp's 5 MB image limit. The gate's duplicate check sees the
         picture too: the same caption on a new picture is a new message (a retake of Dress me or the selects)."""
-        caption = casual(caption)
+        caption = written(caption)
         if not self._inside_window(to, now):
             raise gate.Refused("outside the 24-hour window; a template would cost money, so asking the Owner first")
 

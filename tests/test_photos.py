@@ -176,4 +176,4 @@ def test_when_the_brain_is_down_marco_still_looks_at_the_photo(tmp_path, monkeyp
     assert "brain unavailable: MuseSparkError > answered the photo" in out
     content = asked[-1]["messages"][1]["content"]
     assert content[0]["text"] == "what is it?" and content[1]["type"] == "image_url"
-    assert texts(sent) == ["that's a red shirt."]
+    assert texts(sent) == ["That's a red shirt."]

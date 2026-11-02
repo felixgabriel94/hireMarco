@@ -40,6 +40,8 @@ def recall(conn: sqlite3.Connection, limit: int = 40) -> list[tuple[datetime, st
 
 
 def when(ts: datetime) -> str:
-    """A time as he would say it, in New York time: "Thu Oct 30, 10:12 pm"."""
+    """A time as Marco writes it, in New York time: "Thu Oct 30, 10:12pm"."""
+    from hiremarco.style import clock_time
+
     local = ts.astimezone(HOME)
-    return local.strftime("%a %b %-d, %-I:%M ") + local.strftime("%p").lower()
+    return f"{local.strftime('%a %b %-d')}, {clock_time(local.hour, local.minute)}"

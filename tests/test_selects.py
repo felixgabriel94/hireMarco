@@ -155,7 +155,7 @@ def test_a_burst_gets_one_short_line_and_no_reply_per_frame(tmp_path, monkeypatc
     line = Line(tmp_path, monkeypatch)
     marco = Marco()
     out = burst(line, 14, marco)
-    assert line.texts() == ["got 14 frames."]
+    assert line.texts() == ["Got 14 frames."]
     assert marco.seen == []  # no frame went to the brain
     assert "burst: 14 frames" in out[-1]
     assert sum("his next message says what it is for" in o for o in out) == 13
@@ -165,7 +165,7 @@ def test_a_burst_gets_one_short_line_and_no_reply_per_frame(tmp_path, monkeypatc
 def test_the_line_waits_out_a_slow_frame_and_a_frame_landing_in_the_wait_takes_over(tmp_path, monkeypatch):
     line = Line(tmp_path, monkeypatch)
     first = burst(line, 3, Marco())  # the first three settle here, and the last one spoke
-    assert line.texts() == ["got 3 frames."]
+    assert line.texts() == ["Got 3 frames."]
     waits = []
 
     def slow(seconds):
@@ -175,7 +175,7 @@ def test_the_line_waits_out_a_slow_frame_and_a_frame_landing_in_the_wait_takes_o
                            ts=datetime.now(timezone.utc) + timedelta(seconds=1))
 
     out = handle(line.arrive("f8", kind="image", media_id="photo-8"), wa=line.wa, marco=Marco(), settle=slow)
-    assert waits == [20.0, 25.0] and line.texts() == ["got 3 frames."]
+    assert waits == [20.0, 25.0] and line.texts() == ["Got 3 frames."]
     assert "next message" in out and first
 
 
@@ -209,7 +209,7 @@ def test_a_text_in_the_middle_of_a_burst_is_handled_at_once_and_not_swallowed(tm
     assert marco.seen[-1].get("image_url") is None  # the last frame is not what he is talking about
     # the rest of the burst goes on, one line at the end for all of it
     burst(line, 6, marco, start=20)
-    assert line.texts() == ["setting it up.", "got 11 frames."]
+    assert line.texts() == ["setting it up.", "Got 11 frames."]
 
 
 def test_a_voice_note_in_the_middle_of_a_burst_is_handled_at_once_too(tmp_path, monkeypatch):
@@ -323,7 +323,7 @@ def test_a_file_that_cannot_be_read_gets_one_plain_line_for_the_whole_burst(tmp_
     marco = Marco()
     out = [handle(line.arrive(f"r{i}", kind="image", media_id=f"photo-{i}", filename=f"D{i}.ARW"), wa=line.wa,
                   marco=marco, settle=lambda s: None) for i in range(4)]
-    assert line.texts() == ["i can't open that one. send your frames as JPEG?"]
+    assert line.texts() == ["I can't open that one. Send your frames as JPEG?"]
     assert "photo not kept" in out[0] and "held" in out[1] and marco.seen == []
     assert not photos.on_its_way(line.wa.conn, OWNER)    # nothing waits for a frame that will not come
     assert selects.shoot(line.wa.conn) == ([], 0)
@@ -675,11 +675,11 @@ def test_he_asks_and_gets_the_sheet_then_three_pictures_one_at_a_time_then_the_l
                  settle=lambda s: None)
     assert "selects: 5 frames, picked [2, 1, 3]" in out
     assert [m["type"] for m in line.sent] == ["image", "image", "image", "image", "text"]
-    assert line.captions() == ["i've got you in all 5 frames. going through them now.",
-                               "2. your eyes are on it and the light holds your face.",
-                               "1. good stance, though your feet are tight to the edge.",
-                               "3. the jacket reads clean here."]
-    assert line.texts() == ["the rest were soft or you were looking away."]
+    assert line.captions() == ["I've got you in all 5 frames. Going through them now.",
+                               "2. Your eyes are on it and the light holds your face.",
+                               "1. Good stance, though your feet are tight to the edge.",
+                               "3. The jacket reads clean here."]
+    assert line.texts() == ["The rest were soft or you were looking away."]
     assert line.find.calls == ["person"] * 5
     assert "washed black and cream" in seen[0]["messages"][1]["content"][0]["text"]
     # each pick is his frame's own bytes, not a redraw
@@ -699,7 +699,7 @@ def test_he_asks_and_gets_the_sheet_then_three_pictures_one_at_a_time_then_the_l
     line.sent.clear()
     out = handle(line.arrive("ask2", kind="text", text="which are the best three?"), wa=line.wa, marco=marco,
                  settle=lambda s: None)
-    assert "no frames" in out and line.texts() == ["i don't have any new frames from you. send them over and ask me again."]
+    assert "no frames" in out and line.texts() == ["I don't have any new frames from you. Send them over and ask me again."]
 
 
 def test_his_words_can_be_a_voice_note_or_a_caption_on_a_frame(tmp_path, monkeypatch):
@@ -760,7 +760,7 @@ def test_asking_with_no_frames_says_so_plainly(tmp_path, monkeypatch):
     line = Line(tmp_path, monkeypatch)
     out = handle(line.arrive("ask", kind="text", text="Marco, pick my selects"), wa=line.wa, marco=Marco(),
                  settle=lambda s: None)
-    assert "no frames" in out and line.texts() == ["i don't have any new frames from you. send them over and ask me again."]
+    assert "no frames" in out and line.texts() == ["I don't have any new frames from you. Send them over and ask me again."]
     assert line.find.calls == []
 
 
@@ -772,9 +772,9 @@ def test_fewer_than_three_usable_frames_are_picked_and_said(tmp_path, monkeypatc
     marco = Marco(spark(tmp_path, [], [answer(2, 4)]))
     out = handle(line.arrive("ask", kind="text", text="pick my selects"), wa=line.wa, marco=marco, settle=lambda s: None)
     assert "picked [2, 4]" in out
-    assert line.captions()[0] == "i can see you in 2 of 4 frames. going through them now."
+    assert line.captions()[0] == "I can see you in 2 of 4 frames. Going through them now."
     assert line.captions()[1:] == ["2. line for 2.", "4. line for 4."]
-    assert line.texts() == ["only 2 frames had you in them, so that's all i could pick."]
+    assert line.texts() == ["Only 2 frames had you in them, so that's all I could pick."]
 
 
 def test_nobody_in_any_frame_says_so_and_the_frames_stay_for_another_try(tmp_path, monkeypatch):
@@ -784,7 +784,7 @@ def test_nobody_in_any_frame_says_so_and_the_frames_stay_for_another_try(tmp_pat
     out = handle(line.arrive("ask", kind="text", text="pick my selects"), wa=line.wa, marco=Marco(spark(tmp_path, seen)),
                  settle=lambda s: None)
     assert "nobody found in 3 frames" in out and seen == []
-    assert line.texts() == ["i couldn't find you in any of those frames. send me a few more?"]
+    assert line.texts() == ["I couldn't find you in any of those frames. Send me a few more?"]
     assert len(selects.shoot(line.wa.conn)[0]) == 3
 
 
@@ -794,8 +794,8 @@ def test_a_wrong_answer_from_the_model_never_reaches_him(tmp_path, monkeypatch):
     marco = Marco(spark(tmp_path, [], [answer(40, 41), answer(40, 41)]))
     out = handle(line.arrive("ask", kind="text", text="pick my selects"), wa=line.wa, marco=marco, settle=lambda s: None)
     assert "picks rejected" in out
-    assert line.captions() == ["i've got you in all 3 frames. going through them now."]  # the sheet, and no picks
-    assert line.texts() == ["i couldn't settle on my three just now. ask me again?"]
+    assert line.captions() == ["I've got you in all 3 frames. Going through them now."]  # the sheet, and no picks
+    assert line.texts() == ["I couldn't settle on my three just now. Ask me again?"]
     assert len(selects.shoot(line.wa.conn)[0]) == 3
 
 
@@ -809,7 +809,7 @@ def test_more_than_thirty_frames_says_so(tmp_path, monkeypatch):
     out = handle(line.arrive("ask", kind="text", text="pick my selects"), wa=line.wa, marco=Marco(spark(tmp_path, [])),
                  settle=lambda s: None)
     assert "selects: 30 frames" in out
-    assert "you sent 32, so i'm working from the last 30." in line.captions()[0]
+    assert "You sent 32, so I'm working from the last 30." in line.captions()[0]
 
 
 def test_a_retake_of_the_same_size_shoot_is_not_held_as_a_duplicate(tmp_path, monkeypatch):

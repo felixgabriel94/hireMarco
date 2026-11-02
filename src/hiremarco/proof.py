@@ -14,6 +14,7 @@ from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from hiremarco import gate
+from hiremarco.style import clock_time
 from hiremarco.google.mail import MailItem
 from hiremarco.meta.client import MuseSpark
 
@@ -57,7 +58,7 @@ class Booking:
 
     def card(self) -> str:
         weekday = self.day.strftime("%A")
-        clock = self.start.strftime("%-I:%M %p").replace(":00", "").lower()
+        clock = clock_time(self.at.hour, self.at.minute)
         words = {2: "two", 3: "three", 4: "four", 5: "five", 6: "six"}
         party = words.get(self.party_size, str(self.party_size))
         return f"Confirmed by Resy: {weekday}, {clock}, {party}, under {self.name}."

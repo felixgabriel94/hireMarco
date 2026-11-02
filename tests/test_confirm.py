@@ -48,7 +48,7 @@ def test_the_confirmation_is_sent_with_its_view_link(monkeypatch):
     found = item(links=["https://www.opentable.com/unsubscribe?x=1",
                         "https://www.opentable.com/my/reservation/view?rid=9"])
     note, texts, links = run(Mail([], [found]))
-    assert links == [("Confirmed: American Social Brickell, Thursday 9:30 pm, four, under Felix Betancourt. "
+    assert links == [("Confirmed: American Social Brickell, Thursday 9:30pm, four, under Felix Betancourt. "
                       "Here's the confirmation.", "https://www.opentable.com/my/reservation/view?rid=9")]
     assert texts == [] and "sent with its link" in note
 
@@ -56,7 +56,7 @@ def test_the_confirmation_is_sent_with_its_view_link(monkeypatch):
 def test_no_link_sends_the_number_and_nothing_in_time_asks(monkeypatch):
     monkeypatch.setattr("hiremarco.gate.check_model_call", lambda *a, **k: None)
     note, texts, _ = run(Mail([item()]))
-    assert texts == ["Confirmed: American Social Brickell, Thursday 9:30 pm, four, under Felix Betancourt. "
+    assert texts == ["Confirmed: American Social Brickell, Thursday 9:30pm, four, under Felix Betancourt. "
                      "Confirmation number AS-1234. It's in your email."]
     note, texts, _ = run(Mail([]))
     assert texts == ["No confirmation email from American Social Brickell yet. Want me to call to confirm?"]

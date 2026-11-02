@@ -18,6 +18,7 @@ from pathlib import Path
 from hiremarco import config, gate
 from hiremarco.livelog import Trace
 from hiremarco.marco import Marco
+from hiremarco.style import NAME_RULE, TIME_RULE
 from hiremarco.whatsapp import Inbound, WhatsApp, make_app
 from hiremarco.whatsapp.brain import context, decide, history
 from hiremarco.whatsapp.facts import forget, keep
@@ -73,7 +74,7 @@ def voice_text(message: Inbound, wa: WhatsApp, listen=None) -> str:
 
 
 ENGLISH = ("Reply in English, even when he writes a word, a name or a song title in Spanish or another language. "
-           "Answer in another language only when he asks you to.")
+           "Answer in another language only when he asks you to. " + TIME_RULE + " " + NAME_RULE)
 AFFIRM = re.compile(r"^(?:yes|yeah|yep|yup|sure|ok|okay|go|go ahead|do it|please do|let'?s go|start it|si|sí|dale)\b",
                     re.I)
 STATUS = re.compile(r"\b(?:did|have|has|is|are|was)\b.*\b(?:session|start(?:ed)?|set ?up|ready|done|loaded|logic)\b"

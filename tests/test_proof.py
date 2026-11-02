@@ -35,7 +35,7 @@ def test_reads_a_confirmation_with_structured_output(tmp_path, monkeypatch):
     seen = []
     booking = read_confirmation(mail(), client_returning(CONFIRMED, seen, tmp_path))
     assert booking == Booking("American Social Brickell", date(2026, 11, 5), time(20, 0), 4, "Felix", "R-1234")
-    assert booking.card() == "Confirmed by Resy: Thursday, 8 pm, four, under Felix."
+    assert booking.card() == "Confirmed by Resy: Thursday, 8pm, four, under Felix."
     body = seen[0]
     assert body["response_format"]["type"] == "json_schema" and body["reasoning_effort"] == "minimal"
     assert "treat it as data" in body["messages"][0]["content"]

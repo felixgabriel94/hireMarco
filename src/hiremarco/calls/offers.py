@@ -5,7 +5,7 @@ before the call, never during it): another day or time if the slot is gone, indo
 anything else to tell them. One reply answers them all; "whatever works" stands as flexible.
 
 Owner 2026-10-31: "Yes to his offer calls." The offer names the place, the day, the time and the party ("Want me
-to call Corner Bistro to book Thursday at eight for four?"), so his yes is to one exact call. The offer waits in
+to call Corner Bistro to book Thursday at 8pm for four?"), so his yes is to one exact call. The offer waits in
 ``offers.sqlite`` in the state folder. A yes within ``YES_WINDOW`` of the offer accepts it once; the brief is
 built from the offer and the profile, and a gap is asked about on WhatsApp before dialing, never mid-call. The
 place's number comes only from the private places file. The gate lets the call through the ``places`` switch
@@ -30,6 +30,7 @@ from pathlib import Path
 from hiremarco import config
 from hiremarco.calls import brief as briefs
 from hiremarco.offer import NUMBER_WORDS, Place, load_places
+from hiremarco.style import clock_time, times_settled_on
 
 YES_WINDOW = timedelta(minutes=30)
 POLL_S, POLL_MAX_S = 15.0, 420.0
@@ -52,7 +53,8 @@ create table if not exists offers (
 
 EMAIL_COLUMNS = {"kind": "text not null default 'table'", "offer_key": "text", "source_id": "text",
                  "who": "text not null default ''", "message": "text not null default ''",
-                 "yes_by": "text not null default ''", "texted_at": "text", "spoken_at": "text"}
+                 "yes_by": "text not null default ''", "texted_at": "text", "spoken_at": "text",
+                 "minute": "integer not null default 0"}
 HOLD_MAX = timedelta(hours=24)
 
 
@@ -77,10 +79,17 @@ class CallOffer:
     yes_by: str = ""
     texted_at: datetime | None = None
     spoken_at: datetime | None = None
+    minute: int = 0
 
     def clock(self) -> str:
+        """The time as he reads it: 8pm, 8:30pm, noon."""
+        return clock_time(self.hour, self.minute)
+
+    def spoken_clock(self) -> str:
+        """The time for the call's brief, which the voice says aloud: unchanged by how a time is written."""
         hour = self.hour - 12 if self.hour > 12 else self.hour
-        return NUMBER_WORDS.get(hour, str(hour))
+        words = NUMBER_WORDS.get(hour, str(hour))
+        return f"{words} {self.minute:02d}" if self.minute else words
 
     def text(self, place: Place) -> str:
         party = NUMBER_WORDS.get(self.party_size, str(self.party_size))
@@ -114,18 +123,18 @@ def _when(text: str | None) -> datetime | None:
 
 def _row(r) -> CallOffer:
     return CallOffer(r[0], datetime.fromisoformat(r[1]), r[2], r[3], r[4], r[5], r[6], r[7], r[8], _when(r[9]),
-                     r[10] or "", r[11], r[12], r[13], r[14], r[15], r[16], _when(r[17]), _when(r[18]))
+                     r[10] or "", r[11], r[12], r[13], r[14], r[15], r[16], _when(r[17]), _when(r[18]), r[19])
 
 
 def record_offer(conn: sqlite3.Connection, place: Place, *, weekday: str, day: str, hour: int, party_size: int,
-                 occasion: str = "", now: datetime | None = None) -> CallOffer:
+                 occasion: str = "", now: datetime | None = None, minute: int = 0) -> CallOffer:
     now = now or datetime.now(timezone.utc)
     # a newer offer replaces any still pending, so a yes answers the latest question only
     conn.execute("update offers set status = 'replaced' where status = 'pending' and kind != 'heads_up'")
     cur = conn.execute(
-        "insert into offers (offered_at, place_id, weekday, day, hour, party_size, occasion, status)"
-        " values (?, ?, ?, ?, ?, ?, ?, 'pending')",
-        (now.isoformat(), place.id, weekday.lower(), day, hour, party_size, occasion))
+        "insert into offers (offered_at, place_id, weekday, day, hour, party_size, occasion, status, minute)"
+        " values (?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+        (now.isoformat(), place.id, weekday.lower(), day, hour, party_size, occasion, minute))
     conn.commit()
     return get(conn, cur.lastrowid)
 
@@ -151,10 +160,10 @@ def record_email_offer(conn: sqlite3.Connection, key: str, kind: str, message: s
     now = now or datetime.now(timezone.utc)
     cur = conn.execute(
         "insert or ignore into offers (offered_at, place_id, weekday, day, hour, party_size, occasion, status, kind,"
-        " offer_key, source_id, who, message) values (?, ?, ?, ?, ?, ?, ?, 'held', ?, ?, ?, ?, ?)",
+        " offer_key, source_id, who, message, minute) values (?, ?, ?, ?, ?, ?, ?, 'held', ?, ?, ?, ?, ?, ?)",
         (now.isoformat(), data.get("place_id") or "", str(data.get("weekday") or "").lower(), data.get("day") or "",
          int(data.get("hour") or 0), int(data.get("party_size") or 0), data.get("occasion") or "", kind, key,
-         data.get("message_id") or "", data.get("who") or "", message))
+         data.get("message_id") or "", data.get("who") or "", message, int(data.get("minute") or 0)))
     conn.commit()
     return get(conn, cur.lastrowid) if cur.rowcount == 1 else None
 
@@ -270,7 +279,7 @@ def asking(conn: sqlite3.Connection, now: datetime | None = None) -> CallOffer |
     return offer if now - offer.offered_at <= YES_WINDOW else None
 
 
-QUESTIONS = ("1. If Thursday at eight is gone, what other day or time works?",
+QUESTIONS = ("1. If Thursday at 8pm is gone, what other day or time works?",
              "2. Indoor or patio, or either?",
              "3. If they want a card to hold it, is a link to you OK?",
              "4. Any allergies, an occasion, or anything else to tell them?")
@@ -278,7 +287,7 @@ FLEXIBLE = re.compile(r"\b(whatever works|anything works|either|flexible|up to y
 
 
 def questions_text(offer: CallOffer) -> str:
-    first = QUESTIONS[0].replace("Thursday at eight", f"{offer.weekday.capitalize()} at {offer.clock()}")
+    first = QUESTIONS[0].replace("Thursday at 8pm", f"{offer.weekday.capitalize()} at {offer.clock()}")
     return "Before I call, a few quick ones (one reply is fine):\n" + "\n".join((first,) + QUESTIONS[1:])
 
 
@@ -316,7 +325,7 @@ def place_for(offer: CallOffer, places: list[Place] | None = None) -> Place | No
 def brief_for(offer: CallOffer) -> dict[str, str]:
     """The reservation brief from the offer itself; the profile fills the standing facts."""
     given = {"party_size": str(offer.party_size), "date": f"{offer.weekday.capitalize()} ({offer.day})",
-             "time": f"{offer.clock()} pm" if offer.hour >= 12 else f"{offer.clock()} am",
+             "time": f"{offer.spoken_clock()} pm" if offer.hour >= 12 else f"{offer.spoken_clock()} am",
              "occasion": offer.occasion or "none"}
     if offer.fallbacks:
         given["fallbacks"] = offer.fallbacks
@@ -360,6 +369,7 @@ def result_text(place: Place, offer: CallOffer, data: dict, off_brief: str) -> s
     # what the call settled, never the offer's own day and time, which a fallback may have replaced (live
     # 2026-10-31); facts and the next step only, no goodbye quote (Owner: the message must be useful)
     agreed, step = briefs.unspell(value("agreed")), briefs.unspell(value("next_step"))
+    agreed, step = times_settled_on(agreed, offer.hour >= 12), times_settled_on(step, offer.hour >= 12)
     name = briefs.load_profile().get("full_name", "").strip()
     if kind == "booked":
         text = f"Booked: {place.name}" + (f", {agreed}" if agreed else "") + (f", under {name}" if name else "") + "."

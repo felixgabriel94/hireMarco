@@ -66,7 +66,7 @@ def yes(world, said="yes", now=None, mid="m1"):
 
 def test_the_offer_names_the_exact_call():
     offer = offers.CallOffer(1, NOW, "test-kitchen", "thursday", "2026-11-05", 20, 4, "", "pending")
-    assert offer.text(KITCHEN) == "Want me to call Test Kitchen to book Thursday at eight for four?"
+    assert offer.text(KITCHEN) == "Want me to call Test Kitchen to book Thursday at 8pm for four?"
 
 
 def test_a_yes_places_one_call_and_reports_the_result(world, monkeypatch):
@@ -76,7 +76,7 @@ def test_a_yes_places_one_call_and_reports_the_result(world, monkeypatch):
     line = yes(world)
     assert line == f"offer {offer.id}: asked the fallback questions before dialing" and world["dialed"] == []
     assert world["texts"][-1].lower().startswith("before i call, a few quick ones")
-    assert "if thursday at eight is gone" in world["texts"][-1].lower()
+    assert "if thursday at 8pm is gone" in world["texts"][-1].lower()
     line = yes(world, said="Friday at 8 is fine, patio ok, link is fine", mid="m1b")
     assert line.startswith(f"offer {offer.id}: calling Test Kitchen")
     assert len(world["dialed"]) == 1 and world["dialed"][0]["to_number"] == "+15557770000"
@@ -180,7 +180,7 @@ def test_the_client_never_reads_what_is_under_the_hood(world):
     assert plain("i couldn't place the call to test kitchen: critic held it: recipient wrong")[0] == PLAIN
     assert plain("Booked at Test Kitchen, Thursday at eight.")[0] == "Booked at Test Kitchen, Thursday at eight."
     world["wa"].send_text(OWNER, "held: no send switch for calls -> 15557770000", idempotency_key="leak")
-    assert world["texts"][-1] == PLAIN.lower() and "15557770000" not in world["texts"][-1]
+    assert world["texts"][-1] == PLAIN and "15557770000" not in world["texts"][-1]
 
 
 def test_the_result_says_what_the_call_settled_not_what_was_offered(world):
@@ -189,7 +189,7 @@ def test_the_result_says_what_the_call_settled_not_what_was_offered(world):
                                              {"role": "agent", "message": "Thanks so much, see you Thursday. Bye."}],
             "analysis": {"data_collection_results": {"agreed": {"value": "Thursday at 9:30 pm, four, outdoor"}}}}
     text = offers.result_text(KITCHEN, offer, data, "")
-    assert text == ("Booked: Test Kitchen, Thursday at 9:30 pm, four, outdoor, under Felix Example. "
+    assert text == ("Booked: Test Kitchen, Thursday at 9:30pm, four, outdoor, under Felix Example. "
                     "The confirmation should come to your email.")
     assert "at eight" not in text and "Bye" not in text
     data["analysis"]["data_collection_results"]["next_step"] = {"value": "They will text a link to hold it with a card"}

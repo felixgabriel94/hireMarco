@@ -18,6 +18,7 @@ from datetime import time as clock
 from email.utils import parsedate_to_datetime
 
 from hiremarco import gate
+from hiremarco.style import clock_time
 from hiremarco.google.mail import MailItem
 from hiremarco.offer import Place
 from hiremarco.proof import INSTRUCTIONS, SCHEMA, Booking
@@ -63,7 +64,7 @@ def best_link(item: MailItem, place: Place | None) -> str:
 
 
 def confirmed_text(place: Place, booking: Booking) -> str:
-    when = booking.start.strftime("%A %-I:%M %p").replace(":00", "").replace("AM", "am").replace("PM", "pm")
+    when = f"{booking.start.strftime('%A')} {clock_time(booking.at.hour, booking.at.minute)}"
     party = WORDS.get(booking.party_size, str(booking.party_size))
     return f"Confirmed: {place.name}, {when}, {party}" + (f", under {booking.name}" if booking.name else "") + "."
 

@@ -72,7 +72,7 @@ def test_live_2026_10_30_a_no_is_answered_with_what_he_said_before(tmp_path, mon
     assert history[1]["role"] == "assistant" and "leave room after the chorus" in history[1]["content"]
     # both sides of today are kept for tomorrow
     said = [(who, text) for _, who, text in recall(wa.conn)]
-    assert said[-2:] == [("felix", "No"), ("marco", "okay, i won't rename it. want me to try the setup again?")]
+    assert said[-2:] == [("felix", "No"), ("marco", "okay, I won't rename it. want me to try the setup again?")]
 
 
 def test_the_brain_cannot_claim_a_start_with_no_beat(tmp_path, monkeypatch):
@@ -81,7 +81,7 @@ def test_the_brain_cannot_claim_a_start_with_no_beat(tmp_path, monkeypatch):
     wa, sent = whatsapp_line(tmp_path, monkeypatch)
     line = handle(inbound(wa, "w1", kind="text", text="set it up"), wa=wa, inbox=tmp_path / "inbox",
                   marco=Brain("start", reply="on it."))
-    assert "no beat to start" in line and b"i don't have a beat waiting" in sent[-1]
+    assert "no beat to start" in line and b"I don't have a beat waiting" in sent[-1]
 
 
 def test_a_title_before_start_is_kept_for_the_session(tmp_path, monkeypatch):
@@ -93,8 +93,8 @@ def test_a_title_before_start_is_kept_for_the_session(tmp_path, monkeypatch):
     handle(inbound(wa, "w1", kind="text", text="call it Night Shift"), wa=wa, inbox=inbox,
            marco=Brain("rename", title="Night Shift", reply="got it, night shift."))
     line = handle(inbound(wa, "w2", kind="text", text="go"), wa=wa, inbox=inbox, marco=Brain("start", reply="on it."))
-    assert "session started for beat.wav as 'night shift'" in line
-    assert requested_name(inbox / "beat.wav") == "night shift"
+    assert "session started for beat.wav as 'Night Shift'" in line
+    assert requested_name(inbox / "beat.wav") == "Night Shift"
     assert not sidecar(inbox / "received" / "beat.wav").exists()
 
 
