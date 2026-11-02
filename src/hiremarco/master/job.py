@@ -15,6 +15,7 @@ stops the job and says so.
 from __future__ import annotations
 
 import json
+import os
 import math
 import time
 from collections.abc import Callable
@@ -33,6 +34,7 @@ from hiremarco.studio.stereo_out import StereoOut
 
 LUFS_TOLERANCE = 1.0      # LU: a print this close to its target is done
 CEILING_TOLERANCE = 0.1   # dB over the true-peak ceiling that still passes (the meter's own rounding)
+LOCK_FRESH_S = 2 * 3600   # a master lock older than this is a dead run's, not a running one
 MAX_ROUNDS = 3   # a second pass under-asked the limiter by 3 dB (run 25, 2026-11-02); a third, told the exact figure, closes it
 
 
@@ -201,6 +203,41 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     bounces = Path(job.bounces).expanduser()
     bounces.mkdir(parents=True, exist_ok=True)
     room = room if room is not None else roles.in_the_room()
+    lock = hold_lock(job)
+    try:
+        return _run(job, result, bounces, room, strip=strip, bouncer=bouncer, channel=channel, locators=locators,
+                    toggle_cycle=toggle_cycle, select_track=select_track, client=client, critic=critic, deliver=deliver,
+                    log=log, sleep=sleep, mark_plugin=mark_plugin, look_at_face=look_at_face, listen=listen)
+    finally:
+        release_lock(lock)
+
+
+def hold_lock(job: Job) -> Path | None:
+    """One master job at a time on this Mac, whichever path started it (the CLI, the booth, WhatsApp, the nightly):
+    a lock file in the state folder with the job's name and time; a lock under two hours old refuses the job."""
+    try:
+        from hiremarco import config
+
+        path = Path(config.STATE_DIR) / "master.lock"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        if path.exists() and time.time() - path.stat().st_mtime < LOCK_FRESH_S:
+            raise RuntimeError(f"another master job holds the lock ({path.read_text().strip()})")
+        path.write_text(f"{job.song} started {time.strftime('%Y-%m-%d %H:%M:%S %Z')} pid {os.getpid()}")
+        return path
+    except OSError:
+        return None
+
+
+def release_lock(path: Path | None) -> None:
+    if path is not None:
+        try:
+            path.unlink()
+        except OSError:
+            pass
+
+
+def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, bouncer, channel, locators, toggle_cycle,
+         select_track, client, critic, deliver, log, sleep, mark_plugin, look_at_face, listen) -> Result:
 
     # 1. the mix as it stands: Marco's own inserts bypassed, the artist's untouched
     log("1. the mix print")

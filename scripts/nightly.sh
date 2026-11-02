@@ -30,9 +30,12 @@ skip() {
   HOUR=$(date +%H)
   [ "$HOUR" -ge 5 ] && [ "$HOUR" -lt 23 ] && skip "started at ${HOUR}h, the Mac must have slept through 3 am; no run in the day"
   pmset -g batt 2>/dev/null | grep -q "Battery Power" && skip "the Mac is on battery"
-  LOCKED=$(python3 -c 'import Quartz; d = Quartz.CGSessionCopyCurrentDictionary(); print(1 if d and d.get("CGSSessionScreenIsLocked") else 0)' 2>/dev/null)
+  LOCKED=$("$REPO/.venv/bin/python" -c 'import Quartz; d = Quartz.CGSessionCopyCurrentDictionary(); print(1 if d and d.get("CGSSessionScreenIsLocked") else 0)' 2>/dev/null)
   [ "$LOCKED" = "1" ] && skip "the screen is locked; Marco's hands need an unlocked session"
+  [ -z "$LOCKED" ] && skip "could not read whether the screen is locked"
   pgrep -f "marco (master|organize|taste|mix)" >/dev/null && skip "Marco is already in Logic (a job is running)"
+  LOCK="$HOME/.local/state/hiremarco/master.lock"
+  if [ -f "$LOCK" ] && [ -n "$(find "$LOCK" -mmin -120)" ]; then skip "a master job holds the lock ($(cat "$LOCK"))"; fi
   if pgrep -x "Logic Pro" >/dev/null; then
     FRONT=$(osascript -e 'tell application "System Events" to tell process "Logic Pro" to get name of windows' 2>/dev/null)
     case "$FRONT" in

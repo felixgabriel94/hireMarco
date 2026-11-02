@@ -1,6 +1,8 @@
 """The master job through fakes: both prints, the audit, the plan, the chain, the settings, the record, the delivery."""
 
 import json
+
+import pytest
 from pathlib import Path
 
 import numpy as np
@@ -269,3 +271,16 @@ def test_two_of_the_same_eq_on_the_strip_fill_two_eq_roles(tmp_path, monkeypatch
     jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
              toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-Q 3", "Pro-L 2"}, log=lambda s: None)
     assert not any(isinstance(e, tuple) and e[0] == "insert" for e in strip.log)   # a third Pro-Q 3 was not added
+
+
+def test_one_master_job_at_a_time_on_this_mac(tmp_path, monkeypatch):
+    from hiremarco import config
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    lock = jobs.hold_lock(job)
+    assert lock is not None and "song started" in lock.read_text()
+    with pytest.raises(RuntimeError, match="another master job holds the lock"):
+        jobs.hold_lock(job)
+    jobs.release_lock(lock)
+    assert not lock.exists() and jobs.hold_lock(job) is not None
