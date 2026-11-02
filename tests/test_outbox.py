@@ -352,3 +352,13 @@ def test_his_sent_mail_says_when_a_to_respond_is_already_answered(tmp_path):
     mail = Mail(auth=FakeAuth(), transport=httpx.MockTransport(handler), rules_path=rules)
     both = [inbox.Decision("m1", "a@b.com", "s", "To Respond"), inbox.Decision("m2", "c@d.com", "s", "To Respond")]
     assert [d.message_id for d in inbox.unanswered(mail, both)] == ["m2"]
+
+
+def test_the_writer_is_told_to_use_proper_sentences_however_he_typed_it(world):
+    say, *_ = world
+    client = Muse(intent())
+    captured = []
+    ask = client.ask
+    client.ask = lambda prompt, **k: captured.append(k.get("developer", "")) or ask(prompt, **k)
+    say("reply to kai that tuesday works", FakeMail(KAI), client)
+    assert "proper sentences with normal capitals" in captured[-1]

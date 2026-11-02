@@ -237,6 +237,8 @@ def cmd_inbox(args) -> int:
     from hiremarco.meta.client import MuseSpark
     from hiremarco.whatsapp import WhatsApp
 
+    if args.action == "sync" and args.sweep and _sweep_killed():
+        return 0
     conn = inbox.connect()
     if args.action in ("cleanup", "undo", "lindy-off"):
         from pathlib import Path
@@ -348,6 +350,16 @@ def _sent(send, unsent: list):
     return attempt
 
 
+def _sweep_killed() -> bool:
+    """Checked before anything opens, so a killed sweep leaves nothing behind in its state folder."""
+    from hiremarco.gate.kill import kill_switch_on
+
+    if not kill_switch_on():
+        return False
+    Trace("inbox: swept").done("stopped by the kill switch")
+    return True
+
+
 SWEEP_CAP_USD = 1.0  # a day, on the sweep's own job log, far under the gate's cap for everything
 
 
@@ -358,15 +370,11 @@ def _inbox_sweep(args, conn) -> int:
     from datetime import date
 
     from hiremarco import inbox
-    from hiremarco.gate.kill import kill_switch_on
     from hiremarco.google import Mail
     from hiremarco.inbox import cleanup
     from hiremarco.joblog import JobLog
     from hiremarco.meta.client import MuseSpark
 
-    if kill_switch_on():
-        Trace("inbox: swept").done("stopped by the kill switch")
-        return 0
     mail, listed, moved, status = Mail(), cleanup.connect(), [], {}
 
     def over_cap() -> str | None:

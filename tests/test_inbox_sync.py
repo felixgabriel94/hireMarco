@@ -217,6 +217,14 @@ def test_the_kill_switch_stops_the_whole_sweep_gmail_moves_included(half, tmp_pa
     assert run("sweep", muse=Forbidden) == 0
 
 
+def test_a_killed_sweep_writes_nothing_in_its_state_folder(half, tmp_path, monkeypatch):
+    run, _ = half
+    monkeypatch.setenv("HIREMARCO_STATE", str(tmp_path))
+    (tmp_path / "kill-switch").write_text("stop")
+    assert run("sweep", muse=Forbidden) == 0
+    assert not (tmp_path / "inbox.sqlite").exists() and not (tmp_path / "cleanup.sqlite").exists()
+
+
 def test_the_sweep_has_its_own_daily_cap_and_auto_trash_goes_on_past_it(half, monkeypatch):
     from hiremarco.joblog import JobLog
 
