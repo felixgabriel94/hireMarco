@@ -1,9 +1,12 @@
 """The window the film watches: Marco's last eight steps, light on dark, 24 point, fixed size and place.
 
-An AppKit window through PyObjC (no Tk on this Python), floating over Logic so
+An AppKit panel through PyObjC (no Tk on this Python), floating over Logic so
 the camera sees it in the corner: the model id in one accent color, the step in
 plain words, the seconds dim at the end; newest at the bottom; refreshed from
-``marco.log`` twice a second. Nothing is typed into it and it takes no clicks.
+``marco.log`` twice a second. It is a non-activating panel: it never takes the
+front from Logic, because Marco's hands refuse to click when Logic is not in
+front and a window that stole the front killed run 32 (2026-11-02). Nothing is
+typed into it and it takes no clicks.
 """
 
 from __future__ import annotations
@@ -29,13 +32,16 @@ def show(at: Path | None = None, *, x: float | None = None, y: float | None = No
     from PyObjCTools import AppHelper
 
     app = AppKit.NSApplication.sharedApplication()
-    app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyRegular)
+    app.setActivationPolicy_(AppKit.NSApplicationActivationPolicyAccessory)   # no Dock tile, never the active app
     screen = AppKit.NSScreen.mainScreen().visibleFrame()
     left = screen.origin.x + screen.size.width - WIDTH - 24 if x is None else x
     bottom = screen.origin.y + screen.size.height - HEIGHT - 24 if y is None else y
-    style = AppKit.NSWindowStyleMaskTitled | AppKit.NSWindowStyleMaskClosable
-    window = AppKit.NSWindow.alloc().initWithContentRect_styleMask_backing_defer_(
+    style = (AppKit.NSWindowStyleMaskTitled | AppKit.NSWindowStyleMaskClosable
+             | AppKit.NSWindowStyleMaskNonactivatingPanel | AppKit.NSWindowStyleMaskUtilityWindow)
+    window = AppKit.NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(
         NSMakeRect(left, bottom, WIDTH, HEIGHT), style, AppKit.NSBackingStoreBuffered, False)
+    window.setBecomesKeyOnlyIfNeeded_(True)
+    window.setHidesOnDeactivate_(False)
     window.setTitle_("Marco")
     window.setLevel_(AppKit.NSFloatingWindowLevel)
     window.setBackgroundColor_(AppKit.NSColor.colorWithSRGBRed_green_blue_alpha_(*PAPER, 1.0))
@@ -77,6 +83,5 @@ def show(at: Path | None = None, *, x: float | None = None, y: float | None = No
     ticker = Ticker.alloc().init()
     render(stream.tail(lines, at=at))
     NSTimer.scheduledTimerWithTimeInterval_target_selector_userInfo_repeats_(0.5, ticker, "tick:", None, True)
-    window.makeKeyAndOrderFront_(None)
-    app.activateIgnoringOtherApps_(True)
+    window.orderFrontRegardless()   # shown, never activated: Logic keeps the front
     AppHelper.runEventLoop()
