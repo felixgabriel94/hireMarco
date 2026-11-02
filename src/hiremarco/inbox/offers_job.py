@@ -196,13 +196,16 @@ def hand_over(conn, mail, post: Callable[[dict], int], *, now: datetime, nap: Ca
 
 def run(mail, client, conn, *, places: list[Place], post: Callable[[dict], int] | None = None,
         now: datetime | None = None, dry_run: bool = False, nap: Callable[[float], None] = time.sleep,
-        joblog: JobLog | None = None, limit: int = 50) -> tuple[dict, list[dict]]:
+        joblog: JobLog | None = None, limit: int = 50, no_quiet: bool = False) -> tuple[dict, list[dict]]:
     """One pass. (counts, what a dry run would hand off). A dry run ignores the quiet hours, says it would have held,
-    records nothing and sends nothing."""
+    records nothing and sends nothing. ``no_quiet`` is the Owner's own test at night (Owner 2026-11-02): this one run
+    reads and hands off anyway, wakes the MacBook if it must, and says so in its log."""
     now = now or datetime.now(timezone.utc)
     joblog = joblog or JobLog()
     counts: dict = {}
-    if quiet(now):
+    if quiet(now) and no_quiet:
+        counts["quiet hours overridden"] = True
+    elif quiet(now):
         if not dry_run:
             return {"quiet hours": True}, []
         counts["quiet hours, would hold until 8 am"] = True

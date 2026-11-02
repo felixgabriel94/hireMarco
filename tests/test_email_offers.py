@@ -211,6 +211,18 @@ def test_what_waited_overnight_goes_at_eight(tmp_path):
     assert [h["offer_id"] for h in handed] == ["mail-m2"]
 
 
+def test_the_owners_night_test_reads_and_hands_off_and_says_so(tmp_path):
+    late = datetime(2026, 11, 3, 5, 15, tzinfo=timezone.utc)  # 12:15 am in New York
+    client, _ = scripted(tmp_path, answer("reply", "Pat wants a session."))
+    handed = []
+    counts, _ = offers_job.run(Mailbox(SESSION), client, offers_job.connect(":memory:"), places=PLACES,
+                               post=lambda p: handed.append(p) or 200, now=late, joblog=client.joblog, no_quiet=True)
+    assert [h["offer_id"] for h in handed] == ["mail-m2"] and counts["quiet hours overridden"] is True
+    assert "quiet hours overridden" in client.joblog.rows()[-1]["note"]
+    held, _, handed, _, seen = job(tmp_path, Mailbox(SESSION), post=lambda p: pytest.fail("the default still holds"), now=late)
+    assert held == {"quiet hours": True} and seen == []  # without the flag the night is still quiet
+
+
 def test_at_most_eight_a_day(tmp_path):
     box = Mailbox(*[mail_item(f"n{i}", f"p{i}@example.com", f"Person {i}", "A question", "Can you help?") for i in range(11)])
     counts, _, handed, conn, seen = job(tmp_path, box, *[answer("reply", "Someone asks.") for _ in range(8)])
