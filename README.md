@@ -36,6 +36,7 @@ only once the code that calls it is committed.
 | `muse-wonder-1.0` | The critic: approves or holds anything that cannot be taken back, so only high-stakes calls use the top-tier model | live |
 | `muse-wonder-1.0` | The mix engineer's judgment: the whole channel from one description, the mix pass across the session with the rulebook and the measurements, the hearing's spoken read, a named reference turned into a signature | live |
 | `muse-wonder-1.0` | Computer use: clicks through Logic's export dialog for the ready-to-mix folder, on a short leash | live, not yet run against Logic |
+| `muse-wonder-1.0` | The mastering engineer's judgment, at the deepest reasoning effort: reads the measured audit of the mix and the deltas against the artist's own reference masters with a rulebook that cites its sources, names the roles the chain needs for this track with a reason per role and the plugin in the room that fills it (stock Logic when nothing else is there), writes the audit in plain words, then sets every control on the Stereo Out with its reason; a critic at the same effort judges the plan before anything prints | live |
 | `muse-spark-1.3` | Turning a spoken studio command into one Logic action (structured output, minimal reasoning); reading the hardware from a photo; the brain on the restaurant call; checking the restaurant's hours with search grounding before it dials | this week |
 | `muse-spark-1.2` | "Marco, how was that take?": listens to the take and gives a producer's note (Meta's recommended version for audio input) | live |
 | `muse-voice-transcribe-1.0` | Hearing studio commands and take notes live from the mic (keyword biasing, endpointing); the call transcript with speaker labels behind the proof card | live |
@@ -86,10 +87,12 @@ below grows as the build does; `git log` carries the dates.
 | Oct 31 | `hiremarco.calls` | Marco's phone calls: one ElevenLabs agent on the relay's brain, made or updated by `marco call setup`; each call through the gate's `calls` switch, opening with the recording notice for its purpose, hanging up on a machine, with its transcript and cost read back; a read-only Twilio check |
 | Nov 1 | `hiremarco.whatsapp.photos`, `dress`, `meta.image` | Photos in: every photo Felix sends is kept upright in a dated folder, remembered, and seen by Muse Spark with his words, whether they come with it, just before or just after it, typed or spoken. Dress me: SAM 3.1 per clothing phrase, masks decoded with Meta's parser, duplicates merged and shoes paired; the photo tinted, outlined and numbered for the lens; three looks in structured output where a piece not in the photo is thrown out; the board built from the real cut-outs on a Muse Image backdrop; "B" or a voice note naming it locks the look in as a dated fact; `marco dress PHOTO` runs it from a file |
 | Nov 1 | `hiremarco.selects`, `whatsapp.photos`, `whatsapp.webhook` | The selects: a burst of frames, as photos or as JPEG, HEIC or RAW documents, is one shoot with one short line back, and a text or voice note in the middle of it is answered at once. The shoot runs since the last Dress me or selects, within 90 minutes, at most 30 frames. SAM 3.1 per frame in parallel, the largest person kept; from his mask, the fill, an edge cut, the variance of the Laplacian inside him and the light on him. One contact sheet, numbered and tinted to read at phone size; three picks in structured output where a number that is not a frame he is in is thrown out, each with one honest line; three separate pictures of his own unedited pixels, the originals kept together; `marco selects FOLDER` runs it from files |
+| Nov 2 | `hiremarco.mix.audit`, `master`, `studio.bounce`, `studio.stereo_out` | Marco as mastering engineer. The audit reads the mix as numbers before anything moves: loudness over time and range, true peak, PLR, the spectrum's tilt, resonances, the problem bands, width and correlation per band, what mono loses, clicks, DC, head and tail, and deltas against reference masters the artist owns. Two rulebooks cite their sources line by line, mixing and mastering. The chain is roles, not plugin names, filled from what Logic lists on this Mac with Logic's own plugin last. The plan and the settings come from Muse Wonder at max effort, judged by the critic at max. Logic's Bounce dialog is driven and every print is read back; the Stereo Out has no track, so its inserts go in through Logic's own plug-in search in the Mixer window. `marco master` prints the mix as it stands, audits, plans, builds the chain, prints the master, reads it back, tries once more if the target is missed, and texts both WAVs; "send it to mix" says the same by voice in the booth or by text on WhatsApp |
 
 Planned, in order: the studio (voice
 commands in Logic, three plugin knobs, take notes, the ready-to-mix export,
-the hardware read), the call and its proof, then Dress me and the selects (built Nov 1).
+the hardware read), the call and its proof, then Dress me and the selects (built Nov 1),
+then the master (built Nov 2).
 
 ## Setup used, not built here
 
@@ -135,6 +138,7 @@ any audio you have. Export a few tracks of a song to a folder of WAVs, then:
     uv run marco session STEMS                   roles, the ranked fights, what is masked, each track against its target
     uv run marco run-check vocal.wav --key "A minor" --start 40 --end 46   the notes of a run, in cents
     uv run marco handoff master-ready mix.wav --song "Name"              is this mix ready for mastering
+    uv run marco audit mix.wav [--references DIR]                        the mastering engineer's read of a file, and its deltas against references you own
 
 The test suite runs sealed from the network and from any real key:
 

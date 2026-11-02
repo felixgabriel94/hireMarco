@@ -1438,6 +1438,18 @@ def cmd_load_beat(args) -> int:
     return 0
 
 
+def cmd_audit(args) -> int:
+    """The mastering engineer's read of a file, measured, and its deltas against reference masters in a folder."""
+    from pathlib import Path
+
+    from hiremarco.mix import audit
+
+    track = audit.audit_file(Path(args.file).expanduser())
+    refs = audit.references(Path(args.references).expanduser()) if args.references else []
+    print(audit.summary(track, audit.compare(track, refs)))
+    return 0
+
+
 def cmd_master(args) -> int:
     """Marco masters the open session: the mix print, the audit, the plan, the chain on the Stereo Out, the master
     print read back, and both WAVs to the Owner (Owner 2026-11-02: the film's ending)."""
@@ -1847,6 +1859,11 @@ def main(argv: list[str] | None = None) -> int:
     lb = sub.add_parser("load-beat", help="a beat onto the Beat track of a new session from the template")
     lb.add_argument("file")
     lb.set_defaults(func=cmd_load_beat)
+
+    au = sub.add_parser("audit", help="the mastering engineer's read of a file, and its deltas against references you own")
+    au.add_argument("file")
+    au.add_argument("--references", metavar="DIR")
+    au.set_defaults(func=cmd_audit)
 
     ma = sub.add_parser("master", help="master the open session: audit, plan, chain on the Stereo Out, both prints, the WAVs")
     ma.add_argument("--song", help="the song's name, used in the file names (default: the beat the session was set up from)")
