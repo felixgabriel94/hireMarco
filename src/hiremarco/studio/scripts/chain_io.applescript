@@ -72,6 +72,18 @@ on isLogicWindow(w)
 	end tell
 end isLogicWindow
 
+on logicInFront()
+	-- Logic back in front when another app took it (the iLok License Manager, live 2026-11-02); nothing is clicked
+	-- or typed until it is
+	tell application "System Events"
+		set front to name of first process whose frontmost is true
+	end tell
+	if front is not "Logic Pro" then
+		tell application "Logic Pro" to activate
+		delay 0.6
+	end if
+end logicInFront
+
 on closePluginWindows()
 	tell application "System Events"
 		tell process "Logic Pro"
@@ -398,7 +410,16 @@ on run argv
 		repeat with slot in slots
 			set i to i + 1
 			if (item 3 of slot) is not true then
-				set end of blocks to "slot" & tab & (i as text) & linefeed & report(openSlot(slot), {}, item 2 of slot)
+				-- one plug-in whose window will not open (a license prompt pulled the iLok License Manager in front
+				-- of Logic, live 2026-11-02) is reported as an error in its own block and the others are still read
+				my logicInFront()
+				try
+					set end of blocks to "slot" & tab & (i as text) & linefeed & report(openSlot(slot), {}, item 2 of slot)
+				on error errMsg
+					set end of blocks to "slot" & tab & (i as text) & linefeed & "plugin" & tab & (item 2 of slot) & linefeed & "error" & tab & "~" & errMsg
+					my logicInFront()
+					closePluginWindows()
+				end try
 			end if
 		end repeat
 		set AppleScript's text item delimiters to linefeed

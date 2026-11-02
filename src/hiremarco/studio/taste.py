@@ -173,6 +173,8 @@ def run_live(parts: list[tuple[str, int, str]], mix_print: Path | None, *, artis
     loader, channel = BeatLoader(conn=conn), Channel(conn=conn)
 
     def select(number: int) -> None:
+        # an iLok error dialog left by the last plug-in is dismissed first: it hides Logic's windows (live 2026-11-02)
+        subprocess.run(["osascript", str(SCRIPTS / "pace_ok.applescript")], check=False, capture_output=True, timeout=30)
         subprocess.run(["osascript", "-e", 'tell application "Logic Pro" to activate'], check=False, timeout=10)
         time.sleep(0.3)
         subprocess.run(["osascript", "-e", 'tell application "System Events" to tell process "Logic Pro"\n'

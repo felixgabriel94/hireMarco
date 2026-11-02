@@ -177,3 +177,12 @@ def test_a_prefixed_parameter_is_applied_and_its_reason_kept(tmp_path, rules):
     channel.read()
     channel.apply_changes([{"slot": 2, "parameter": "Slot 2 \u2014 CLA-76: Input", "value": 3, "unit": "dB", "why": "a dB down"}])
     assert fake.plugins[2][1]["Input"] == 3000 and channel.reasons[(2, "Input")] == "a dB down"
+
+
+def test_a_slot_whose_window_did_not_open_is_read_as_an_error_and_the_rest_still_land():
+    from hiremarco.studio.chain import split_blocks
+
+    states = split_blocks("slot\t1\nplugin\tsoothe2\nerror\t~the plugin window for soothe2 did not open\n"
+                          "slot\t2\nplugin\tPro-L 2\nGain\t750\t0\t40000\t+0.75 dB\n")
+    assert states[1].fixed["error"].startswith("the plugin window") and states[1].params == {}
+    assert states[2].shown["Gain"] == "+0.75 dB"
