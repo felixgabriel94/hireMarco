@@ -324,19 +324,24 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
     if taken is None:
         return f"offer {offer.id}: already taken"
     calls = calls or Calls()
+    # the phone goes on before the dial, on the message that sets it off; a spoken yes has none, so the one that asked
+    dialed_by = offers.get(conn, offer.id).asked_id if message_id.startswith("booth-") else message_id
+    phone_on = reactions.react(wa, sender, dialed_by, reactions.CALLING)
     try:
         placed = calls.place("+" + place.phone.lstrip("+"), "book a table", f"offer {offer.id} to call {place.name}",
                              critic=Critic(), brief=full, kind="reservation", offer=taken.evidence(place),
                              idempotency_key=f"offer-call:{offer.id}")
-    except (gate.Refused, CallError) as held:
+    except Exception as held:
+        if phone_on:  # no call is going, so the phone doesn't stay up
+            reactions.take_off(wa, sender, dialed_by)
+        if not isinstance(held, (gate.Refused, CallError)):
+            raise
         offers.set_status(conn, offer.id, "held")
         # the reason stays in the log line; he hears what happened and the one thing to decide
         reply(f"I couldn't get the call to {place.name} going just now. Want me to try again?", "offer-held")
         return f"offer {offer.id}: held: {getattr(held, 'reason', held)}"
     offers.set_status(conn, offer.id, "called")
     reply(f"Calling {place.name} now. I'll tell you how it goes.", "offer-calling")
-    asked_by = offers.get(conn, offer.id).asked_id or message_id  # one message of his shows the phone, then the fax
-    reactions.react(wa, sender, asked_by, reactions.CALLING)
 
     def report() -> None:
         import json as _json
@@ -348,7 +353,7 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
         wa.send_text(sender, offers.result_text(place, taken, data, off_brief(data)),
                      idempotency_key=f"offer-result:{offer.id}", **({"quote": asked} if asked else {}))
         if data.get("status") == "done" and offers.outcome(data)[0] == "booked":
-            reactions.react(wa, sender, asked_by, reactions.RESULT)
+            reactions.react(wa, sender, asked, reactions.RESULT)
         if data.get("status") == "done" and offers.outcome(data)[0] in ("booked", "waitlisted"):
             # the proof comes from the inbox: a task in the ledger, matched by meaning against each new email
             from hiremarco import inbox

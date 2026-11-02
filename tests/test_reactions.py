@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from hiremarco import gate, server
+from hiremarco.calls import CallError
 from hiremarco.meta.client import Reply
 from hiremarco.server import handle
 from hiremarco.whatsapp import Inbound, WhatsApp, reactions
@@ -207,41 +208,119 @@ def test_a_shoot_gets_the_camera_once_on_its_last_frame(tmp_path, monkeypatch):
 
 # the result: the page coming out of the fax
 
+KITCHEN = ("kitchen", "Test Kitchen", "15557770000")
+
+
+class FakeCalls:
+    """A dial that sees what had already gone to WhatsApp when it was placed, and can fail or report a result."""
+
+    def __init__(self, line, tmp_path, data=None, fails=None):
+        self.line, self.tmp_path, self.data, self.fails, self.seen = line, tmp_path, data or {"status": "failed"}, fails, None
+
+    def place(self, *a, **k):
+        self.seen = reacted(self.line)
+        if self.fails:
+            raise self.fails
+        return {"conversation_id": "c"}
+
+    def _json(self, *a, **k):
+        return self.data
+
+    def transcript(self, cid):
+        path = self.tmp_path / "t.json"
+        path.write_text(json.dumps(self.data))
+        return path
+
+
+def reacted(line):
+    return [(m["reaction"]["emoji"], m["reaction"]["message_id"]) for m in line["sent"] if m["type"] == "reaction"]
+
+
+@pytest.fixture
+def table(monkeypatch):
+    from hiremarco.calls import brief as briefs
+    from hiremarco.calls import offers
+    from hiremarco.offer import Place
+
+    monkeypatch.setattr(briefs, "build", lambda *a, **k: "brief")
+    conn = offers.connect(":memory:")
+    place = Place(*KITCHEN)
+    return {"conn": conn, "place": place, "made": offers.record_offer(conn, place, weekday="thursday", day="2026-11-05", hour=20,
+                                                                     party_size=4, now=datetime.now(timezone.utc))}
+
+
+def yes_then_answer(line, table, calls):
+    server.offer_yes("yes", OWNER, "the-yes", line["wa"], conn=table["conn"], places=[table["place"]])
+    assert reacted(line) == []  # the questions before a call get no phone
+    return server.offer_yes("whatever works", OWNER, "the-reply", line["wa"], conn=table["conn"], calls=calls,
+                            places=[table["place"]], start=lambda f: f())
+
+
 @pytest.mark.parametrize("data, faxed", [
     ({"status": "done", "transcript": [{"role": "agent", "message": "See you then."}], "analysis": {}}, True),
     ({"status": "done", "transcript": [{"role": "agent", "message": "Okay, bye."}], "analysis": {}}, False),
     ({"status": "done", "transcript": [{"role": "agent", "message": "Thanks for adding us to the waitlist."}], "analysis": {}}, False),
     ({"status": "failed"}, False),
 ])
-def test_a_call_shows_the_phone_then_the_fax_only_on_a_booking_on_the_message_that_asked(line, monkeypatch, tmp_path, data, faxed):
-    from hiremarco.calls import brief as briefs
-    from hiremarco.calls import offers
-    from hiremarco.offer import Place
-    from hiremarco.server import offer_yes
-
-    kitchen = Place("kitchen", "Test Kitchen", "15557770000")
-
-    class Calls:
-        def place(self, *a, **k):
-            return {"conversation_id": "c"}
-
-        def _json(self, *a, **k):
-            return data
-
-        def transcript(self, cid):
-            path = tmp_path / "t.json"
-            path.write_text(json.dumps(data))
-            return path
-
-    monkeypatch.setattr(briefs, "build", lambda *a, **k: "brief")
-    conn = offers.connect(":memory:")
-    made = offers.record_offer(conn, kitchen, weekday="thursday", day="2026-11-05", hour=20, party_size=4, now=datetime.now(timezone.utc))
-    offer_yes("yes", OWNER, "the-yes", line["wa"], conn=conn, places=[kitchen])
-    assert offers.get(conn, made.id).asked_id == "the-yes"
-    offer_yes("whatever works", OWNER, "the-reply", line["wa"], conn=conn, calls=Calls(), places=[kitchen], start=lambda f: f())
-    got = [(m["reaction"]["emoji"], m["reaction"]["message_id"]) for m in line["sent"] if m["type"] == "reaction"]
-    assert got == [("📞", "the-yes")] + ([("📠", "the-yes")] if faxed else [])
+def test_the_phone_goes_on_the_message_that_dials_and_the_fax_only_on_a_booking_on_the_one_that_asked(line, table, tmp_path, data, faxed):
+    calls = FakeCalls(line, tmp_path, data)
+    yes_then_answer(line, table, calls)
+    assert calls.seen == [("📞", "the-reply")]  # up before the dial, not after
+    assert reacted(line) == [("📞", "the-reply")] + ([("📠", "the-yes")] if faxed else [])
     assert any("Calling Test Kitchen now" in str(m) for m in line["sent"])
+
+
+@pytest.mark.parametrize("failure", [gate.Refused("no switch"), CallError("did not start")])
+def test_the_phone_comes_off_when_the_dial_fails_and_the_text_says_so(line, table, tmp_path, failure):
+    calls = FakeCalls(line, tmp_path, fails=failure)
+    yes_then_answer(line, table, calls)
+    assert calls.seen == [("📞", "the-reply")]
+    assert reacted(line) == [("📞", "the-reply"), ("", "the-reply")]
+    assert "couldn't get the call to Test Kitchen going" in kinds(line)[-1][1]
+    assert not any("📠" in str(m) for m in line["sent"])
+
+
+def test_the_phone_comes_off_on_an_error_nobody_planned_for_too(line, table, tmp_path):
+    with pytest.raises(KeyError):
+        yes_then_answer(line, table, FakeCalls(line, tmp_path, fails=KeyError("agent id")))
+    assert reacted(line) == [("📞", "the-reply"), ("", "the-reply")]
+
+
+def test_a_phone_that_never_went_up_is_not_taken_off_and_the_dial_still_goes(line, table, tmp_path):
+    line["refuse"]["reaction"] = True
+    calls = FakeCalls(line, tmp_path, fails=gate.Refused("no switch"))
+    yes_then_answer(line, table, calls)
+    assert calls.seen == [] and reacted(line) == []
+
+
+def test_after_a_spoken_yes_the_phone_and_the_fax_go_on_the_text_that_dials(line, table, tmp_path):
+    from hiremarco.calls import offers
+
+    done = {"status": "done", "transcript": [{"role": "agent", "message": "See you then."}], "analysis": {}}
+    calls = FakeCalls(line, tmp_path, done)
+    server.offer_yes("yes", OWNER, f"booth-yes-{table['made'].id}", line["wa"], conn=table["conn"], places=[table["place"]], offer=table["made"])
+    assert reacted(line) == [] and offers.get(table["conn"], table["made"].id).asked_id is None
+    server.offer_yes("whatever works", OWNER, "the-reply", line["wa"], conn=table["conn"], calls=calls, places=[table["place"]], start=lambda f: f())
+    assert calls.seen == [("📞", "the-reply")]
+    assert reacted(line) == [("📞", "the-reply"), ("📠", "the-reply")]
+
+
+def test_a_dial_set_off_by_voice_alone_reacts_on_no_made_up_message(line, table, tmp_path):
+    from hiremarco.calls import offers
+
+    done = {"status": "done", "transcript": [{"role": "agent", "message": "See you then."}], "analysis": {}}
+    offers.ask_fallbacks(table["conn"], table["made"])
+    asking = offers.get(table["conn"], table["made"].id)
+    server.offer_yes("yes", OWNER, f"booth-yes-{asking.id}", line["wa"], conn=table["conn"], calls=FakeCalls(line, tmp_path, done),
+                     places=[table["place"]], start=lambda f: f(), offer=asking)
+    assert reacted(line) == []
+
+
+def test_the_brain_cannot_choose_the_phone(line):
+    assert reactions.CALLING not in reactions.MODEL_PICKS.values() and "calling" not in reactions.MODEL_PICKS
+    run(line, "calling them?", Brain("calling", reply="Not yet."))
+    run(line, "calling them now?", Brain("\N{TELEPHONE RECEIVER}", reply="Not yet, no."))
+    assert not [m for m in line["sent"] if m["type"] == "reaction"]
 
 
 def test_a_job_that_fails_keeps_on_it_and_never_gets_the_fax(line, monkeypatch):

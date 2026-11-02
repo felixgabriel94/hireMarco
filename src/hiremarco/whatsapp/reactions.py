@@ -1,10 +1,13 @@
 """Marco's reactions on Felix's WhatsApp messages (Owner 2026-11-02): fifteen, plain skin tone, and nothing else.
 
-The fax is the result: the page coming out. It takes the place of "on it" or "calling" on the message of his that asked,
-when the work really came through. The code alone sets it, never the brain and never on a failure or an unsettled end.
+The fax is the result: the page coming out. It takes the place of "on it" on the message of his that asked, when the
+work really came through. The code alone sets it, never the brain and never on a failure or an unsettled end.
 
-The code picks when the event is certain: a beat, a file, the last frame of a shoot, a call going, a draft ready, a job
-started. The brain picks for chat, from ``MODEL_PICKS`` only. A reaction replaces a text only when nothing needs saying,
+The phone means calling now: it goes on the message that sets off the dial, just before the dial, and comes off again
+if the call doesn't go. The fax for that call lands on the message that asked, which may be an earlier one.
+
+The code picks when the event is certain: a beat, a file, the last frame of a shoot, a call being dialed, a draft ready,
+a job started. The brain picks for chat, from ``MODEL_PICKS`` only. A reaction replaces a text only when nothing needs saying,
 never proof, a preview or a question, and no "noted" comes with it. If WhatsApp refuses one with nothing else to say, he
 says a short line instead, so Felix never gets silence. An email offer never reacts: nothing here runs without his own
 message to react to. A reaction goes through the gate like a text: the same switch, kill switch and daily cap.
@@ -54,6 +57,17 @@ def react(wa, sender: str, message_id: str, emoji: str) -> bool:
         JobLog().append(JobRow(job="whatsapp-reaction", ok=False, note=type(held).__name__))
         return False
     remember(wa.conn, "marco", f"[reacted {emoji}]")
+    return True
+
+
+def take_off(wa, sender: str, message_id: str) -> bool:
+    """Takes his reaction back off a message, for one that turned out untrue: WhatsApp reads an empty emoji as none."""
+    try:
+        wa.react(sender, message_id, "")
+    except (gate.Refused, WhatsAppError) as held:
+        JobLog().append(JobRow(job="whatsapp-reaction", ok=False, note=f"take off: {type(held).__name__}"))
+        return False
+    remember(wa.conn, "marco", "[took the reaction back]")
     return True
 
 
