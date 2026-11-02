@@ -41,9 +41,11 @@ class FakeChain:
         if args[0] == "set":
             pairs = args[2:]
             for k, v in zip(pairs[::2], pairs[1::2]):
-                params[k] = float(v)
+                # "=2.5 dB" is in the control's own shown unit: the 76 prints raw/1000 dB
+                params[k] = float(v[1:].split()[0]) * 1000 if v.startswith("=") else float(v)
         top = self.scales[number]
-        return f"plugin\t{name}\n" + "\n".join(f"{k}\t{v}\t0\t{top}" for k, v in params.items())
+        shown = (lambda k, v: f"\t{v / 1000:+.2f} dB") if number == 2 else (lambda k, v: "")
+        return f"plugin\t{name}\n" + "\n".join(f"{k}\t{v}\t0\t{top}{shown(k, v)}" for k, v in params.items())
 
 
 @pytest.fixture
@@ -137,3 +139,23 @@ def test_a_second_request_reuses_the_chain_it_read(tmp_path, rules):
     fake.calls.clear()
     Channel(run=fake, conn=gate.connect(":memory:"), rules_path=rules, client=wonder(tmp_path, reply, [])).design("x")
     assert "readall" in [c[0] for c in fake.calls]  # the slot list changed, so it reads again
+
+
+def test_a_change_in_the_units_the_plugin_shows_lands_on_its_reading(tmp_path, rules):
+    fake = FakeChain()
+    channel = Channel(run=fake, conn=gate.connect(":memory:"), rules_path=rules)
+    chain = channel.read()
+    state = next(s.state for s in chain.slots if s.number == 2)
+    assert state.shown["Input"] == "+4.00 dB" and state.units_of("Input") == (4.0, "dB")
+    assert state.for_model()["in_units"]["Input"] == "+4.00 dB"
+    assert state.in_shown_unit("Input", "dB") and state.in_shown_unit("Input", "dBTP") and not state.in_shown_unit("Input", "ms")
+    assert next(s.state for s in chain.slots if s.number == 1).units_of("Band 1 Gain") is None   # no shown column
+    channel.apply_changes([{"slot": 2, "parameter": "Input", "value": 2.5, "unit": "dB", "why": "2 dB of drive less"},
+                           {"slot": 2, "parameter": "Output", "value": 30, "unit": "dB", "why": "far too much"},
+                           {"slot": 2, "parameter": "Attack", "value": 45, "unit": "%", "why": ""}])
+    sent = [a for a in fake.calls if a[0] == "setmany"][-1]
+    assert "=2.5 dB" in sent and "=18 dB" in sent                       # Output: a level control, +6 held to +12 at most
+    assert fake.plugins[2][1]["Input"] == 2500 and fake.plugins[2][1]["Output"] == 18000 and fake.plugins[2][1]["Attack"] == 4500
+    assert next(s.state for s in channel.chain.slots if s.number == 2).shown["Input"] == "+2.50 dB"
+    channel.put_back()
+    assert fake.plugins[2][1]["Input"] == 4000 and fake.plugins[2][1]["Output"] == 6000

@@ -57,6 +57,9 @@ SCHEMA = {
 }
 
 
+SHOWN = re.compile(r"^\s*([+-]?\d+(?:\.\d+)?)\s*([A-Za-z%°/]+)?")
+
+
 class PluginError(RuntimeError):
     pass
 
@@ -75,6 +78,7 @@ class PluginState:
     params: dict[str, float] = field(default_factory=dict)        # raw values, on each plugin's own scale
     ranges: dict[str, tuple[float, float]] = field(default_factory=dict)
     fixed: dict[str, str] = field(default_factory=dict)           # menus and switches, read only for now
+    shown: dict[str, str] = field(default_factory=dict)           # what the plugin prints: "+0.75 dB", "274.9 ms"
 
     def changeable(self) -> list[str]:
         """Sliders with a known range that shape the sound. A control with no known range is never moved."""
@@ -89,6 +93,20 @@ class PluginState:
         lo, hi = self.ranges[name]
         value = lo + min(max(percent, 0.0), 100.0) / 100 * (hi - lo)
         return float(round(value)) if hi - lo <= 10 else round(value, 2)  # small ranges are steps or switches
+
+    def units_of(self, name: str) -> tuple[float, str] | None:
+        """The shown value as a number and its unit as printed: ("+0.75 dB") is (0.75, "dB"); a word is None."""
+        m = SHOWN.match(self.shown.get(name, ""))
+        return (float(m.group(1)), m.group(2) or "") if m else None
+
+    def in_shown_unit(self, name: str, unit: str) -> bool:
+        """Whether an answer in ``unit`` can be set as the control's own shown value: the same unit, dB for any dB
+        reading (dBTP, dBFS), Hz and kHz, ms and s."""
+        got = self.units_of(name)
+        if got is None or not unit or unit == "%" and got[1] != "%":
+            return False
+        a, b = unit.lower(), got[1].lower()
+        return a == b or {a, b} <= {"hz", "khz"} or {a, b} <= {"ms", "s"} or (a.startswith("db") and b.startswith("db"))
 
     def tolerance(self, name: str) -> float:
         lo, hi = self.ranges[name]
@@ -112,6 +130,10 @@ class PluginState:
             view["expert"] = profile_view(profile)
             view["in_units"] = {n: f"{u.to_unit(self.params[n])} {u.unit}" for n in movable
                                 if (u := profile.unit_for(n)) is not None}
+        # what the plugin itself prints beside each control outranks a profile's arithmetic (read live 2026-11-02)
+        shown = {n: self.shown[n] for n in movable if self.units_of(n) is not None}
+        if shown:
+            view["in_units"] = {**view.get("in_units", {}), **shown}
         return view
 
     def profile(self):
@@ -149,7 +171,29 @@ def parse(report: str) -> PluginState:
                 state.ranges[name] = (float(parts[2]), float(parts[3]))
             except ValueError:
                 pass
+        if len(parts) >= 5 and parts[4].strip():
+            state.shown[name] = parts[4].strip()
     return state
+
+
+def in_base(value: float, unit: str) -> float:
+    """Hz and kHz, ms and s on one scale, so a target and a reading compare across the display's switch."""
+    return value * 1000 if unit.lower() in ("khz", "s") else value
+
+
+def shown_target(value: float, unit: str) -> str:
+    """The form the chain script takes for a value in the control's own unit."""
+    return f"={value:g} {unit}"
+
+
+def shown_lands(target: str, state: "PluginState", name: str) -> bool:
+    """Whether the read-back shows the target within 1 percent (or 0.06 in the unit) of it."""
+    want_value, want_unit = target[1:].split(" ", 1)
+    got = state.units_of(name)
+    if got is None:
+        return False
+    want, have = in_base(float(want_value), want_unit), in_base(*got)
+    return abs(have - want) <= max(0.06, abs(want) * 0.01)
 
 
 def _osascript(args: list[str]) -> str:

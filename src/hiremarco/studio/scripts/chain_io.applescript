@@ -3,7 +3,8 @@
 --   osascript chain_io.applescript <menu_open.js> read N
 --   osascript chain_io.applescript <menu_open.js> set N Name value [Name value ...]
 -- list prints "N<TAB>plugin<TAB>on|bypassed" top slot first; read and set print "plugin<TAB>Name" then
--- "Name<TAB>value" lines, and close the window they opened. Mapped live 2026-10-28: each insert is a group
+-- "Name<TAB>value<TAB>min<TAB>max<TAB>shown" lines (shown is what the plugin prints, "+0.75 dB"), and close
+-- the window they opened. A set value written "=2.5 dB" is in the control's own shown unit (2026-11-02). Mapped live 2026-10-28: each insert is a group
 -- described by the plugin's short name, holding a bypass checkbox and an "open" button.
 property helper : ""
 -- 1 is the selected track's strip; 2 the strip to its right in the Inspector, the track's output (the Stereo Out
@@ -62,11 +63,21 @@ on inserts()
 	return sorted
 end inserts
 
+on isLogicWindow(w)
+	-- the Tracks and Mixer windows are Logic's own, never a plugin's: the Mixer window was closed as one and the
+	-- list shifted under the loop (live 2026-11-02)
+	tell application "System Events"
+		set nm to name of w
+		return (nm contains " - Tracks") or (nm contains " - Mixer")
+	end tell
+end isLogicWindow
+
 on closePluginWindows()
 	tell application "System Events"
 		tell process "Logic Pro"
-			repeat with w in (every window)
-				if (name of w) does not contain " - Tracks" then
+			set ws to every window
+			repeat with w in ws
+				if not (my isLogicWindow(w)) then
 					try
 						perform action "AXPress" of (first button of w whose description is "close")
 					end try
@@ -81,7 +92,7 @@ on pluginWindow()
 	tell application "System Events"
 		tell process "Logic Pro"
 			repeat with w in (every window)
-				if (name of w) does not contain " - Tracks" then
+				if not (my isLogicWindow(w)) then
 					try
 						set t to table 1 of scroll area 1 of w
 						return w
@@ -142,6 +153,125 @@ on openPlugin(n)
 	return openSlot(item n of inserts())
 end openPlugin
 
+on numberOf(shownText)
+	-- the number at the front of a shown value: "+0.75 dB" is 0.75, "-0.99 dBTP" is -0.99, "75%" is 75, "Off" is none
+	set txt to shownText as text
+	set digits to ""
+	set started to false
+	repeat with ch in (characters of txt)
+		set c to ch as text
+		if c is in "0123456789" then
+			set digits to digits & c
+			set started to true
+		else if c is "." then
+			if not started then set digits to digits & "0"
+			set digits to digits & c
+			set started to true
+		else if c is "-" and not started then
+			set digits to digits & c
+		else if (c is "+" or c is " ") and not started then
+			-- a sign or a space before the number
+		else
+			exit repeat
+		end if
+	end repeat
+	if digits is "" or digits is "-" then return missing value
+	try
+		return digits as real
+	on error
+		return missing value
+	end try
+end numberOf
+
+on unitOf(shownText)
+	-- the unit after the number, as printed ("dB", "dBTP", "ms", "kHz", "%"); "" when there is none
+	set txt to shownText as text
+	set u to ""
+	set pastNumber to false
+	repeat with ch in (characters of txt)
+		set c to ch as text
+		if (c is in "0123456789.+- ") and not pastNumber then
+			-- still in the number
+		else
+			set pastNumber to true
+			if c is not " " then set u to u & c
+		end if
+	end repeat
+	return u
+end unitOf
+
+on inBase(n, u)
+	-- Hz and kHz, ms and s on one scale, so a value that crosses the display's switch still compares
+	if n is missing value then return missing value
+	ignoring case
+		if u is "kHz" or u is "s" then return n * 1000
+	end ignoring
+	return n
+end inBase
+
+on setShown(t, i, target, targetUnit)
+	-- a control set to a value in its own shown unit (2026-11-02): the slider moved and the shown value read until
+	-- it lands, by secant steps, because the scale between a plugin's raw slider and what it shows is its own
+	-- (linear for dB, curved for ms and Hz). Returns the shown value it landed on.
+	set goal to my inBase(target, targetUnit)
+	if goal is missing value then error "no number to set"
+	set mag to goal
+	if mag < 0 then set mag to -mag
+	set tol to 0.06
+	if mag * 0.01 > tol then set tol to mag * 0.01
+	tell application "System Events"
+		tell process "Logic Pro"
+			set sl to slider 1 of UI element 1 of row i of t
+			set g to group 1 of UI element 1 of row i of t
+			set lo to value of attribute "AXMinValue" of sl
+			set hi to value of attribute "AXMaxValue" of sl
+			set r1 to value of sl
+			set shown1 to (value of g) as text
+			set s1 to my inBase(my numberOf(shown1), my unitOf(shown1))
+			if s1 is missing value then error "the control shows no number (" & shown1 & ")"
+			if (s1 - goal) ≤ tol and (goal - s1) ≤ tol then return shown1
+			-- a probe step to learn the slope: wider when the shown value is coarse and did not move
+			set s2 to s1
+			set r2 to r1
+			repeat with frac in {50, 20, 8}
+				set r2 to r1 + (hi - lo) / frac
+				if r2 > hi then set r2 to r1 - (hi - lo) / frac
+				set value of sl to r2
+				delay 0.05
+				set shown2 to (value of g) as text
+				set s2 to my inBase(my numberOf(shown2), my unitOf(shown2))
+				if s2 is not missing value and s2 is not s1 then exit repeat
+			end repeat
+			if s2 is missing value or s2 is s1 then error "the control did not move as a number (" & shown2 & ")"
+			repeat 8 times
+				set slope to (s2 - s1) / (r2 - r1)
+				set rn to r2 + (goal - s2) / slope
+				if rn < lo then set rn to lo
+				if rn > hi then set rn to hi
+				set value of sl to rn
+				delay 0.05
+				set shownN to (value of g) as text
+				set sn to my inBase(my numberOf(shownN), my unitOf(shownN))
+				if sn is not missing value then
+					if (sn - goal) ≤ tol and (goal - sn) ≤ tol then return shownN
+				end if
+				if rn is r2 or sn is missing value or sn is s2 then exit repeat
+				set r1 to r2
+				set s1 to s2
+				set r2 to rn
+				set s2 to sn
+			end repeat
+			return (value of g) as text
+		end tell
+	end tell
+end setShown
+
+on wantedValue(a)
+	-- "=2.5 dB" asks for the control's own shown unit; anything else is the slider's raw value
+	if a starts with "=" then return a
+	return a as real
+end wantedValue
+
 on report(w, wanted, slotName)
 	set out to {}
 	tell application "System Events"
@@ -163,11 +293,24 @@ on report(w, wanted, slotName)
 				repeat with i from 1 to n
 					set label to item i of labels
 					if label ends with ":" then set label to text 1 thru -2 of label
-					if label is (item 1 of pair) then set value of slider 1 of UI element 1 of row i of t to (item 2 of pair)
+					if label is (item 1 of pair) then
+						set want to item 2 of pair
+						if (class of want) is text then
+							set spec to text 2 thru -1 of want
+							my setShown(t, i, my numberOf(spec), my unitOf(spec))
+						else
+							set value of slider 1 of UI element 1 of row i of t to want
+						end if
+					end if
 				end repeat
 			end repeat
 			-- "every slider" gives an empty list for a row with none, so one request covers mixed rows too.
 			set sliderVals to value of every slider of UI element 1 of every row of t
+			-- what each control shows, with its unit ("+0.75 dB", "274.9 ms"): the scrubber group beside the slider
+			set shownVals to {}
+			try
+				set shownVals to value of every group of UI element 1 of every row of t
+			end try
 			-- Each plugin has its own scale (Valhalla 0-100, UAD 0-10000, FabFilter up to 60000+), so the range comes too.
 			set sliderMins to {}
 			set sliderMaxs to {}
@@ -204,13 +347,17 @@ on report(w, wanted, slotName)
 			repeat with i from 1 to n
 				set label to item i of labels
 				if label ends with ":" then set label to text 1 thru -2 of label
-				set range to ""
+				set range to tab & tab
 				try
 					set lo to item i of sliderMins
 					set hi to item i of sliderMaxs
 					if (count of lo) > 0 then set range to tab & ((item 1 of lo) as text) & tab & ((item 1 of hi) as text)
 				end try
-				set end of out to label & tab & ((item i of vals) as text) & range
+				set shownText to ""
+				try
+					if (count of (item i of shownVals)) > 0 then set shownText to (item 1 of (item i of shownVals)) as text
+				end try
+				set end of out to label & tab & ((item i of vals) as text) & range & tab & shownText
 			end repeat
 			try
 				perform action "AXPress" of (first button of w whose description is "close")
@@ -274,7 +421,7 @@ on run argv
 				set current to a as integer
 				set i to i + 1
 			else
-				set end of wanted to {a, (item (i + 1) of argv) as real}
+				set end of wanted to {a, my wantedValue(item (i + 1) of argv)}
 				set i to i + 2
 			end if
 		end repeat
@@ -286,7 +433,7 @@ on run argv
 	set wanted to {}
 	if mode is "set" then
 		repeat with i from 4 to (count of argv) by 2
-			set end of wanted to {(item i of argv), (item (i + 1) of argv) as real}
+			set end of wanted to {(item i of argv), my wantedValue(item (i + 1) of argv)}
 		end repeat
 	end if
 	return report(openPlugin(n), wanted, item 2 of (item n of slots))

@@ -168,3 +168,17 @@ def test_idle_bands_show_only_their_used_switch():
     seen = state.for_model()
     assert set(seen["parameters"]) == {"Band 1 Used", "Band 1 Gain", "Band 2 Used", "Output Level"}
     assert "Band 2 Q" not in seen["fixed"]
+
+
+def test_shown_values_carry_their_units():
+    from hiremarco.studio.plugins import parse, shown_lands
+
+    state = parse("plugin\tPro-L 2\nGain\t750\t0\t40000\t+0.75 dB\nAttack\t4072\t0\t10000\t274.9 ms\n"
+                  "Output Level\t29010\t0\t30000\t-0.99 dBTP\nChannel Link Transients\t3750\t0\t5000\t75%\n"
+                  "Filter DC Offset\t0\t0\t1\tOff\nFrequency\t2000\t0\t60000\t1.20 kHz\n")
+    assert state.units_of("Gain") == (0.75, "dB") and state.units_of("Attack") == (274.9, "ms")
+    assert state.units_of("Output Level") == (-0.99, "dBTP") and state.units_of("Channel Link Transients") == (75.0, "%")
+    assert state.units_of("Filter DC Offset") is None
+    assert state.in_shown_unit("Frequency", "Hz") and shown_lands("=1200 Hz", state, "Frequency")
+    assert shown_lands("=-1 dB", state, "Output Level") and not shown_lands("=-2 dB", state, "Output Level")
+    assert state.for_model()["in_units"]["Gain"] == "+0.75 dB"
