@@ -96,16 +96,23 @@ def on_strip(plugin: str, names: list[str]) -> bool:
         if not shown or not wanted:
             continue
         head = min(len(shown), len(wanted))
-        if head >= 8 and shown[:head] == wanted[:head]:
+        if head >= 6 and shown[:head] == wanted[:head]:   # the strip can show as little as "UAD Shadow"
             return True
         if shown == wanted:
             return True
     return False
 
 
-def role_filled(role: str, names: list[str]) -> bool:
-    """Any plugin that can fill the role is on the strip already (a run that stopped after its insert)."""
-    return any(on_strip(c, names) for c in roles.CANDIDATES.get(role, []))
+def role_filled(role: str, names: list[str], claimed: set[str] | None = None) -> str | None:
+    """The strip name of a plugin already there that can fill the role (a run that stopped after its insert), not
+    one another role has claimed: Pro-Q 3 counts once, for the EQ role it was put in for."""
+    for candidate in roles.CANDIDATES.get(role, []):
+        for shown in names:
+            if shown in (claimed or set()):
+                continue
+            if on_strip(candidate, [shown]):
+                return shown
+    return None
 
 
 def ensure_range(bouncer: bouncing.Bouncer, end_bar: int, toggle_cycle: Callable[[], None], log=print) -> None:
@@ -135,6 +142,9 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     log("1. the mix print")
     strip.open_mixer()
     before = strip.read()
+    # what was in and what was out before the job: an insert the artist or an earlier run left bypassed stays so
+    was_in = {(i.name, round(i.y)) for i in before.inserts if i.marcos and not i.bypassed}
+    seen = {(i.name, round(i.y)) for i in before.inserts}
     if any(i.marcos for i in before.inserts):
         strip.bypass(True)
     mix_name = bouncing.print_name(job.song, "mix", job.today)
@@ -181,16 +191,24 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     # 4. the chain on the Stereo Out, in the rulebook's order
     log("4. the chain")
     names = [i.name for i in strip.read().inserts]
+    claimed: set[str] = set()
     for role, plugin in result.plan.chain.items():
         if role == "meter":
             continue  # meters are read by the audit, not by eye; nothing to insert for the print
-        if on_strip(plugin, names) or role_filled(role, names):
-            log(f"   {role} is already on the strip ({plugin})")
+        there = role_filled(role, names, claimed)
+        if there is not None:
+            claimed.add(there)
+            log(f"   {role} is already on the strip ({there})")
             continue
         after = strip.insert(plugin)
+        landed = [i.name for i in after.inserts if i.name not in names] or [plugin]
         names = [i.name for i in after.inserts]
-        log(f"   {plugin} in ({role})")
-    strip.bypass(False)
+        claimed.add(landed[-1])
+        log(f"   {landed[-1]} in ({role})")
+    back_in = [i.y for i in strip.read().inserts
+               if i.marcos and ((i.name, round(i.y)) in was_in or (i.name, round(i.y)) not in seen)]
+    if back_in:
+        strip.bypass(False, rows=back_in)
 
     # 5. the settings, read and set through the Inspector's output strip
     log("5. the settings")

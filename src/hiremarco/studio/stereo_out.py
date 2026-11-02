@@ -106,20 +106,22 @@ class StereoOut:
                                    rules_path=self.rules_path)
 
     def open_mixer(self) -> None:
-        """The Mixer window, opened from the Window menu when it is not already there."""
+        """The Mixer window, opened from the Window menu when it is not already there, then made tall at the top
+        left so every insert on a strip is on screen (seven inserts scrolled the slots out of reach, live 2026-11-02)."""
         names = self.osa('tell application "System Events" to tell process "Logic Pro" to get name of windows')
-        if "Mixer" in names:
-            return
 
         def run() -> str:
-            self.osa('tell application "Logic Pro" to activate')
-            self.sleep(0.3)
-            front_is_logic()
-            self.osa('tell application "System Events" to tell process "Logic Pro" to click menu item "Open Mixer" '
-                     'of menu 1 of menu bar item "Window" of menu bar 1')
-            self.sleep(1.0)
-            return "mixer opened"
-        self._gated(run, "mixer_window", "open the Mixer window")
+            if "Mixer" not in names:
+                self.osa('tell application "Logic Pro" to activate')
+                self.sleep(0.3)
+                front_is_logic()
+                self.osa('tell application "System Events" to tell process "Logic Pro" to click menu item "Open Mixer" '
+                         'of menu 1 of menu bar item "Window" of menu bar 1')
+                self.sleep(1.0)
+            placed = self.jxa("mixer_window.js")
+            self.sleep(0.4)
+            return f"mixer window {placed}"
+        self._gated(run, "mixer_window", "open the Mixer window, tall")
 
     def read(self) -> Strip:
         return parse_strip(self.jxa("stereo_out.js"))
@@ -208,10 +210,12 @@ class StereoOut:
         self.sleep(0.3)
         return int(out or 0)
 
-    def bypass(self, on: bool, *, names: list[str] | None = None) -> Strip:
-        """Marco's inserts bypassed (``on``) or back in, by their bypass checkboxes; the untouched ones stay."""
+    def bypass(self, on: bool, *, names: list[str] | None = None, rows: list[float] | None = None) -> Strip:
+        """Marco's inserts bypassed (``on``) or back in, by their bypass checkboxes; the untouched ones stay.
+        ``names`` or ``rows`` (vertical positions, for a name that repeats) narrow it to some of them."""
         strip = self.read()
-        wanted = [i for i in strip.inserts if i.marcos and (names is None or i.name in names) and i.bypassed != on]
+        wanted = [i for i in strip.inserts if i.marcos and (names is None or i.name in names)
+                  and (rows is None or any(abs(i.y - r) < 4 for r in rows)) and i.bypassed != on]
         if not wanted:
             return strip
 

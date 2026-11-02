@@ -38,10 +38,10 @@ class FakeStrip:
     def read(self):
         return Strip((585, 196, 58, 9), list(self.inserts), None)
 
-    def bypass(self, on, names=None):
+    def bypass(self, on, names=None, rows=None):
         self.log.append(("bypass", on))
         for i in self.inserts:
-            if i.marcos:
+            if i.marcos and (rows is None or any(abs(i.y - r) < 4 for r in rows)):
                 i.bypassed = on
         return self.read()
 
