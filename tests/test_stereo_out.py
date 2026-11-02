@@ -114,3 +114,16 @@ def test_a_wrong_plugin_landing_is_bypassed_and_named():
     assert same_plugin("UAD Shadow Hills Mastering Comp", "UAD Shadow") and same_plugin("Pro-Q 3", "Pro-Q 3")
     assert same_plugin("Shadow Hills Mastering Compress", "UAD Shadow")   # the cousin the search lands first
     assert not same_plugin("Gain", "Kickstart ") and not same_plugin("Pro-L 2", "Pro-Q 3")
+
+
+def test_remove_is_planned_in_a_dry_run_and_refuses_a_row_that_is_not_there(tmp_path):
+    from hiremarco.studio.stereo_out import StereoOut
+    import json, pytest
+
+    report = json.dumps({"name": "FG Master", "slot": [317, 436, 58, 9],
+                         "inserts": [["Gain", False, 317, 334], ["Kickstart ", True, 317, 420]], "assistant": None})
+    so = StereoOut(jxa=lambda script, *a: report, osa=lambda s: "", dry_run=True)
+    so.remove("Kickstart ", 420)
+    assert so.planned == ["remove Kickstart  from the Stereo Out"]
+    with pytest.raises(RuntimeError, match="no insert named"):
+        so.remove("Pro-L 2", 500)

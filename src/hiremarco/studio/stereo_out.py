@@ -273,6 +273,47 @@ class StereoOut:
         self.sleep(0.3)
         return int(out or 0)
 
+    def remove(self, name: str, row: float) -> Strip:
+        """One insert taken off the output strip, by its short name and row: the slot's own menu opened from its
+        "list" button, then by keyboard, never the mouse (mapped live 2026-11-02 on a stray Kickstart 2): Tab leaves
+        the search field, Down lands on the current plug-in's row, Down again on "No Plug-in", Return takes it. The
+        strip is read back: the row must be gone and the count one less, or it is a failure with the names."""
+        before = self.read()
+        target = [i for i in before.inserts if i.name == name and abs(i.y - row) < 4]
+        if not target:
+            raise RuntimeError(f"no insert named {name!r} at row {row:g} on the output strip")
+        if self.dry_run:
+            self._gated(None, "remove", f"remove {name} from the Stereo Out")
+            return before
+
+        def run() -> str:
+            if self.menus():
+                self.osa('tell application "System Events" to key code 53')
+                self.sleep(0.5)
+            self.osa('tell application "Logic Pro" to activate')
+            self.sleep(0.3)
+            front_is_logic()
+            self.close_windows()
+            self.jxa("stereo_out_list.js", name, f"{row:g}")
+            if not self.menus():
+                raise RuntimeError(f"the slot's menu did not open for {name}")
+            for code in (48, 125, 125):              # Tab, Down, Down
+                self.osa(f'tell application "System Events" to key code {code}')
+                self.sleep(0.4)
+            self.osa('tell application "System Events" to key code 36')   # Return on "No Plug-in"
+            self.sleep(1.2)
+            if self.menus():
+                self.osa('tell application "System Events" to key code 53')
+                self.sleep(0.4)
+            return f"{name} removed"
+        self._gated(run, "remove", f"remove {name} from the Stereo Out")
+        after = self.read()
+        still = [i for i in after.inserts if i.name == name and abs(i.y - row) < 4]
+        if still or len(after.inserts) != len(before.inserts) - 1:
+            self._snapshot(f"{name} not removed")
+            raise RuntimeError(f"{name} is still on the Stereo Out (reads {[i.name for i in after.inserts]})")
+        return after
+
     def bypass(self, on: bool, *, names: list[str] | None = None, rows: list[float] | None = None) -> Strip:
         """Marco's inserts bypassed (``on``) or back in, by their bypass checkboxes; the untouched ones stay.
         ``names`` or ``rows`` (vertical positions, for a name that repeats) narrow it to some of them."""
