@@ -45,7 +45,7 @@ tool that reaches no person. A new destination is a new line.
     send: calls -> owner ; calls from Marco's line to the Owner's own phone ; until revoked
     send: calls -> named ; calls to the number the Owner names in that request ; until revoked
     send: calls -> places ; a call to a place in the Owner's places file, only after his yes to that exact offer on WhatsApp, or by voice in the booth to the offer he texted ; until revoked
-    send: email-offers -> owner ; one WhatsApp per direct email, an offer to help or a heads-up, to the Owner's own number only, 8 a day at most, none between 11 pm and 8 am New York time ; until revoked
+    send: email-offers -> owner ; one WhatsApp per direct email, an offer to help or a heads-up, to the Owner's own number only, 8 a day at most, none between 11 pm and 8 am New York time unless the Owner's HIREMARCO_OFFER_QUIET_HOURS setting is off ; until revoked
     send: unsubscribe -> * ; one-click unsubscribe from senders the Owner marked on a list he confirmed by its sha256 ; until revoked
     send: mail -> * ; an email from contact@felixgabriel.com, only on the Owner's "send" on WhatsApp for the exact draft Marco showed him, 25 a day at most ; until revoked
 
