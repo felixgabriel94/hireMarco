@@ -111,7 +111,12 @@ def run_live(song: str | None = None, end_bar: int | None = None, *, purpose: st
     from hiremarco.mix import listen as listening
     from hiremarco.studio.face import look as look_at_face
 
+    from hiremarco import stream
+
     strip = StereoOut(conn=conn)
+    steps = stream.Steps(also=log)   # every line also goes to Marco's running log, the window the film watches
+    log = steps
+    log(f"master: {song}, bars 1 to {end_bar}, for a {purpose}")
     return jobs.run(job, strip=strip, bouncer=Bouncer(conn=conn), channel=Channel(conn=conn, strip="output"),
                     locators=live_arranger(conn).locators, toggle_cycle=toggle_cycle, select_track=select_track,
                     look_at_face=lambda: look_at_face(strip.name, log=log), listen=listening.listen, bench=True,

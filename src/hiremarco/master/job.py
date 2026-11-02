@@ -419,7 +419,12 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
     result.plan = planning.roles_for(result.audit_mix, deltas, room, purpose=job.purpose, direction=job.direction,
                                      stock_only=job.stock_only, client=client, critic=critic, hearing=result.hearing)
     for r in result.plan.roles:
+        as_model = getattr(log, "as_model", None)   # the running log names the brain that reasoned the line
+        if as_model:
+            as_model(planning.MODEL)
         log(f"   {r['role']}: {r['plugin']}. {r['why']}")
+        if as_model:
+            as_model("")
     log(f"   target {result.plan.target_lufs} LUFS, ceiling {result.plan.ceiling_dbtp} dBTP")
     if result.plan.critic:
         log(f"   critic: {'approved' if result.plan.critic[0] else 'held'}: {result.plan.critic[1]}")

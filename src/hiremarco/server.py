@@ -686,8 +686,10 @@ def dress_me(photo, said: str, sender: str, message_id: str, wa: WhatsApp, marco
         return f"dress me: {failed}"
     reactions.react(wa, sender, message_id, reactions.RESULT)
     thrown = f"; threw out pieces {done.looks.dropped}" if done.looks.dropped else ""
-    return (f"dress me: {len(done.pieces)} pieces, what SAM sees and the board sent, {done.looks.recommend} "
-            f"recommended{thrown}")
+    said_back = (f"dress me: {len(done.pieces)} pieces, what SAM sees and the board sent, {done.looks.recommend} "
+                 f"recommended{thrown}")
+    stream.say(stream.MARCO, said_back)
+    return said_back
 
 
 def selects_me(said: str, sender: str, message_id: str, wa: WhatsApp, marco=None, sleep=None) -> str:
@@ -740,7 +742,9 @@ def selects_me(said: str, sender: str, message_id: str, wa: WhatsApp, marco=None
     selects.finish(wa.conn, row, "done", numbers, str(done.folder))
     reactions.react(wa, sender, message_id, reactions.RESULT)
     notes = "".join(f"; {line}" for line in done.log)
-    return f"selects: {len(frames)} frames, picked {numbers} in {done.seconds['total']:.0f}s{notes}"
+    said_back = f"selects: {len(frames)} frames, picked {numbers} in {done.seconds['total']:.0f}s{notes}"
+    stream.say(stream.MARCO, said_back, done.seconds["total"])
+    return said_back
 
 
 def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None = None,

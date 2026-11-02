@@ -37,7 +37,23 @@ class JobLog:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         with self.path.open("a") as f:
             f.write(json.dumps(asdict(row), ensure_ascii=False) + "\n")
+        self.stream(row)
         return row
+
+    def stream(self, row: JobRow) -> None:
+        """The same call as one line of Marco's running log: the model, the job in plain words, the seconds."""
+        from hiremarco import stream
+
+        words = row.job.replace("_", " ").replace("-", " ")
+        if row.note:
+            words += f": {row.note}"
+        elif not row.ok:
+            words += ": failed"
+        try:
+            stream.say(row.model, words, row.duration_ms / 1000 if row.duration_ms else None,
+                       at=self.path.with_name(stream.NAME) if self.path.name != "jobs.jsonl" else None)
+        except OSError:
+            pass
 
     def rows(self) -> list[dict]:
         if not self.path.exists():

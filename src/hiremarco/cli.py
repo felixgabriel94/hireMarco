@@ -1180,6 +1180,27 @@ def cmd_mcu(args) -> int:
     return 0
 
 
+def cmd_log(args) -> int:
+    """Marco's running log: ``marco log [N]`` prints the last N lines; ``--window`` opens the film's window."""
+    from pathlib import Path
+
+    from hiremarco import stream
+
+    at = Path(args.at).expanduser() if args.at else None
+    if args.window:
+        from hiremarco import logwindow
+
+        logwindow.show(at, lines=args.lines)
+        return 0
+    rows = stream.tail(args.lines, at=at)
+    if not rows:
+        print(f"nothing in {at or stream.path()} yet")
+        return 0
+    for row in rows:
+        print(stream.line(row))
+    return 0
+
+
 def cmd_ledger(args) -> int:
     """The license ledger: ``build`` reads the evidence on this Mac, ``show [status]`` lists it."""
     import json
@@ -1865,6 +1886,12 @@ def main(argv: list[str] | None = None) -> int:
     va.add_argument("action", choices=["keep", "list", "show"])
     va.add_argument("words", nargs="*")
     va.set_defaults(func=cmd_vault)
+
+    lg = sub.add_parser("log", help="Marco's running log, one line per step all day: the last lines, or --window for the film's window")
+    lg.add_argument("lines", nargs="?", type=int, default=8)
+    lg.add_argument("--window", action="store_true", help="the fixed dark window the film watches: last eight steps, 24 point")
+    lg.add_argument("--at", help="another log file (a dry run's), instead of the real one")
+    lg.set_defaults(func=cmd_log)
 
     le = sub.add_parser("ledger", help="license ledger: build | panel | show [owned|demo|unknown|not_owned|inactive] | renewals [days]")
     le.add_argument("action", choices=["build", "panel", "show", "renewals"])
