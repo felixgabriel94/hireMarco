@@ -4,7 +4,9 @@ GET answers Meta's verification handshake. POST checks the
 X-Hub-Signature-256 header against the app secret before reading anything,
 drops messages from anyone but the Owner (counted, never read), skips
 retries it has already seen, and hands each new message to the handler in
-the background so Meta gets its 200 at once.
+the background so Meta gets its 200 at once. A status event (sent, delivered,
+read, failed) on one of Marco's messages rides the same webhook and goes to the
+delivery table, never to the handler.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import json
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any
 
 from starlette.applications import Starlette
@@ -23,7 +26,8 @@ from starlette.requests import Request
 from starlette.responses import PlainTextResponse, Response
 from starlette.routing import Route
 
-from hiremarco.whatsapp.client import record_inbound
+from hiremarco.livelog import Trace
+from hiremarco.whatsapp.client import record_inbound, record_status
 from hiremarco.whatsapp.photos import is_photo_file
 
 
@@ -76,6 +80,36 @@ def parse_payload(payload: dict[str, Any]) -> list[Inbound]:
     return found
 
 
+@dataclass(frozen=True)
+class Status:
+    id: str
+    status: str
+    at: str         # WhatsApp's own time for it, UTC
+    recipient: str
+    category: str = ""
+    error: str = ""
+
+
+def parse_statuses(payload: dict[str, Any]) -> list[Status]:
+    """Status events only. WhatsApp's error code and title are kept, and nothing that could carry a message's words."""
+    found: list[Status] = []
+    for entry in payload.get("entry") or []:
+        for change in entry.get("changes") or []:
+            for s in (change.get("value") or {}).get("statuses") or []:
+                try:
+                    at = datetime.fromtimestamp(int(s.get("timestamp")), timezone.utc).isoformat()
+                except (TypeError, ValueError, OverflowError, OSError):
+                    at = ""
+                origin = ((s.get("conversation") or {}).get("origin") or {}).get("type", "")
+                error = next(iter(s.get("errors") or []), {})
+                found.append(Status(
+                    id=s.get("id", ""), status=s.get("status", "unknown"), at=at, recipient=str(s.get("recipient_id") or ""),
+                    category=(s.get("pricing") or {}).get("category", "") or origin,
+                    error=f"{error.get('code', '')} {error.get('title', '')}".strip(),
+                ))
+    return found
+
+
 def make_app(
     handler: Callable[[Inbound], None],
     *,
@@ -86,7 +120,7 @@ def make_app(
     extra_routes: list[Route] | None = None,
 ) -> Starlette:
     owner = owner.lstrip("+")
-    stats = {"dropped_not_owner": 0, "retries": 0, "bad_signature": 0}
+    stats = {"dropped_not_owner": 0, "retries": 0, "bad_signature": 0, "statuses": 0, "status_errors": 0}
 
     async def verify(request: Request) -> Response:
         q = request.query_params
@@ -116,6 +150,16 @@ def make_app(
                     stats["retries"] += 1
                     continue
                 tasks.add_task(handler, message)
+            # a status that can't be kept must not cost him a message: a 500 here would lose the handler run above
+            try:
+                for status in parse_statuses(payload):
+                    if record_status(conn, status.id, status.status, status.at, status.recipient, category=status.category,
+                                     error=status.error):
+                        stats["statuses"] += 1
+                        if status.status == "failed":
+                            Trace(f"status: ...{status.id[-8:]} failed").done(status.error or "no reason given")
+            except Exception:
+                stats["status_errors"] += 1
         finally:
             conn.close()
         return PlainTextResponse("ok", background=tasks)

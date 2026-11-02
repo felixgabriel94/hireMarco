@@ -34,6 +34,19 @@ create table if not exists inbound (
 );
 """
 
+DELIVERY_SCHEMA = """
+create table if not exists delivery (
+    wa_message_id text not null,
+    status text not null,
+    at text not null,
+    received_at text not null,
+    recipient text not null,
+    category text not null default '',
+    error text not null default '',
+    primary key (wa_message_id, status)
+);
+"""
+
 
 class WhatsAppError(RuntimeError):
     pass
@@ -50,6 +63,28 @@ def record_inbound(conn: sqlite3.Connection, wa_message_id: str, from_number: st
     )
     conn.commit()
     return cur.rowcount == 1
+
+
+def record_status(conn: sqlite3.Connection, wa_message_id: str, status: str, at: str, recipient: str, *, category: str = "",
+                  error: str = "", received_at: datetime | None = None) -> bool:
+    """What WhatsApp says became of one of Marco's messages: sent, delivered, read or failed, at WhatsApp's own time. The
+    number is kept masked and no words are here to keep. False when it was already seen (a webhook retry)."""
+    conn.executescript(DELIVERY_SCHEMA)
+    cur = conn.execute(
+        "insert or ignore into delivery (wa_message_id, status, at, received_at, recipient, category, error)"
+        " values (?, ?, ?, ?, ?, ?, ?)",
+        (wa_message_id, status, at, (received_at or datetime.now(timezone.utc)).isoformat(), f"...{recipient[-4:]}", category,
+         error),
+    )
+    conn.commit()
+    return cur.rowcount == 1
+
+
+def delivery_of(conn: sqlite3.Connection, wa_message_id: str) -> dict[str, str]:
+    """When each status of one message landed, by WhatsApp's clock: {"sent": ..., "delivered": ..., "read": ...}."""
+    conn.executescript(DELIVERY_SCHEMA)
+    return dict(conn.execute("select status, at from delivery where wa_message_id = ? order by at",
+                             (wa_message_id,)).fetchall())
 
 
 def last_inbound(conn: sqlite3.Connection, from_number: str) -> datetime | None:
