@@ -234,3 +234,24 @@ def test_the_ears_ride_with_the_audit_into_the_plan_and_the_record(tmp_path, mon
     assert result.hearing == heard and got["plan"] == heard and got["settings"] == heard
     assert listened[0] == ("song - mix 2026-11-02.wav", None) and listened[1][0].startswith("song - master")
     assert json.loads(result.record.read_text())["hearing"]["audiobox_aesthetics"]["mix"]["PQ"] == 6.5
+
+
+def test_a_chain_left_bypassed_by_a_dead_run_is_reused_not_doubled(tmp_path, monkeypatch):
+    strip = FakeStrip()
+    strip.inserts += [Insert("Gain", True, 585, 180), Insert("Pro-L 2", True, 585, 197)]   # the last run died mid-way
+    bouncer, channel = FakeBouncer(tmp_path, [-30.0, -20.0, -12.0]), FakeChannel()
+    plan = MasterPlan([{"role": "gain", "plugin": "Gain", "why": "8 dB"}, {"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}],
+                      -12.0, -1.0, "ok", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings([], ""))
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+                      toggle_cycle=lambda: None, select_track=lambda: None, room={"Gain", "Pro-L 2"}, log=lambda s: None)
+    assert not any(isinstance(e, tuple) and e[0] == "insert" for e in strip.log)          # nothing inserted twice
+    assert [i.bypassed for i in strip.inserts if i.name in ("Gain", "Pro-L 2")] == [False, False]   # back in for the master
+    assert result.master is not None
+
+
+def test_a_plugin_outside_the_room_never_fills_a_role():
+    assert jobs.role_filled("glue", ["Shadow Hil"], set(), room={"Pro-L 2"}) is None
+    assert jobs.role_filled("glue", ["UAD Shadow"], set(), room={"UAD Shadow Hills Mastering Comp"}) == "UAD Shadow"

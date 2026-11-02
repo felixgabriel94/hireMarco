@@ -155,10 +155,13 @@ def prove_chain(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cy
         ensure_range(bouncer, job.end_bar, toggle_cycle, log)
 
 
-def role_filled(role: str, names: list[str], claimed: set[str] | None = None) -> str | None:
+def role_filled(role: str, names: list[str], claimed: set[str] | None = None, room: set[str] | None = None) -> str | None:
     """The strip name of a plugin already there that can fill the role (a run that stopped after its insert), not
-    one another role has claimed: Pro-Q 3 counts once, for the EQ role it was put in for."""
+    one another role has claimed: Pro-Q 3 counts once, for the EQ role it was put in for. A candidate outside the
+    room (a plug-in the ledger holds inactive) never counts, however it got on the strip."""
     for candidate in roles.CANDIDATES.get(role, []):
+        if room is not None and candidate not in room:
+            continue
         for shown in names:
             if shown in (claimed or set()):
                 continue
@@ -259,15 +262,17 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     # 4. the chain on the Stereo Out, in the rulebook's order
     log("4. the chain")
     strip.open_mixer()   # the Mixer window was gone once by this step (live 2026-11-02, run 13); it comes back
-    # what counts as on the strip: the artist's inserts and Marco's that were in before the job (everything of his
-    # is bypassed right now for the mix print); one he left bypassed earlier is not a filled role
-    names = [i.name for i in before.inserts if not i.marcos or (i.name, round(i.y)) in was_in]
+    # what counts as on the strip: every insert that was there before the job, bypassed or not. A run that died
+    # mid-way leaves the whole chain bypassed, and counting only what was in doubled the chain (runs 14 and 23,
+    # live 2026-11-02); a plug-in the ledger holds inactive is kept out by the room, whatever its state
+    names = [i.name for i in before.inserts]
     claimed: set[str] = set()
     plugin_of: dict[str, str] = {}   # the strip's short name -> the plan's plugin, for the ledger
+    kept_out: set[tuple[str, int]] = set()   # rows a face notice put out: never brought back in
     for role, plugin in result.plan.chain.items():
         if role == "meter":
             continue  # meters are read by the audit, not by eye; nothing to insert for the print
-        there = role_filled(role, names, claimed)
+        there = role_filled(role, names, claimed, room)
         if there is not None:
             claimed.add(there)
             plugin_of[there] = plugin
@@ -298,10 +303,12 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
                 mark_plugin(candidate, "inactive", f"its window said {face.notice!r} on {job.today}")
             result.dead.append(candidate)
             seen.add((landed[-1], round(row.y)))   # not to be brought back in after the chain
+            kept_out.add((landed[-1], round(row.y)))
         else:
             log(f"   nothing licensed in the room for {role}; the chain goes on without it")
     back_in = [i.y for i in strip.read().inserts
-               if i.marcos and ((i.name, round(i.y)) in was_in or (i.name, round(i.y)) not in seen)]
+               if i.marcos and (i.name, round(i.y)) not in kept_out
+               and ((i.name, round(i.y)) in was_in or (i.name, round(i.y)) not in seen or i.name in claimed)]
     if back_in:
         strip.bypass(False, rows=back_in)
 
