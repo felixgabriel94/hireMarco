@@ -108,13 +108,13 @@ def save(prefs: Preferences) -> Path:
 
 
 def _ask(client: MuseSpark, instructions: str, prompt: str, *, job: str, schema: dict | None = None,
-         tokens: int = 1500) -> str:
+         tokens: int = 1500, effort: str = "low") -> str:
     gate.check_model_call(TENANT, model=MODEL, system=instructions, prompt=prompt, joblog=client.joblog)
     kwargs = {}
     if schema is not None:
         kwargs["response_format"] = {"type": "json_schema", "json_schema": {"name": job, "schema": schema, "strict": True}}
     reply = client.ask(prompt, developer=instructions, job=job, model=MODEL, max_completion_tokens=tokens,
-                       reasoning_effort="low", **kwargs)
+                       reasoning_effort=effort, **kwargs)
     if reply.finish_reason == "length":
         raise RuntimeError(f"the {job} ran out of room before it finished")
     return reply.text
@@ -124,7 +124,9 @@ def hear(report: EarsReport, song: str, *, client: MuseSpark | None = None) -> t
     """The full read, then Marco's spoken take and his question. Nothing moves."""
     view = build(report)
     client = client or MuseSpark()
-    said = _ask(client, HEARING_INSTRUCTIONS, json.dumps(view.as_dict()), job="mix_hearing").strip()
+    # the read of a session is a thinking moment (Owner 2026-11-02): the deepest effort, with room to reason and answer
+    said = _ask(client, HEARING_INSTRUCTIONS, json.dumps(view.as_dict()), job="mix_hearing", tokens=6000,
+                effort="max").strip()
     prefs = load(song)
     prefs.heard = said
     save(prefs)

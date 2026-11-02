@@ -24,6 +24,7 @@ from hiremarco.whatsapp.memory import note_sent, remember
 GRAPH_URL = "https://graph.facebook.com/v25.0"
 WINDOW = timedelta(hours=24)
 TENANT = "owner"
+DOCUMENT_MAX_BYTES = 100 * 1024 * 1024  # WhatsApp's document limit (Cloud API, read 2026-11-02)
 
 INBOUND_SCHEMA = """
 create table if not exists inbound (
@@ -265,6 +266,30 @@ class WhatsApp:
         )
         remember(self.conn, "marco", f"[picture] {caption}")
         return (data.get("messages") or [{}])[0].get("id", "")
+
+    def send_document(self, to: str, data: bytes, filename: str, caption: str, *, mime: str, idempotency_key: str,
+                      critic=None, now: datetime | None = None) -> str:
+        """A file by name (a bounced WAV, a zip): uploaded and sent as a document inside one gated action. WhatsApp
+        takes documents to 100 MB; a four-minute 24-bit 48 kHz stereo WAV is about 70 MB."""
+        caption = written(caption)
+        if len(data) > DOCUMENT_MAX_BYTES:
+            raise gate.Refused(f"{filename} is {len(data) // (1024 * 1024)} MB; WhatsApp documents stop at 100 MB")
+        if not self._inside_window(to, now):
+            raise gate.Refused("outside the 24-hour window; a template would cost money, so asking the Owner first")
+
+        def run() -> dict[str, Any]:
+            media_id = self.upload_media(data, mime, filename)
+            return self._post_message({"to": to.lstrip("+"), "type": "document",
+                                       "document": {"id": media_id, "filename": filename, "caption": caption[:1024]}})
+
+        sent = gate.execute_effect(
+            self.conn, run, tenant_id=TENANT, idempotency_key=idempotency_key, capability="send_document",
+            channel="whatsapp", target=to, department="assistant",
+            message=f"document {filename} {hashlib.sha256(data).hexdigest()[:16]}: {caption}",
+            critic=critic, rules_path=self.rules_path,
+        )
+        remember(self.conn, "marco", f"[file {filename}] {caption}")
+        return (sent.get("messages") or [{}])[0].get("id", "")
 
     def react(self, to: str, message_id: str, emoji: str, *, now: datetime | None = None) -> str:
         return self._send(to, {"type": "reaction", "reaction": {"message_id": message_id, "emoji": emoji}},

@@ -231,8 +231,9 @@ class Mixer:
                              "artist_preferences": self.guardrails})
         client = self.client or MuseSpark()
         gate.check_model_call(TENANT, model=MODEL, system=INSTRUCTIONS, prompt=prompt, joblog=client.joblog)
-        reply = client.ask(prompt, developer=INSTRUCTIONS, job="mix_pass", model=MODEL, max_completion_tokens=8000,
-                           reasoning_effort="medium",
+        # Owner 2026-11-02: the smartest brain at its deepest for every mix decision; nothing here is live-latency
+        reply = client.ask(prompt, developer=INSTRUCTIONS, job="mix_pass", model=MODEL, max_completion_tokens=16000,
+                           reasoning_effort="max",
                            response_format={"type": "json_schema",
                                             "json_schema": {"name": "mix_pass", "schema": SCHEMA, "strict": True}})
         if reply.finish_reason == "length":
