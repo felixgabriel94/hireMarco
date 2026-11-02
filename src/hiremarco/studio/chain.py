@@ -60,7 +60,8 @@ SCHEMA = {
                 "type": "object",
                 "properties": {
                     "slot": {"type": "integer"},
-                    "parameter": {"type": "string"},
+                    "parameter": {"type": "string", "description": "the control's name exactly as listed under "
+                                                                    "parameters, with nothing before it"},
                     "value": {"type": "number"},
                     "unit": {"type": "string", "description": "'%' or the control's unit from in_units"},
                     "why": {"type": "string", "description": "the technical reason, one sentence"},
@@ -123,6 +124,21 @@ def _osascript(args: list[str]) -> str:
     if done.returncode != 0:
         raise PluginError(done.stderr.strip()[-200:] or f"osascript exit {done.returncode}")
     return done.stdout
+
+
+def control_named(answer: str, controls: list[str]) -> str | None:
+    """The control an answer means: its exact name, or the name after a "Slot 2 — Pro-Q 3:" prefix the brain
+    sometimes adds (live 2026-11-02: every change of a run was dropped that way); None when nothing matches."""
+    if answer in controls:
+        return answer
+    tail = answer.split(":")[-1].strip()
+    if tail in controls:
+        return tail
+    stripped = re.sub(r"^\s*slot\s*\d+\s*[\u2014\u2013:-]*\s*", "", answer, flags=re.I).strip()
+    if stripped in controls:
+        return stripped
+    ends = [c for c in controls if answer.endswith(c) and (len(answer) == len(c) or not answer[-len(c) - 1].isalnum())]
+    return max(ends, key=len) if ends else None
 
 
 def bounded(name: str, old: float, new: float) -> float:
@@ -272,14 +288,16 @@ class Channel:
         a bypassed or unknown slot, or a control Marco does not move, is dropped; a level control moves at most one
         step; the rest is set in one run and read back. The reasons are kept for the record."""
         chain = chain or self.chain or self.read(fresh=False)
-        self.reasons = {(int(c["slot"]), str(c["parameter"])): str(c.get("why", "")).strip() for c in changes}
+        self.reasons = {}
         by_number = {s.number: s for s in chain.active() if s.state}
         per_slot: dict[int, dict[str, float]] = {}
         for c in changes[:max_changes]:
-            number, name, value, unit = int(c["slot"]), str(c["parameter"]), float(c["value"]), str(c.get("unit", "%"))
+            number, value, unit = int(c["slot"]), float(c["value"]), str(c.get("unit", "%"))
             slot = by_number.get(number)
-            if slot is None or name not in slot.state.changeable():
+            name = control_named(str(c["parameter"]), slot.state.changeable()) if slot is not None else None
+            if name is None:
                 continue  # a bypassed slot, an unknown slot, or a control Marco does not move
+            self.reasons[(number, name)] = str(c.get("why", "")).strip()
             if unit != "%" and slot.state.in_shown_unit(name, unit):
                 # in the unit the plugin prints (2026-11-02): the script lands the slider on that reading; a level
                 # control still moves at most LEVEL_DB per request

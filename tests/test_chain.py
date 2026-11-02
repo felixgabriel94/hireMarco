@@ -6,7 +6,7 @@ import pytest
 from hiremarco import gate
 from hiremarco.joblog import JobLog
 from hiremarco.meta.client import MuseSpark
-from hiremarco.studio.chain import Channel, bounded, parse_list
+from hiremarco.studio.chain import Channel, bounded, control_named, parse_list
 from hiremarco.studio.plugins import PluginError
 
 
@@ -159,3 +159,21 @@ def test_a_change_in_the_units_the_plugin_shows_lands_on_its_reading(tmp_path, r
     assert next(s.state for s in channel.chain.slots if s.number == 2).shown["Input"] == "+2.50 dB"
     channel.put_back()
     assert fake.plugins[2][1]["Input"] == 4000 and fake.plugins[2][1]["Output"] == 6000
+
+
+def test_a_control_named_with_the_slot_in_front_still_lands():
+    controls = ["Gain", "Band 1 Gain", "Output Level"]
+    assert control_named("Gain", controls) == "Gain"
+    assert control_named("Slot 2 \u2014 Gain: Gain", controls) == "Gain"
+    assert control_named("Slot 4 \u2014 Pro-Q 3: Band 1 Gain", controls) == "Band 1 Gain"
+    assert control_named("Slot 7 Output Level", controls) == "Output Level"
+    assert control_named("Pro-L 2 Gain", controls) == "Gain" and control_named("Regain", controls) is None
+    assert control_named("Threshold", controls) is None
+
+
+def test_a_prefixed_parameter_is_applied_and_its_reason_kept(tmp_path, rules):
+    fake = FakeChain()
+    channel = Channel(run=fake, conn=gate.connect(":memory:"), rules_path=rules)
+    channel.read()
+    channel.apply_changes([{"slot": 2, "parameter": "Slot 2 \u2014 CLA-76: Input", "value": 3, "unit": "dB", "why": "a dB down"}])
+    assert fake.plugins[2][1]["Input"] == 3000 and channel.reasons[(2, "Input")] == "a dB down"
