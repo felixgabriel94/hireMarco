@@ -6,6 +6,9 @@
 -- "Name<TAB>value" lines, and close the window they opened. Mapped live 2026-10-28: each insert is a group
 -- described by the plugin's short name, holding a bypass checkbox and an "open" button.
 property helper : ""
+-- 1 is the selected track's strip; 2 the strip to its right in the Inspector, the track's output (the Stereo Out
+-- when the track goes straight out), chosen with "output" as the first argument after the helper (2026-11-02)
+property stripIndex : 1
 
 on menusOpen()
 	return (do shell script "osascript -l JavaScript " & quoted form of helper) as integer
@@ -28,7 +31,8 @@ on inserts()
 				end try
 			end repeat
 			if mixer is missing value then error "the Inspector shows no channel strip (press I, select a track)"
-			set strip to UI element 1 of mixer
+			if stripIndex is 2 and (count of UI elements of mixer) < 2 then error "the Inspector shows no output strip beside the track's"
+				set strip to UI element stripIndex of mixer
 			set found to {}
 			repeat with g in (every group of strip)
 				try
@@ -219,6 +223,10 @@ end report
 
 on run argv
 	set helper to item 1 of argv
+	if (item 2 of argv) is "output" then
+		set stripIndex to 2
+		set argv to items 1 thru 1 of argv & items 3 thru -1 of argv
+	end if
 	set mode to item 2 of argv
 	set slots to inserts()
 	if mode is "list" then

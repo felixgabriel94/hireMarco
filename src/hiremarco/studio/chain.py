@@ -134,8 +134,14 @@ def bounded(name: str, old: float, new: float) -> float:
 
 class Channel:
     def __init__(self, *, run: Callable[[list[str]], str] = _osascript, conn=None, rules_path=None,
-                 client: MuseSpark | None = None):
-        self.run = run
+                 client: MuseSpark | None = None, strip: str = "track"):
+        """``strip`` "track" works the selected track's inserts; "output" the strip beside it in the Inspector, the
+        track's output, which is the Stereo Out when the track goes straight out (the mastering chain, 2026-11-02)."""
+        if strip not in ("track", "output"):
+            raise ValueError(f"strip is track or output, not {strip!r}")
+        base = run
+        self.run = base if strip == "track" else (lambda args: base(["output", *args]))
+        self.strip = strip
         self.conn = conn
         self.rules_path = rules_path
         self.client = client
@@ -251,15 +257,24 @@ class Channel:
         try:
             data = json.loads(reply.text)
             said = str(data["said"]).strip()
-            raw = [(int(c["slot"]), str(c["parameter"]), float(c["value"]), str(c.get("unit", "%")))
-                   for c in data["changes"]]
-            self.reasons = {(int(c["slot"]), str(c["parameter"])): str(c.get("why", "")).strip()
-                            for c in data["changes"]}
+            changes = [{"slot": int(c["slot"]), "parameter": str(c["parameter"]), "value": float(c["value"]),
+                        "unit": str(c.get("unit", "%")), "why": str(c.get("why", "")).strip()}
+                       for c in data["changes"]]
         except (ValueError, KeyError, TypeError) as exc:
             raise PluginError("the chain design came back unreadable") from exc
+        return self.apply_changes(changes, chain=chain), said or "Done."
+
+    def apply_changes(self, changes: list[dict], *, chain: Chain | None = None,
+                      max_changes: int = MAX_CHANGES) -> dict[int, PluginState]:
+        """Changes as the model gives them (slot, parameter, value, unit, why), checked against the chain as read:
+        a bypassed or unknown slot, or a control Marco does not move, is dropped; a level control moves at most one
+        step; the rest is set in one run and read back. The reasons are kept for the record."""
+        chain = chain or self.chain or self.read(fresh=False)
+        self.reasons = {(int(c["slot"]), str(c["parameter"])): str(c.get("why", "")).strip() for c in changes}
         by_number = {s.number: s for s in chain.active() if s.state}
         per_slot: dict[int, dict[str, float]] = {}
-        for number, name, value, unit in raw[:MAX_CHANGES]:
+        for c in changes[:max_changes]:
+            number, name, value, unit = int(c["slot"]), str(c["parameter"]), float(c["value"]), str(c.get("unit", "%"))
             slot = by_number.get(number)
             if slot is None or name not in slot.state.changeable():
                 continue  # a bypassed slot, an unknown slot, or a control Marco does not move
@@ -270,7 +285,7 @@ class Channel:
         self.undo = {n: {k: by_number[n].state.params[k] for k in vals} for n, vals in per_slot.items()}
         results = self._apply(per_slot)
         self._keep_undo()
-        return results, said or "Done."
+        return results
 
     def _undo_path(self):
         from pathlib import Path
