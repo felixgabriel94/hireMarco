@@ -351,7 +351,7 @@ def test_a_master_that_fails_verification_is_not_delivered(tmp_path, monkeypatch
     assert result.stopped.startswith("the master failed verification") and delivered == []
     assert "NOT VERIFIED" in result.verdict.text() and json.loads(result.record.read_text())["verdict"]["passed"] is False
     assert result.caption.startswith("Stopped: the master failed verification")
-    assert [m["status"] for m in result.manifest] == ["planned"]           # Pro-L 2, in Marco's ledger from this run
+    assert [m["status"] for m in result.manifest] == ["yours", "planned"]   # Console Recall is the artist's; Pro-L 2 is Marco's from this run
 
 
 def test_the_caption_says_verified_when_the_master_passes(tmp_path, monkeypatch):
