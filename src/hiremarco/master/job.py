@@ -196,6 +196,7 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
 
     # 4. the chain on the Stereo Out, in the rulebook's order
     log("4. the chain")
+    strip.open_mixer()   # the Mixer window was gone once by this step (live 2026-11-02, run 13); it comes back
     # what counts as on the strip: the artist's inserts and Marco's that were in before the job (everything of his
     # is bypassed right now for the mix print); one he left bypassed earlier is not a filled role
     names = [i.name for i in before.inserts if not i.marcos or (i.name, round(i.y)) in was_in]
