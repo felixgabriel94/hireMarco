@@ -96,7 +96,7 @@ def test_a_plan_with_no_numbers_in_its_reasons_is_asked_again(tmp_path, track):
     client = MuseSpark(api_key="k", joblog=JobLog(tmp_path / "j.jsonl"), transport=httpx.MockTransport(handler))
     p = plan.roles_for(track, None, {"Pro-L 2"}, client=client)
     assert len(seen) == 2 and p.roles[0]["why"].startswith("true peak")
-    assert "every reason must name a number" in json.loads(seen[1]["messages"][-1]["content"])["note"]
+    assert "number measured on this track" in json.loads(seen[1]["messages"][-1]["content"])["note"]
 
 
 def test_a_server_error_is_tried_again_and_a_client_error_is_not(tmp_path, track, monkeypatch):
@@ -159,3 +159,15 @@ def test_settings_that_run_out_of_room_are_asked_once_more_for_a_shorter_answer(
     assert len(seen) == 2 and s.changes[0]["value"] == 3.5
     assert seen[0]["max_completion_tokens"] == plan.TOKENS_SETTINGS
     assert "at most eight changes" in json.loads(seen[1]["messages"][-1]["content"])["note"]
+
+
+def test_a_reason_that_quotes_the_rulebook_and_not_the_track_is_not_grounded():
+    known = plan.track_numbers({"audit": {"base": {"lufs": -15.5, "true_peak_db": 1.5}, "summary": "resonance at 254 Hz, 6.2 dB over its octave"},
+                                "purpose_targets": {"lufs": -10, "ceiling_dbtp": -1}, "rulebook": "a dB or two of glue, half-dB steps"})
+    assert "15.5" in known and "254" in known and "6.2" in known and "10" in known
+    copied = {"roles": [{"role": "glue", "plugin": "X", "measured": "", "why": "a dB or two of glue as the book says"}]}
+    assert not plan.grounded(copied, known)
+    tracked = {"roles": [{"role": "corrective_eq", "plugin": "Pro-Q 3", "measured": "254 Hz is 6.2 dB over its octave",
+                          "why": "a narrow cut there"}]}
+    assert plan.grounded(tracked, known)
+    assert not plan.grounded({"roles": [{"role": "glue", "plugin": "X", "measured": "", "why": "feels right"}]}, known)

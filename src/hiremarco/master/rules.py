@@ -78,8 +78,13 @@ The order (corrective before sweetening, linear before non-linear) [iZotope]:
 3. Corrective dynamics only for a named problem: a transient that pokes out, a section that runs away; the
    smallest band and the fewest dB that solve it [iZotope; Merrill (object-based fixes for one section)].
 4. Glue: one wideband compressor, low ratio, slow, a dB or two of gain reduction, "with discretion"; long release
-   reads as musical glue [Becker]. A dB or two, not more.
-5. Tonal (sweetening) EQ: broad shelves and wide bells, half-dB steps, toward the references' tilt; EQ is most of the
+   reads as musical glue [Becker]. A dB or two, not more. When: a mix whose dynamics are loose (a wide loudness
+   range, a high crest, parts that jump) and whose glue is not already on the mix bus. When not: a mix that
+   arrives steady (a loudness range under about 5 LU, a bus compressor already in the mix) gets no glue; a
+   compressor that earns nothing on the bench comes off [Owner 2026-11-02].
+5. Tonal (sweetening) EQ: broad shelves and wide bells, half-dB steps, toward the references' tilt; the size of a
+   move is set by how far the measured tilt and bands sit from where the track wants to be, not by the half-dB
+   habit: a dark mix two dB off its reference takes two dB in two broad moves, a mix on target takes none; EQ is most of the
    work [Leonard; Merrill (a transparent EQ so the coloration is chosen, not imposed)].
 6. Color: tape or tube saturation only when the genre and the references want it; the total saturation across the
    mix is budgeted, a bus already colored in the mix takes less here [Joshua; Ghenea].

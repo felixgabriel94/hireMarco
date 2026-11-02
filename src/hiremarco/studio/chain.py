@@ -64,7 +64,8 @@ SCHEMA = {
                                                                     "parameters, with nothing before it"},
                     "value": {"type": "number"},
                     "unit": {"type": "string", "description": "'%' or the control's unit from in_units"},
-                    "why": {"type": "string", "description": "the technical reason, one sentence"},
+                    "why": {"type": "string", "description": "the technical reason, one sentence, with the number on "
+                                                             "this track it answers to and the effect expected on the print"},
                 },
                 "required": ["slot", "parameter", "value", "unit", "why"],
                 "additionalProperties": False,
