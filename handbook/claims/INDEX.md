@@ -18,3 +18,4 @@ One line per claim; the file is the record.
 - R-AUD-0016: Pro-C 2: threshold, ratio, knee, range, the eight styles, attack and release, lookahead, hold, auto gain and parallel mix (primary, proven)
 - R-AUD-0017: Pro-DS: threshold and range, the trigger band between 2 and 20 kHz, Single Vocal against Allround, wide band against split band (primary, proven)
 - R-AUD-0018: Pro-G: threshold, ratio and range of a gate or expander; the styles, with Vocal for breaths and bleed; side-chain filters (primary, proven)
+- R-AUD-0019: Auto-Tune Realtime X: key and scale set the target notes; Retune Speed in ms, Flex-Tune, Humanize and Detune (primary, proven)
