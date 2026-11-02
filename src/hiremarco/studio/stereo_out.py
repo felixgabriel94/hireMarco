@@ -65,6 +65,14 @@ def _osa(script: str) -> str:
     return done.stdout.strip()
 
 
+def _hover(x: float, y: float) -> None:
+    """The pointer moved to a screen point, nothing pressed: a menu row with a submenu opens it on hover."""
+    import Quartz
+
+    Quartz.CGEventPost(Quartz.kCGHIDEventTap,
+                       Quartz.CGEventCreateMouseEvent(None, Quartz.kCGEventMouseMoved, (x, y), 0))
+
+
 def parse_strip(report: str) -> Strip:
     data = json.loads(report)
     return Strip(tuple(data["slot"]) if data.get("slot") else None,
@@ -80,10 +88,11 @@ def front_is_logic() -> None:
 
 class StereoOut:
     def __init__(self, *, jxa: Callable[[str], str] = _jxa, osa: Callable[[str], str] = _osa, click=None,
-                 conn=None, rules_path: Path | None = None, dry_run: bool = False, sleep=time.sleep):
+                 hover=None, conn=None, rules_path: Path | None = None, dry_run: bool = False, sleep=time.sleep):
         if click is None:
             from hiremarco.studio.recall import click
         self.jxa, self.osa, self.click, self.sleep = jxa, osa, click, sleep
+        self.hover = hover or _hover
         self.conn, self.rules_path, self.dry_run = conn, rules_path, dry_run
         self.planned: list[str] = []
 
@@ -147,28 +156,29 @@ class StereoOut:
             self.sleep(0.3)
             if not self.menus():
                 raise RuntimeError("the plug-in menu closed before the search")
-            safe = name.replace("\\", "\\\\").replace('"', '\\"')
-            self.osa(f'tell application "System Events" to keystroke "{safe}"')
-            self.sleep(1.0)
-            menus = self.menus()                       # the list shrinks to the matches, and may move with it
-            if not menus:
-                raise RuntimeError(f"the plug-in menu closed while {name!r} was typed")
-            main = menus[0]
-            mx, my, mw, _ = main
-            self.click(mx + 40, my + FIRST_ROW_Y)     # the first result
+            # typed in short pieces: a long name sent at once lost all but its first letter (live 2026-11-02), and a
+            # paste never reached the field. Then the keyboard, not the mouse (live 2026-11-02): Tab leaves the
+            # field for the list, Down takes the first result, Right opens its variants (the first is stereo),
+            # Return takes it; a Recent entry has no variants and Return takes the row itself.
+            for start in range(0, len(name), 6):
+                piece = name[start:start + 6].replace("\\", "\\\\").replace('"', '\\"')
+                self.osa(f'tell application "System Events" to keystroke "{piece}"')
+                self.sleep(0.25)
             self.sleep(0.8)
-            open_now = self.menus()
-            sub = [m for m in open_now if any(abs(a - b) > 20 for a, b in zip(m, main))]
-            if sub:                                   # the variants: the first is stereo
-                sx, sy, _, _ = sub[0]
-                self.click(sx + 30, sy + ITEM_Y)
-                self.sleep(1.5)
-            # a Recent entry goes straight in with no variants (live 2026-11-02, Gain); what counts is the strip,
-            # read below, not the menu: whatever is still open is closed first
-            if self.menus():
+            if not self.menus():
+                raise RuntimeError(f"the plug-in menu closed while {name!r} was typed")
+            for code in (48, 125, 124):               # Tab, Down, Right
+                self.osa(f'tell application "System Events" to key code {code}')
+                self.sleep(0.4)
+            self.osa('tell application "System Events" to key code 36')   # Return
+            self.sleep(1.8)
+            if self.menus():                          # what counts is the strip, read below, not the menu
                 self._snapshot(f"menu open after {name}")
                 self.osa('tell application "System Events" to key code 53')
                 self.sleep(0.4)
+                if self.menus():
+                    self.osa('tell application "System Events" to key code 53')
+                    self.sleep(0.4)
             return f"{name} picked"
         self._gated(run, "insert", f"insert {name} on the Stereo Out")
         after = self.read()

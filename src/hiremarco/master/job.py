@@ -77,9 +77,35 @@ def end_bar_for(seconds: float, bpm: float, beats_per_bar: int = 4, lead_in_bars
     return lead_in_bars + bars + tail_bars + 1
 
 
+def _plain(name: str) -> str:
+    """A plugin name as the strip or the search may spell it: no maker prefix, no case, letters and digits only."""
+    text = name.lower()
+    for prefix in ("uad ", "uadx ", "the "):
+        if text.startswith(prefix):
+            text = text[len(prefix):]
+    return "".join(ch for ch in text if ch.isalnum())
+
+
 def on_strip(plugin: str, names: list[str]) -> bool:
-    """The strip shows short names ("Shadow Hills Mastering Compress" for the compressor): a prefix match."""
-    return any(plugin.startswith(n) or n.startswith(plugin[: max(8, len(n))]) for n in names)
+    """The strip shows short names ("Shadow Hills Mastering Compress" for the compressor, "UAD Shadow" for the UAD
+    one that the search lands first): the names are compared plain, one a prefix of the other, eight characters
+    or more."""
+    wanted = _plain(plugin)
+    for n in names:
+        shown = _plain(n)
+        if not shown or not wanted:
+            continue
+        head = min(len(shown), len(wanted))
+        if head >= 8 and shown[:head] == wanted[:head]:
+            return True
+        if shown == wanted:
+            return True
+    return False
+
+
+def role_filled(role: str, names: list[str]) -> bool:
+    """Any plugin that can fill the role is on the strip already (a run that stopped after its insert)."""
+    return any(on_strip(c, names) for c in roles.CANDIDATES.get(role, []))
 
 
 def ensure_range(bouncer: bouncing.Bouncer, end_bar: int, toggle_cycle: Callable[[], None], log=print) -> None:
@@ -142,6 +168,8 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     for r in result.plan.roles:
         log(f"   {r['role']}: {r['plugin']}. {r['why']}")
     log(f"   target {result.plan.target_lufs} LUFS, ceiling {result.plan.ceiling_dbtp} dBTP")
+    if result.plan.critic:
+        log(f"   critic: {'approved' if result.plan.critic[0] else 'held'}: {result.plan.critic[1]}")
     if result.plan.critic and not result.plan.critic[0]:
         result.stopped = f"the critic held the plan: {result.plan.critic[1]}"
         log(f"   {result.stopped}")
@@ -156,8 +184,8 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     for role, plugin in result.plan.chain.items():
         if role == "meter":
             continue  # meters are read by the audit, not by eye; nothing to insert for the print
-        if on_strip(plugin, names):
-            log(f"   {plugin} is already on the strip")
+        if on_strip(plugin, names) or role_filled(role, names):
+            log(f"   {role} is already on the strip ({plugin})")
             continue
         after = strip.insert(plugin)
         names = [i.name for i in after.inserts]

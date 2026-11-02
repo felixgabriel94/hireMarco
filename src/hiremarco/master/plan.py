@@ -140,6 +140,15 @@ def _ask(client: MuseSpark, instructions: str, payload: dict, *, job: str, schem
         raise RuntimeError(f"the {job} came back unreadable") from exc
 
 
+def grounded(data: dict) -> bool:
+    """A plan is grounded when its reasons carry numbers (a dB, a LUFS, a Hz, a LU): the audit's, not a story's."""
+    reasons = [str(r.get("why", "")) for r in data.get("roles", []) if isinstance(r, dict)]
+    if not reasons:
+        return False
+    with_numbers = [w for w in reasons if any(ch.isdigit() for ch in w)]
+    return len(with_numbers) * 2 >= len(reasons)
+
+
 def roles_for(audit: Audit, deltas: Deltas | None, room: set[str], *, purpose: str = "demo", direction: str = "",
               stock_only: bool = False, client: MuseSpark | None = None, critic: Critic | None = None) -> MasterPlan:
     """What this track needs: the roles, their plugins, the targets and the audit in Marco's words."""
@@ -150,6 +159,13 @@ def roles_for(audit: Audit, deltas: Deltas | None, room: set[str], *, purpose: s
                "stock_only": stock_only, "audit": audit_for_model(audit, deltas), "room": roles_.for_model(room),
                "rulebook": RULEBOOK, "sources": SOURCES}
     data = _ask(client, AUDIT_INSTRUCTIONS, payload, job="master_audit", schema=AUDIT_SCHEMA)
+    if not grounded(data):
+        # live 2026-11-02: one answer at max effort came back as nonsense ("turn the tracksuit bolt") with no number
+        # in any reason; a plan that names no measurement is asked for again, once
+        data = _ask(client, AUDIT_INSTRUCTIONS, {**payload, "note": "every reason must name a number from the audit"},
+                    job="master_audit", schema=AUDIT_SCHEMA)
+        if not grounded(data):
+            raise RuntimeError("the plan named no measurement in its reasons, twice")
     kept = []
     for row in data.get("roles", []):
         role, plugin = str(row.get("role", "")), str(row.get("plugin", ""))
