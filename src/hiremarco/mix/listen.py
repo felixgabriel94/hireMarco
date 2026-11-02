@@ -33,6 +33,9 @@ GLOSS = {
             "the two files' similarity",
     "zimtohrli": "Zimtohrli: perceptual distance on ten seconds, mos_mix_vs_reference is a predicted listener "
                  "score out of 5 for how alike the two sound",
+    "stems": "Demucs: the middle two minutes split into vocals, drums, bass and other, each measured on its own "
+             "(integrated loudness, LUFS, K-weighted); vocal_over_rest_db is how far the vocal sits above everything "
+             "else, where a modern vocal record sits about 0 to +3 dB and a beat-forward one below 0",
 }
 
 
@@ -97,6 +100,11 @@ def highlights(hearing: dict | None) -> list[str]:
     zim = hearing.get("zimtohrli")
     if isinstance(zim, dict) and "mos_mix_vs_reference" in zim:
         lines.append(f"against the reference: {float(zim['mos_mix_vs_reference']):.2f} of 5 alike")
+    stems = hearing.get("stems")
+    if isinstance(stems, dict) and isinstance(stems.get("lufs"), dict):
+        parts = ", ".join(f"{k} {v:.1f}" for k, v in stems["lufs"].items())
+        over = stems.get("vocal_over_rest_db")
+        lines.append(f"stems (LUFS): {parts}" + (f"; the vocal sits {over:+.1f} dB against the rest" if over is not None else ""))
     if "error" in hearing:
         lines.append(f"the hearing stack failed: {hearing['error']}")
     return lines

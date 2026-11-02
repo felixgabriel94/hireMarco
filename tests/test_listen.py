@@ -10,7 +10,8 @@ HEARD = {"psychoacoustics": {"loudness_sone_mean": 31.2, "loudness_sone_max": 48
                              "roughness_asper_mean": 0.21, "took_s": 9.1},
          "audiobox_aesthetics": {"mix": {"CE": 6.1, "CU": 7.0, "PC": 5.2, "PQ": 6.8}, "took_s": 20.0},
          "clap": {"words": {"a loud, bright, modern master": 0.31, "a dark, muddy mix": 0.12}, "took_s": 8.0},
-         "zimtohrli": {"sample_rate": 48000, "mix_vs_itself": 0.0, "mos_mix_vs_reference": 3.4, "took_s": 1.0}}
+         "zimtohrli": {"sample_rate": 48000, "mix_vs_itself": 0.0, "mos_mix_vs_reference": 3.4, "took_s": 1.0},
+         "stems": {"lufs": {"vocals": -21.0, "drums": -19.5, "bass": -24.0, "other": -26.0}, "vocal_over_rest_db": -0.4, "took_s": 90.0}}
 
 
 def stack(tmp_path):
@@ -56,5 +57,7 @@ def test_the_gloss_and_the_highlights_read_as_an_engineer_would():
     assert glossed["audiobox_aesthetics"]["heard"]["mix"]["PQ"] == 6.8
     lines = listening.highlights(HEARD)
     assert lines[0].startswith("heard: 31.2 sone") and "Audiobox: CE 6.1, CU 7.0, PC 5.2, PQ 6.8" in lines
-    assert any("modern master" in l for l in lines) and lines[-1] == "against the reference: 3.40 of 5 alike"
+    assert any("modern master" in l for l in lines) and "against the reference: 3.40 of 5 alike" in lines
+    assert lines[-1] == "stems (LUFS): vocals -21.0, drums -19.5, bass -24.0, other -26.0; the vocal sits -0.4 dB against the rest"
+    assert "Demucs" in glossed["stems"]["what"]
     assert listening.for_model(None) is None and listening.highlights({"error": "x"}) == ["the hearing stack failed: x"]
