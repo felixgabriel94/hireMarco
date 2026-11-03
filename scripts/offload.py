@@ -4,9 +4,12 @@
   uv run python scripts/offload.py [CARD] --day "/Volumes/LaCie/hireMarco Hackathon/13-footage/2026-11-03" [--device sony]
 
 Without CARD, every mounted volume that looks like a camera card is offered.
-The device folder is guessed from the card's layout (Sony, GoPro, iPhone, glasses) unless --device is given.
-Every file is copied once (same name and size = already there), then read back and compared by SHA-256.
-The card is never written to or erased. A log line per file goes to <day>/<device>/offload.jsonl.
+The device folder is guessed from the card's layout (Sony, GoPro, iPhone) unless --device is given;
+the glasses and anything else need --device. Every file on the card is copied into its own card folder,
+<day>/<device>/<card name>-<time>/, keeping the card's paths, so names from different cards cannot collide.
+A file already there is kept only when its SHA-256 matches; otherwise both are kept. Every copy is read
+back and compared by SHA-256. The card is never written to or erased, and no card should be formatted
+until a second copy exists. A log line per file goes to <day>/<device>/offload.jsonl.
 """
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ import shutil
 import sys
 from pathlib import Path
 
-MEDIA = {".mov", ".mp4", ".m4v", ".mxf", ".mts", ".wav", ".jpg", ".jpeg", ".heic", ".dng", ".arw", ".xml", ".thm", ".lrv"}
+SKIP_DIRS = {".Trashes", ".Spotlight-V100", ".fseventsd", ".TemporaryItems", "System Volume Information"}
 
 
 def guess_device(card: Path) -> str | None:
@@ -76,16 +79,25 @@ def main(argv=None) -> int:
     if not device:
         print(f"cannot tell which camera {card} is from; pass --device", file=sys.stderr)
         return 2
-    dest = args.day / device
-    files = sorted(p for p in card.rglob("*") if p.is_file() and p.suffix.lower() in MEDIA
-                   and not p.name.startswith("._") and ".Trashes" not in p.parts)
+    files = sorted(p for p in card.rglob("*") if p.is_file() and not p.name.startswith("._")
+                   and p.name != ".DS_Store" and not SKIP_DIRS & set(p.parts))
     if not files:
-        print(f"no media on {card}", file=sys.stderr)
+        print(f"no files on {card}", file=sys.stderr)
         return 1
     total = sum(p.stat().st_size for p in files)
+    stamp = dt.datetime.now().astimezone().strftime("%H%M%S")
+    dest = args.day / device / f"{card.name}-{stamp}"
+    if not args.dry_run:
+        # the same card again (same files, same hashes): reuse its folder instead of making a new one
+        for prev in sorted((args.day / device).glob(f"{card.name}-*")) if (args.day / device).exists() else []:
+            sample = files[0]
+            twin = prev / sample.relative_to(card)
+            if twin.exists() and twin.stat().st_size == sample.stat().st_size and sha256(twin) == sha256(sample):
+                dest = prev
+                break
     print(f"{card} -> {dest}: {len(files)} files, {total / 1e9:.2f} GB")
     if args.dry_run:
-        for p in files[:20]:
+        for p in files[:30]:
             print("  ", p.relative_to(card))
         return 0
     dest.mkdir(parents=True, exist_ok=True)
@@ -93,23 +105,28 @@ def main(argv=None) -> int:
     if free < total * 1.05:
         print(f"not enough room on {dest} ({free / 1e9:.1f} GB free, need {total / 1e9:.1f} GB)", file=sys.stderr)
         return 1
-    log = open(dest / "offload.jsonl", "a")
+    log = open(args.day / device / "offload.jsonl", "a")
     copied = skipped = bad = 0
     t_start = dt.datetime.now().astimezone()
     for p in files:
-        target = dest / p.name
-        if target.exists() and target.stat().st_size == p.stat().st_size:
-            skipped += 1
-            continue
-        if target.exists():  # same name, different size: keep both
-            target = dest / f"{p.stem}_{p.stat().st_size}{p.suffix}"
+        target = dest / p.relative_to(card)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        want = sha256(p)
+        if target.exists():
+            if target.stat().st_size == p.stat().st_size and sha256(target) == want:
+                skipped += 1
+                continue
+            target = target.with_name(f"{target.stem}_{want[:8]}{target.suffix}")  # same name, different file: keep both
+            if target.exists() and sha256(target) == want:
+                skipped += 1
+                continue
         tmp = target.with_name(target.name + ".part")
         shutil.copy2(p, tmp)
-        want, got = sha256(p), sha256(tmp)
+        got = sha256(tmp)
         if want != got:
             tmp.unlink(missing_ok=True)
             bad += 1
-            print(f"  MISMATCH {p.name}, copy discarded", file=sys.stderr)
+            print(f"  MISMATCH {p.relative_to(card)}, copy discarded", file=sys.stderr)
             continue
         tmp.rename(target)
         copied += 1
@@ -117,10 +134,11 @@ def main(argv=None) -> int:
                               "src": str(p.relative_to(card)), "dst": str(target), "bytes": p.stat().st_size,
                               "sha256": want}) + "\n")
         log.flush()
-        print(f"  ok {p.name} ({p.stat().st_size / 1e6:.0f} MB)")
+        print(f"  ok {p.relative_to(card)} ({p.stat().st_size / 1e6:.0f} MB)")
     took = (dt.datetime.now().astimezone() - t_start).total_seconds()
-    verdict = "safe to format" if bad == 0 else f"{bad} files did not verify, do NOT format"
-    print(f"Card copied: {copied} new, {skipped} already there, {bad} failed, {took:.0f} s. {verdict}.")
+    verdict = ("every file copied and verified; keep the card until the second copy exists" if bad == 0
+               else f"{bad} files did NOT verify; keep the card and run again")
+    print(f"Card {card.name}: {copied} copied, {skipped} already there and verified, {bad} failed, {took:.0f} s. {verdict}.")
     return 0 if bad == 0 else 1
 
 

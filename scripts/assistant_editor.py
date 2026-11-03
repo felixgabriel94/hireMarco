@@ -282,7 +282,7 @@ def gcc_phat(sig: np.ndarray, ref: np.ndarray) -> tuple[int, float]:
 
 
 def render_window(clips: list[Clip], cache: AudioCache, t0: float, t1: float) -> np.ndarray:
-    """Audio of the already placed clips between master times t0 and t1."""
+    """Audio of the given placed clips between master times t0 and t1."""
     n = int(round((t1 - t0) * SR))
     out = np.zeros(n, np.float64)
     for c in clips:
@@ -294,6 +294,25 @@ def render_window(clips: list[Clip], cache: AudioCache, t0: float, t1: float) ->
         if hi > lo:
             out[lo:hi] += x[lo - a: hi - a]
     return out
+
+
+def best_match(seg: np.ndarray, placed: list[Clip], cache: AudioCache, t0: float, t1: float):
+    """Correlate one probe against each placed clip on its own; returns (lag, z, clip) of the strongest.
+
+    Each clip is its own reference so a loud neighbour cannot bury a quiet match, and the
+    clip that matched is known.
+    """
+    best = None
+    for c in placed:
+        if not c.has_audio or c.start is None or c.end < t0 or c.start > t1:
+            continue
+        ref = render_window([c], cache, t0, t1)
+        if np.abs(ref).max() < 1e-9 or len(ref) <= len(seg):
+            continue
+        lag, z = gcc_phat(seg, ref)
+        if best is None or z > best[1]:
+            best = (lag, z, c)
+    return best
 
 
 def try_sync(clip: Clip, placed: list[Clip], cache: AudioCache, guess: float, search: float):
@@ -320,10 +339,10 @@ def try_sync(clip: Clip, placed: list[Clip], cache: AudioCache, guess: float, se
             continue
         t0 = guess + clip.audio_lead + p - search
         t1 = guess + clip.audio_lead + p + len(seg) / SR + search
-        ref = render_window(placed, cache, t0, t1)
-        if np.abs(ref).max() < 1e-9:
+        m = best_match(seg, placed, cache, t0, t1)
+        if m is None:
             continue
-        lag, z = gcc_phat(seg, ref)
+        lag, z, _ = m
         results.append((t0 + lag / SR - p - clip.audio_lead, z))
     strong = [r for r in results if r[1] >= MIN_Z]
     best = None
@@ -410,9 +429,9 @@ def coarse_scan(clip: Clip, placed: list[Clip], cache: AudioCache, win: float) -
         t = a
         while t < b:
             t0, t1 = t, min(b, t + 2 * win)
-            ref = render_window(placed, cache, t0, t1)
-            if np.abs(ref).max() > 1e-9 and len(ref) > len(seg):
-                lag, z = gcc_phat(seg, ref)
+            m = best_match(seg, placed, cache, t0, t1)
+            if m is not None:
+                lag, z, _ = m
                 hits.append((t0 + lag / SR - p - clip.audio_lead, z))
             t += 2 * win - CHUNK_S
     return sorted(hits, key=lambda h: -h[1])[:4]
@@ -863,9 +882,10 @@ def main(argv=None) -> int:
     for p in sorted(shoot.rglob("*")):
         if p.is_file() and p.suffix.lower() in VIDEO_EXT | AUDIO_EXT and not p.name.startswith("._"):
             rel = p.relative_to(shoot)
-            # device = top folder; a subfolder inside it (screen/logic-main, screen/manual) is its own device
+            # device = top folder. Inside screen/ and audio/ each subfolder is its own stream (screen/manual,
+            # audio/apollo, audio/talkback); inside a camera folder, subfolders are cards and stay one device.
             dev = rel.parts[0] if len(rel.parts) > 1 else "loose"
-            if len(rel.parts) > 2:
+            if len(rel.parts) > 2 and rel.parts[0].lower() in ("screen", "audio"):
                 dev = f"{rel.parts[0]}-{rel.parts[1]}"
             sources.append((p, dev))
     for extra in args.extra:
