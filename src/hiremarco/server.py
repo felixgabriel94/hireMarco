@@ -100,18 +100,28 @@ def booth_running(port: int = 8790) -> bool:
 
 def ensure_booth(running=booth_running) -> str:
     """The booth sets sessions up; when it is not running, start it the way the menu-bar app does."""
+    import subprocess
+
     if running():
         return "booth running"
     from hiremarco.studio.beat_in import wake_display
 
     wake_display()  # the Mac waits dark while he is away; his word lights it up
-    return start_booth_quietly(running=running)
+    script = config.STATE_DIR / "booth.command"
+    if not script.exists():
+        return "booth not running, and no booth.command to start it"
+    # opened behind the front app, then Terminal hidden: the booth runs in it (its microphone and screen grants are
+    # Terminal's), but nothing of it shows (Owner 2026-10-31: the halo and Logic are what the film sees). A booth
+    # started by this server instead lost those grants (live 2026-11-03: no screen, no Accessibility).
+    subprocess.run(["open", "-g", "-j", "-a", "Terminal", str(script)], check=False, timeout=15)  # behind, hidden
+    hide_terminal()
+    return "booth started"
 
 
 def start_booth_quietly(running=booth_running, popen=None) -> str:
-    """The booth as this server's own background process, with no Terminal window anywhere (Owner 2026-11-03: none on
-    the MacBook, on camera). The server is started from Terminal, so the booth keeps Terminal's microphone, screen and
-    Accessibility grants; its lines go to booth.log, which the terminal panel shows on the TV."""
+    """The booth as this server's own background process, with no Terminal window anywhere. NOT IN USE: live 2026-11-03
+    a booth started this way had neither the screen nor Accessibility, though the server was started from Terminal;
+    kept, with its route, for when that is understood."""
     import os
     import subprocess
     import sys
