@@ -98,7 +98,11 @@ def run(mix: Path, audit, bars: tuple[int, int] | None = None, *, client: MuseSp
         part = slice_of(stretch, rate, target)
         level = level_against(part, stretch)
         peak = float(np.max(np.abs(part))) or 1.0
-        wav = base64.b64encode(take_wav((part / peak * 0.5).astype("float32"), rate)).decode()
+        heard_clip = (part / peak * 0.5).astype("float32")
+        wav = base64.b64encode(take_wav(heard_clip, rate)).decode()
+        from hiremarco.studio import aloud
+
+        aloud.play(heard_clip, rate)   # the room hears the solo as the ears get it, beside the call (Owner 2026-11-03)
         question = f"This is {target.what} of the song, on its own, turned up so you can hear it. What is in it?"
         gate.check_model_call(TENANT, model=MODEL, system=INSTRUCTIONS, prompt=question, joblog=client.joblog)
         reply = client.chat(

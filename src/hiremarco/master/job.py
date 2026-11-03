@@ -396,6 +396,9 @@ def play_through_meter(strip: StereoOut, master: Path, result: Result, payoff, c
                 return None
         try:
             try:
+                from hiremarco.studio import aloud
+
+                aloud.stop()   # Logic's own playback is the one thing the room hears now
                 png = payoff(row.name, row.y, PAYOFF_SECONDS)
                 read = faces.read_meter(png, client=client)
             except Exception as exc:   # noqa: BLE001
@@ -1030,5 +1033,8 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
                         plain="Marco is sending the song to the artist.")
         log("   " + deliver(result.mix, f"The mix as it stands, no master: {result.audit_mix.base.lufs} LUFS, "
                                         f"{result.audit_mix.base.true_peak_db} dBTP, 32-bit float."))
+    from hiremarco.studio import aloud
+
+    aloud.stop()
     events.emit("job_ended", source="marco", status="ok", summary="Done")
     return result

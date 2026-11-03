@@ -109,6 +109,9 @@ class Judge:
         """Spark 1.2 on two matched clips: what differs, in the engineer's words and in plain words, and whether it
         helps, hurts or is nothing. Unreadable comes back as unknown, never as a verdict."""
         clip_a, clip_b, rate = matched_clips(a, b)
+        from hiremarco.studio import aloud
+
+        aloud.play(np.concatenate([clip_a, clip_b]), rate)   # the room hears the pair as the ears get it, beside the call
         question = f"Two clips of the same part of the song: first {what[0]}, then {what[1]}. What differs, and does it help?"
         gate.check_model_call(TENANT, model=EARS, system=EAR_INSTRUCTIONS, prompt=question, joblog=self.client.joblog)
         content = [{"type": "text", "text": question}]

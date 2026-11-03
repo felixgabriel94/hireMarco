@@ -47,7 +47,12 @@ def test_the_ears_say_what_differs_and_the_brain_decides_inside_the_rule(tmp_pat
     seen = []
     ears = judging.Judge(client(tmp_path, json.dumps({"hears": "the low end tightens with it", "note": "I hear the bass hold together.",
                                                      "difference": "helps"}), seen))
+    from hiremarco.studio import aloud
+
+    played = []
+    monkeypatch.setattr(aloud, "play", lambda pcm, rate, **k: played.append((len(pcm), rate)))
     heard = ears.hear(a, b, job="bench_ear", what=("with Pro-L 2", "without Pro-L 2"))
+    assert played == [(2 * 48000 * 3, 48000)]   # the room hears the pair, both clips, as the ears get them
     assert heard == {"hears": "the low end tightens with it", "note": "I hear the bass hold together.", "difference": "helps"}
     assert seen[0]["model"] == "muse-spark-1.2" and [c["type"] for c in seen[0]["messages"][1]["content"]] == ["text", "input_audio", "input_audio"]
 
