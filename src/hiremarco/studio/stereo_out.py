@@ -93,10 +93,32 @@ def same_plugin(wanted: str, shown: str) -> bool:
     return n > 0 and (a[:n] in b or b[:n] in a)
 
 
-def front_is_logic() -> None:
-    name = _osa('tell application "System Events" to get name of first process whose frontmost is true')
-    if name != "Logic Pro":
-        raise RuntimeError(f"Logic is not in front ({name or 'nothing'}); nothing was clicked")
+FRONT = 'tell application "System Events" to get name of first process whose frontmost is true'
+DOCK_LOGIC = 'tell application "System Events" to tell process "Dock" to click UI element "Logic Pro" of list 1'
+
+
+def front_is_logic(osa: Callable[[str], str] | None = None, sleep: Callable[[float], None] = time.sleep) -> None:
+    """Logic in front before any click. When another app is in front (live 2026-11-02 and 2026-11-03: the Owner reading
+    the thread on the Mac ended three runs), Marco clicks Logic in the Dock, the way a person brings it back, waits and
+    checks again; `activate` is the quiet fallback, and he stops only when neither brings Logic back (Owner 2026-11-03:
+    continue, do not stop). Nothing is clicked in Logic until it is in front."""
+    osa = osa or _osa
+    name = osa(FRONT)
+    if name == "Logic Pro":
+        return
+    osa(DOCK_LOGIC)
+    sleep(1.0)
+    if osa(FRONT) != "Logic Pro":
+        osa('tell application "Logic Pro" to activate')
+        sleep(1.0)
+    now = osa(FRONT)
+    if now != "Logic Pro":
+        raise RuntimeError(f"Logic is not in front ({now or 'nothing'}) and would not come back; nothing was clicked")
+    from hiremarco import events
+
+    events.emit("tool_completed", source="marco", tool="Logic Pro", operation="front", status="ok",
+                summary=f"{name or 'Another app'} was in front; Marco brought Logic back.",
+                plain="Marco brings Logic back to the front and carries on.")
 
 
 class StereoOut:
