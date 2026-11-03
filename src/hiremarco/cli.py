@@ -1295,6 +1295,14 @@ def cmd_takes(args) -> int:
     return 0
 
 
+def cmd_glow(args) -> int:
+    """The glow: Logic's window outlined in the brand's blue while a job runs, on the Mac's own screen; nothing between jobs."""
+    from hiremarco import glow
+
+    glow.show()
+    return 0
+
+
 def cmd_trace(args) -> int:
     """Marco Live: ``marco trace`` opens it on the TV; ``replay FILE`` plays a recorded stream; ``detail on|off``;
     ``mail on|off`` lets an email's sender and subject reach the screen for a shot (off by default)."""
@@ -2082,6 +2090,9 @@ def main(argv: list[str] | None = None) -> int:
     tr.add_argument("--unit", type=float, help="a fixed scale for the page (1.0 is native pixels); by default it fits its window")
     tr.add_argument("--speed", type=float, default=1.0, help="replay speed (1.0 is true timing)")
     tr.set_defaults(func=cmd_trace)
+
+    gl = sub.add_parser("glow", help="the blue outline on Logic's window while Marco works; nothing between jobs")
+    gl.set_defaults(func=cmd_glow)
 
     lg = sub.add_parser("log", help="Marco's running log, one line per step all day: the last lines, or --window for the film's window")
     lg.add_argument("lines", nargs="?", type=int, default=8)
