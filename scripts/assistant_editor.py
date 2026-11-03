@@ -71,9 +71,26 @@ class Clip:
     matched_to: str = ""
     transcript: str = ""
     asset_id: str = ""
+    slate: str = ""  # what the Owner said at the head or tail of the take, as heard
+    scene: str = ""  # canonical scene name from the tag list
+    take: int = 0
+    broll: bool = False
+    broll_what: str = ""
+    broll_n: int = 0
 
     @property
     def name(self) -> str:
+        return self.path.stem
+
+    @property
+    def label(self) -> str:
+        """What Final Cut shows: the spoken slate first, the file name after. The file is never renamed."""
+        if self.broll:
+            what = f", {self.broll_what}" if self.broll_what else ""
+            return f"B-roll {self.broll_n:02d}{what} ({self.device} {self.path.stem})"
+        if self.scene:
+            take = f" take {self.take}" if self.take else ""
+            return f"{self.scene}{take} ({self.device} {self.path.stem})"
         return self.path.stem
 
     @property
@@ -690,6 +707,139 @@ def transcribe(clip: Clip, out: Path, log) -> str:
     return text
 
 
+# ---------------------------------------------------------------- spoken slates
+
+
+DEFAULT_SCENES = ["Session", "Morning", "Cold open", "Email", "Long night", "Balcony"]
+NUMBER_WORDS = {w: i for i, w in enumerate(
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen "
+    "seventeen eighteen nineteen twenty".split())}
+NUMBER_WORDS.update({"won": 1, "to": 2, "too": 2, "for": 4, "ate": 8})
+SLATE_SECONDS = 10.0  # head and tail of each clip listened to for a slate
+LONG_RECORDER_S = 20 * 60  # continuous recorders (Apollo, body mic) are not slated per clip
+
+
+def load_scene_tags(path: Path | None) -> list[str]:
+    """Scene names from pre-production/slate-tags.md: every quoted '"<Scene>, take one"'."""
+    if path and path.exists():
+        names = re.findall(r'"([^"]+?),\s*take\b', path.read_text(errors="replace"), flags=re.I)
+        names = [n.strip() for n in names if n.strip()]
+        if names:
+            return list(dict.fromkeys(names))
+    return list(DEFAULT_SCENES)
+
+
+def _norm(text: str) -> list[str]:
+    t = text.lower().replace("-", " ")
+    t = re.sub(r"[^a-z0-9 ]+", " ", t)
+    words = []
+    for w in t.split():
+        words.append(str(NUMBER_WORDS[w]) if w in NUMBER_WORDS else w)
+    return words
+
+
+def parse_slate(text: str, scenes: list[str]) -> dict | None:
+    """'B-roll, hands on the keys' or '<Scene>, take <n>' anywhere in a short transcript. None when neither."""
+    import difflib
+    words = _norm(text)
+    joined = " ".join(words)
+    m = re.search(r"\b(?:b|be|bee) ?roll\b|\bbroll\b", joined)
+    if m:
+        rest = joined[m.end():].split()
+        n = 0
+        if rest[:1] == ["shot"]:
+            rest = rest[1:]
+        if rest[:1] and rest[0].isdigit():
+            n, rest = int(rest[0]), rest[1:]
+        stop = {"action", "and", "roll", "rolling", "go"}
+        what = []
+        for w in rest:
+            if w in stop or w == "take":
+                break
+            what.append(w)
+            if len(what) >= 6:
+                break
+        return {"broll": True, "what": " ".join(what), "n": n}
+    canon = {" ".join(_norm(sc)): sc for sc in scenes}
+    for m in re.finditer(r"\btake (\d+)\b", joined):
+        before = joined[: m.start()].split()[-3:]
+        if before[:1] == ["scene"]:
+            before = before[1:]
+        best = None
+        for k in range(min(3, len(before)), 0, -1):
+            cand = " ".join(before[-k:])
+            hit = difflib.get_close_matches(cand, list(canon), n=1, cutoff=0.75)
+            if hit:
+                best = canon[hit[0]]
+                break
+        if best:
+            return {"broll": False, "scene": best, "take": int(m.group(1))}
+    return None
+
+
+def listen(path: Path, start_s: float, dur_s: float, tdir: Path, stem: str) -> str:
+    """Whisper on a short excerpt; cached by name."""
+    exe = shutil.which("whisper-cli")
+    model = next((m for m in WHISPER_MODELS if m.exists()), None)
+    if not exe or not model:
+        return ""
+    tdir.mkdir(parents=True, exist_ok=True)
+    txt = tdir / f"{stem}.txt"
+    if txt.exists():
+        return " ".join(txt.read_text().split())
+    wav = tdir / f"{stem}.16k.wav"
+    try:
+        subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-y", "-ss", f"{max(0.0, start_s):.3f}", "-t", f"{dur_s:.3f}",
+                        "-i", str(path), "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", str(wav)], check=True)
+        subprocess.run([exe, "-m", str(model), "-f", str(wav), "-l", LANG, "-otxt", "-of", str(tdir / stem), "-np"],
+                       check=True, capture_output=True)
+    except subprocess.CalledProcessError:
+        return ""
+    finally:
+        wav.unlink(missing_ok=True)
+    return " ".join(txt.read_text().split()) if txt.exists() else ""
+
+
+def read_slates(clips: list[Clip], out: Path, scenes: list[str], log) -> None:
+    """Hear what the Owner said at the head (or tail) of each take, from the clip itself or his body mic."""
+    if not shutil.which("whisper-cli") or not any(m.exists() for m in WHISPER_MODELS):
+        log("  whisper-cli or model not found; spoken slates not read")
+        return
+    tdir = out / "slates"
+    body = [c for c in clips if "rode-me" in c.device and c.start is not None
+            and c.method in ("audio sync", "anchor clock")]
+    n_take = n_broll = 0
+    for c in sorted((k for k in clips if k.start is not None), key=lambda k: k.start):
+        if c.device.startswith("audio-") or c.duration > LONG_RECORDER_S or c.duration < 1.0:
+            continue
+        found, heard = None, ""
+        tries = []
+        if c.has_audio:
+            tries.append((c.path, 0.0, min(SLATE_SECONDS, c.duration), f"{c.device}__{c.path.stem}__head"))
+            if c.duration > 2 * SLATE_SECONDS:
+                tries.append((c.path, c.duration - SLATE_SECONDS, SLATE_SECONDS, f"{c.device}__{c.path.stem}__tail"))
+        for b in body:  # a camera too far to hear him: his body mic heard the slate
+            if b.start <= c.start - 8 and c.start + SLATE_SECONDS <= b.end:
+                tries.append((b.path, c.start - 8 - b.start - b.audio_lead, 8 + SLATE_SECONDS, f"{c.device}__{c.path.stem}__body"))
+                break
+        for path, a, d, stem in tries:
+            heard = listen(path, a, d, tdir, stem)
+            found = parse_slate(heard, scenes)
+            if found:
+                break
+        if not found:
+            continue
+        c.slate = heard
+        if found["broll"]:
+            n_broll += 1
+            c.broll, c.broll_what, c.broll_n = True, found["what"], found["n"] or n_broll
+        else:
+            n_take += 1
+            c.scene, c.take = found["scene"], found["take"]
+        log(f"  slate {c.device}/{c.path.name}: {c.label.split(' (')[0]}  (heard: {heard[:60]})")
+    log(f"spoken slates: {n_take} takes, {n_broll} B-roll clips (B-roll kept off the timelines, in the browser)")
+
+
 # ---------------------------------------------------------------- FCPXML
 
 
@@ -776,7 +926,7 @@ class Writer:
         dur = c.duration if max_dur is None else min(c.duration, max_dur)
         own = parent.tag == "event"  # browser clips keep their own frame count; timeline clips use the timeline's
         dur_t = rt(self.asset_duration(c)) if own and max_dur is None else self.tb.t(dur, math.floor)
-        attrs = dict(ref=c.asset_id, name=c.name, offset=self.tb.t(offset_s),
+        attrs = dict(ref=c.asset_id, name=c.label, offset=self.tb.t(offset_s),
                      start=rt(self.asset_start(c)), duration=dur_t)
         if lane is not None:
             attrs["lane"] = str(lane)
@@ -791,6 +941,10 @@ class Writer:
         if note:
             ET.SubElement(el, "note").text = note
         kws = [c.device] + ([extra_kw] if extra_kw else [])
+        if c.broll:
+            kws.append("B-roll")
+        if c.scene:
+            kws += [c.scene] + ([f"take {c.take}"] if c.take else [])
         ET.SubElement(el, "keyword", start=rt(self.asset_start(c)), duration=dur_t, value=", ".join(kws))
         return el
 
@@ -801,6 +955,8 @@ class Writer:
                 f"Clock source: {c.raw_source}"]
         if c.camera:
             bits.append(f"Camera: {c.camera}")
+        if c.slate:
+            bits.append("Slate heard: " + c.slate)
         if c.transcript:
             bits.append("Transcript: " + c.transcript)
         return "\n".join(bits)
@@ -818,6 +974,9 @@ class Writer:
                 if c.start <= t < c.end:
                     rel = float(self.asset_start(c)) + (t - c.start)
                     self.insert_marker(el, rel, label, detail, c)
+        if not self.placeable():  # nothing but B-roll: the browser is the whole delivery
+            self.root.append(ev)
+            return
         # day project: everything on one timeline, one lane per device, timecode = time of day
         t_first = min(c.start for c in self.placeable())
         t_last = max(c.end for c in self.placeable())
@@ -884,7 +1043,8 @@ class Writer:
         return {d: i + 1 for i, d in enumerate(devs)}
 
     def placeable(self) -> list[Clip]:
-        return [c for c in self.clips if not c.method.startswith("clock far off")]
+        """Clips that go on timelines: not B-roll (the Owner cuts the sequence first, then adds B-roll)."""
+        return [c for c in self.clips if not c.method.startswith("clock far off") and not c.broll]
 
     def setups(self, gap_join: float) -> list[list[Clip]]:
         groups: list[list[Clip]] = []
@@ -978,6 +1138,8 @@ def main(argv=None) -> int:
     ap.add_argument("--fps", default=None, help="timeline rate, e.g. 30000/1001 (default: most common camera rate)")
     ap.add_argument("--join", type=float, default=30.0, help="seconds between clips that still count as one setup")
     ap.add_argument("--transcribe", action="store_true", help="local whisper.cpp transcripts into clip notes (runs after the first FCPXML is written)")
+    ap.add_argument("--no-slates", action="store_true", help="do not listen for spoken slates (Scene, take N / B-roll, what)")
+    ap.add_argument("--tags", type=Path, help="slate tag list (default: <shoot>/../../pre-production/slate-tags.md if present)")
     ap.add_argument("--lang", default="en", help="transcript language for whisper (default en; es for Spanish; auto)")
     ap.add_argument("--truth", action="append", help="device folder(s) with a network-synced clock that sets time of day (default: iphone/screen/marco folders)")
     ap.add_argument("--extra", type=Path, action="append", default=[], help="another folder to include as its own device (repeatable), e.g. Marco's screen recordings")
@@ -1090,6 +1252,13 @@ def main(argv=None) -> int:
     name = args.name or dt.datetime.fromtimestamp(min(c.start for c in clips), tz).strftime("Shoot %Y-%m-%d")
     fx = out / f"{name}.fcpxml"
 
+    if not args.no_slates:
+        tags = args.tags or next((p / "pre-production" / "slate-tags.md" for p in shoot.resolve().parents
+                                  if (p / "pre-production" / "slate-tags.md").exists()), None)
+        scenes = load_scene_tags(tags)
+        log(f"slate tags: {', '.join(scenes)} + B-roll" + (f" (from {tags})" if tags else " (default list)"))
+        read_slates(clips, out, scenes, log)
+
     def write_fcpxml():
         w = Writer(clips, fps, tz)
         w.build(name, events, role_for, args.join)
@@ -1105,10 +1274,10 @@ def main(argv=None) -> int:
         log(f"rewrote {fx} with transcripts in clip notes")
     with open(out / "alignment.csv", "w", newline="") as f:
         wr = csv.writer(f)
-        wr.writerow(["device", "file", "shot_at_local", "length_s", "method", "match_z", "clock_offset_s", "clock_source", "camera", "matched_with"])
+        wr.writerow(["device", "file", "shot_at_local", "length_s", "method", "match_z", "clock_offset_s", "clock_source", "camera", "matched_with", "slate"])
         for c in sorted(clips, key=lambda k: k.start):
             wr.writerow([c.device, str(c.path), dt.datetime.fromtimestamp(c.start, tz).isoformat(timespec="milliseconds"),
-                         f"{c.duration:.2f}", c.method, f"{c.z:.1f}", f"{c.start - c.raw_start:+.3f}", c.raw_source, c.camera, c.matched_to])
+                         f"{c.duration:.2f}", c.method, f"{c.z:.1f}", f"{c.start - c.raw_start:+.3f}", c.raw_source, c.camera, c.matched_to, c.label.split(" (")[0] if (c.scene or c.broll) else ""])
     synced = sum(1 for c in clips if c.method in ("audio sync", "anchor clock"))
     placed_clips = [c for c in clips if not c.method.startswith("clock far off")]
     t_a, t_b = min(c.start for c in placed_clips), max(c.end for c in placed_clips)

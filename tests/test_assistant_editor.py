@@ -162,3 +162,36 @@ def test_all_day_body_mic_locks_to_a_short_anchor_segment(tmp_path):
     guess = 50_000.0 + 2.5  # its own clock is 2.5 s off
     r = ae.try_sync(rode, [apollo], cache, guess, 300.0)
     assert r is not None and abs(r[0] - 50_000.0) < 0.0015 and r[2] == "apollo"
+
+
+def test_spoken_slates_are_parsed():
+    sc = ae.DEFAULT_SCENES
+    assert ae.parse_slate("B-roll, hands on the keys. Action.", sc) == {"broll": True, "what": "hands on the keys", "n": 0}
+    assert ae.parse_slate("b roll shot two coffee", sc) == {"broll": True, "what": "coffee", "n": 2}
+    assert ae.parse_slate("Okay. Session, take three.", sc) == {"broll": False, "scene": "Session", "take": 3}
+    assert ae.parse_slate("long nite take 1", sc) == {"broll": False, "scene": "Long night", "take": 1}
+    assert ae.parse_slate("Cold open, take two", sc)["scene"] == "Cold open"
+    assert ae.parse_slate("let's take two minutes and get coffee", sc) is None
+    assert ae.parse_slate("", sc) is None
+
+
+def test_scene_tags_read_from_the_list(tmp_path):
+    f = tmp_path / "slate-tags.md"
+    f.write_text('| "Session, take one" (or two) | Timeline |\n| "Closet, take one" | Timeline |\n| "B-roll, [what it is]" | Browser |\n')
+    assert ae.load_scene_tags(f) == ["Session", "Closet"]
+    assert ae.load_scene_tags(tmp_path / "missing.md") == ae.DEFAULT_SCENES
+
+
+def test_broll_stays_off_timelines_but_in_the_browser(tmp_path):
+    def clip(name, start, broll=False, scene=""):
+        c = ae.Clip(path=tmp_path / f"{name}.wav", device="sony", duration=10.0, has_video=False, has_audio=True)
+        c.start, c.raw_start, c.method, c.broll, c.scene, c.take = start, start, "audio sync", broll, scene, 1 if scene else 0
+        c.audio_rate, c.audio_channels = 48000, 2
+        if broll:
+            c.broll_n, c.broll_what = 1, "coffee"
+        return c
+    take = clip("C0001", 1_793_730_000.0, scene="Session")
+    br = clip("C0002", 1_793_730_100.0, broll=True)
+    w = ae.Writer([take, br], Fraction(30000, 1001), ZoneInfo("America/New_York"))
+    assert w.placeable() == [take]
+    assert br.label == "B-roll 01, coffee (sony C0002)" and take.label == "Session take 1 (sony C0001)"
