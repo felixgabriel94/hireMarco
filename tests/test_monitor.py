@@ -70,14 +70,30 @@ def test_words_take_the_owners_phrases_whole_and_leave_the_rest_to_the_brain():
     assert monitor.words("") is None
 
 
-def test_a_fade_moves_in_small_steps_at_one_db_a_second(console, engine):
+def test_a_fade_moves_in_small_steps_at_three_db_a_second(console, engine):
     slept = []
     done = monitor.fade(console, -52.0, sleep=slept.append)
-    assert done == monitor.Fade(-52.0, "arrived")
+    assert done.reason == "arrived" and done.ended == pytest.approx(-52.0)
     levels = [float(v) for p, v in engine.writes]
-    assert len(levels) == 30 and sum(slept) == pytest.approx(3.0)
-    assert all(abs(b - a) <= 0.1 + 1e-9 for a, b in zip([-55.0] + levels, levels))   # never a jump
+    assert len(levels) == 10 and sum(slept) == pytest.approx(1.0)
+    assert all(abs(b - a) <= 0.3 + 1e-6 for a, b in zip([-55.0] + levels, levels))   # never a jump
     assert levels == sorted(levels)                                                  # one way, no wobble
+
+
+def test_a_fade_never_goes_below_the_floor(console, engine):
+    assert monitor.fade(console, -80.0, sleep=lambda s: None).ended == pytest.approx(monitor.FLOOR_DB)
+    assert min(float(v) for p, v in engine.writes) == pytest.approx(monitor.FLOOR_DB)
+    with pytest.raises(ConsoleError):
+        monitor.write_level(console, -60.1)
+
+
+def test_lower_a_lot_near_the_floor_stops_there_and_at_the_floor_is_refused():
+    engine, said = Engine(level=-58.0), Said()
+    hand_for(engine).answer(monitor.Request("step", -6.0), said)
+    assert said.lines == ["Down to -60, the bottom."]
+    said = Said()
+    assert hand_for(engine).answer(monitor.Request("step", -3.0), said) == "refused: at the floor -60"
+    assert said.lines == ["That's the bottom, -60."]
 
 
 def test_a_fade_never_passes_the_cap(console, engine):
@@ -95,7 +111,7 @@ def test_stop_halts_the_fade_where_it_is(console, engine):
             stop.set()
 
     done = monitor.fade(console, -45.0, stop=stop, sleep=sleep)
-    assert done.ended == pytest.approx(-54.3) and done.reason == "stopped" and len(engine.writes) == 7
+    assert done.ended == pytest.approx(-52.9) and done.reason == "stopped" and len(engine.writes) == 7
 
 
 def test_a_hand_on_the_knob_ends_the_fade(console, engine):
@@ -120,7 +136,7 @@ def test_a_failed_write_leaves_the_level_where_the_last_write_landed():
     engine = Engine(fail_after=4)
     console = Console(send=engine, settle=0)
     done = monitor.fade(console, -50.0, sleep=lambda s: None)
-    assert done.ended == pytest.approx(-54.6) and done.reason == "lost" and len(engine.writes) == 4
+    assert done.ended == pytest.approx(-53.8) and done.reason == "lost" and len(engine.writes) == 4
 
 
 def test_an_output_that_is_not_the_monitor_is_never_written():

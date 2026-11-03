@@ -5,8 +5,8 @@ The monitor section of UAD Console is ``/devices/D/outputs/4`` on the Owner's Ap
 ``Mute`` its mute. Both are written over the same control service as the inserts
 (``studio/console.py``).
 
-Rules (Owner 2026-11-03): the level never goes above -40 dB, the apartment's ceiling; a
-change is a fade at about 1 dB a second in small steps, never a jump, which protects the
+Rules (Owner 2026-11-03): the level stays between -60 and -40 dB, -40 being the apartment's
+ceiling; a change is a fade at about 3 dB a second in small steps, never a jump, which protects the
 speakers; "stop" halts a fade where it is; a failure leaves the level where it was; the
 level does not move between Roll and Cut; the mute for a take is plain and immediate. A
 hand on the knob (the level moved by more than a step between ticks, or the mute turned
@@ -30,11 +30,11 @@ NAME = "MONITOR"
 LEVEL = "CRMonitorLevel"
 MUTE = "Mute"
 CAP_DB = -40.0          # the apartment's ceiling; refused above it
-FLOOR_DB = -96.0        # Console's bottom
+FLOOR_DB = -60.0        # the Owner's floor (2026-11-03); nothing is written below it
 STEP_DB = 3.0           # "lower it" / "turn it up"
 LOT_DB = 6.0            # "a lot", "much", "way"
-RATE_DB_S = 1.0         # the fade's speed
-TICK_S = 0.1            # one small write per tick: 0.1 dB at a time
+RATE_DB_S = 3.0         # the fade's speed (Owner 2026-11-03: 1 dB a second was too slow)
+TICK_S = 0.1            # one small write per tick: 0.3 dB at a time
 HAND_DB = 0.75          # a read this far from the last write is a hand on the knob (room for a 1 dB engine grid)
 ROLLING_FLAG = "rolling"   # present in the state dir between Roll and Cut; the recorder owns it
 
@@ -75,9 +75,11 @@ def clamp(target: float) -> float:
 
 
 def write_level(console: Console, db: float) -> None:
-    """The one place a level is written; anything above the cap is refused here as well."""
+    """The one place a level is written; anything above the cap or below the floor is refused here as well."""
     if db > CAP_DB + 1e-9:
         raise ConsoleError(f"{db:.1f} dB is above the cap of {CAP_DB:.0f} dB")
+    if db < FLOOR_DB - 1e-9:
+        raise ConsoleError(f"{db:.1f} dB is below the floor of {FLOOR_DB:.0f} dB")
     console.set(path(console.device), LEVEL, round(float(db), 3))
 
 
@@ -207,9 +209,13 @@ class Hand:
             return f"held: {type(bad).__name__}: {str(bad)[:60]}"
         wanted = at + request.db if request.kind == "step" else request.db
         capped = wanted > CAP_DB + 1e-9
+        floored = wanted < FLOOR_DB - 1e-9
         if capped and at >= CAP_DB - 1e-9:
             reply(f"That's the top, {_db(CAP_DB)}. I won't go past it in the apartment.")
             return f"refused: at the cap {_db(at)}"
+        if floored and at <= FLOOR_DB + 1e-9:
+            reply(f"That's the bottom, {_db(FLOOR_DB)}.")
+            return f"refused: at the floor {_db(at)}"
         target = clamp(wanted)
         if abs(target - at) < 1e-6:
             reply(f"It's already at {_db(at)}.")
@@ -237,6 +243,8 @@ class Hand:
                 reply(f"Console stopped answering on the way; it's at {_db(ended)}.")
             elif capped:
                 reply(f"{word} to {_db(ended)}, the top for the apartment.")
+            elif floored:
+                reply(f"{word} to {_db(ended)}, the bottom.")
             else:
                 reply(f"{word} to {_db(ended)}.")
 
