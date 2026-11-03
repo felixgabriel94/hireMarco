@@ -229,3 +229,12 @@ def test_the_page_says_testing_lights_a_running_model_and_counts_one_job(tmp_pat
     assert "'decided':(l.word||'done')" in page and "l.word.replace(/ed$/,'ing'):'using'" in page
     assert "[...S.calls.values()].filter(l=>l.status==='running').concat(" in page
     assert page.count("S.runs++;S.calls=new Map();S.catches=0;}") == 1
+
+
+def test_a_song_file_gets_the_wave_file_mark_and_loudness_keeps_the_meter():
+    # Owner 2026-11-03, option B: a square tile with a waveform for anything that is a song file
+    page = tracewindow.PAGE.read_text()
+    assert "if(mo==='wavefile')return '<span class=\"mk sv wavefile\">" in page and "const MOTIFS={wavefile:0," in page
+    assert "'rec','bars','wavefile']" in page and ".mk.wavefile svg{width:28px;height:28px}" in page
+    route = page[page.index("return 'wavefile';"):]
+    assert page.index("return 'wavefile';") < page.index("return 'rec';") and "the final version" in page[page.index("function motifOf"):page.index("return 'wavefile';")]

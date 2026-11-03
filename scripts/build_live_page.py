@@ -37,15 +37,33 @@ def build(design: str) -> str:
     lit = "const shown=[...S.calls.values()].filter(l=>l.status==='running').concat((S.slots||[]).filter(l=>l&&l.kind==='call'));"
     run_start = "S.runs++;}"
     run_reset = "S.runs++;S.calls=new Map();S.catches=0;}"
+    # the wave file mark (Owner 2026-11-03, option B): a square tile with a waveform for anything that is a song file, the
+    # final version saved, the file sent, the file measured; the meter mark stays for loudness work. Joins the studio
+    # family so the no-repeat rule rotates it like the others
+    eq_mark = "if(mo==='eq')return"
+    wavefile_mark = ("if(mo==='wavefile')return '<span class=\"mk sv wavefile\"><svg viewBox=\"0 0 30 30\"><rect x=\"2\" y=\"2\" width=\"26\" height=\"26\" rx=\"5\"/>"
+                     "<path d=\"M6 15 L9 15 L10.5 10 L12.5 20 L14.5 11.5 L16.5 18 L18.5 13 L20.5 16 L22.5 14.5 L24 15\"/></svg></span>';\n " + eq_mark)
+    motifs = "const MOTIFS={bars:5,vu:0,"
+    motifs_more = "const MOTIFS={wavefile:0,bars:5,vu:0,"
+    family = "studio:['vu','eq','wave','knob','fader','rec','bars']"
+    family_more = "studio:['vu','eq','wave','knob','fader','rec','bars','wavefile']"
+    rec_route = " if(/print|bounce|export|render|record/.test(t))return 'rec';"
+    file_route = (" if(/\\.wav\\b|\\.aiff?\\b|the final version|the corrected version|the song as it stands|the finished song|a link to/.test(t))return 'wavefile';\n"
+                  + rec_route)
+    vu_css = ".mk.vu svg{"
+    wavefile_css = ".mk.wavefile svg{width:28px;height:28px}\n" + vu_css
     if not (sample and links and styled and icon and tally in page and decided in page and using in page and shown in page
-            and page.count(run_start) == 1):
+            and page.count(run_start) == 1 and page.count(eq_mark) == 1 and page.count(motifs) == 1 and page.count(family) == 1
+            and page.count(rec_route) == 1 and page.count(vu_css) == 1):
         raise SystemExit(f"the design changed shape: sample {sample}, fonts {links}, style {styled}, icon {icon}, tally {tally in page}, "
                          f"decided {decided in page}, using {using in page}, shown {shown in page}, run {page.count(run_start)}")
     # the mode's word on screen (the design carries it hidden): a replay must not pass as live; and the path keeps Deliver in
     # frame when a step back marks several stages
     extra = ".mode .mlabel{display:inline}.mode.replay .mlabel{color:var(--catch)}.mode.live .mlabel{color:var(--accent)}\n.banner #path{gap:0 14px}\n"
     return (page.replace(tally, counted).replace(decided, worded).replace(using, testing).replace(shown, lit)
-            .replace(run_start, run_reset).replace("</style>", extra + "</style>", 1))
+            .replace(run_start, run_reset).replace(eq_mark, wavefile_mark, 1).replace(motifs, motifs_more, 1)
+            .replace(family, family_more, 1).replace(rec_route, file_route, 1).replace(vu_css, wavefile_css, 1)
+            .replace("</style>", extra + "</style>", 1))
 
 
 if __name__ == "__main__":
