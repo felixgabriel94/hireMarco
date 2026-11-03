@@ -28,22 +28,58 @@ from hiremarco import config
 
 BOUNDARY = "marcoframe"
 
+LOGO = Path(__file__).resolve().parent / "assets" / "tie-160.png"   # the tie, small, beside this file
+
+
+def logo_data_url() -> str:
+    """The tie as a data URL, so the page carries its own brand with no second request."""
+    import base64
+
+    try:
+        return "data:image/png;base64," + base64.b64encode(LOGO.read_bytes()).decode()
+    except OSError:
+        return ""
+
+
+# The phone's page: black, the tie top-left when the phone is upright and tucked small when it lies flat, Logic's
+# window filling the rest, and a full-screen button (Owner 2026-11-03: branded like the download page, landscape too).
 PAGE = """<!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
 <title>Marco live</title>
 <style>
-html, body { margin: 0; height: 100%; background: #111; color: #aaa; font: 13px -apple-system, sans-serif; }
-body { display: flex; flex-direction: column; }
-#view { flex: 1; display: flex; align-items: center; justify-content: center; overflow: auto; }
-img, video { max-width: 100%; max-height: 100%; object-fit: contain; }
-#bar { padding: 6px 12px; display: flex; justify-content: space-between; }
+html, body { margin: 0; height: 100%; background: #000; color: #8a8a8a; font: 13px -apple-system, sans-serif; }
+body { display: flex; flex-direction: column; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); box-sizing: border-box; }
+#brand { display: flex; align-items: center; gap: 10px; padding: 14px 16px 6px; }
+#brand img { width: 36px; height: 36px; }
+#brand span { color: #fff; font-weight: 600; letter-spacing: .02em; font-size: 15px; }
+#view { flex: 1; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+img, video { max-width: 100%; max-height: 100%; object-fit: contain; background: #000; }
+#bar { padding: 8px 16px 10px; display: flex; justify-content: space-between; align-items: center; }
+#full { background: none; border: 1px solid #333; color: #fff; border-radius: 999px; padding: 6px 14px; font: inherit; }
+@media (orientation: landscape) {
+  #brand { position: absolute; top: env(safe-area-inset-top); left: env(safe-area-inset-left); padding: 8px 10px; }
+  #brand img { width: 22px; height: 22px; } #brand span { display: none; }
+  #bar { position: absolute; right: env(safe-area-inset-right); bottom: env(safe-area-inset-bottom); background: none; }
+  #bar #mode { display: none; }
+}
 </style></head>
-<body><div id="view"><video id="video" autoplay playsinline muted></video>
+<body><div id="brand"><img src="{logo}" alt=""><span>hireMarco</span></div>
+<div id="view"><video id="video" autoplay playsinline muted></video>
 <img id="pictures" alt="Logic, live" hidden></div>
-<div id="bar"><span>Marco live</span><span id="mode">connecting</span></div>
+<div id="bar"><span id="mode">connecting</span><button id="full" type="button">Full screen</button></div>
 <script>
+document.getElementById("full").onclick = async () => {
+  const v = document.getElementById("video");
+  try {
+    if (!v.hidden && v.webkitEnterFullscreen) v.webkitEnterFullscreen();           // iPhone: the video itself goes full screen
+    else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
+    if (screen.orientation && screen.orientation.lock) await screen.orientation.lock("landscape").catch(() => {});
+  } catch (e) {}
+};
 const token = "{token}", video = document.getElementById("video"), mode = document.getElementById("mode");
 function pictures(why) {
   video.hidden = true;
@@ -163,7 +199,7 @@ def make_app(frames: Frames, token: str, *, max_frames: int | None = None, peers
     async def page(request):
         if not allowed(request):
             return Response(status_code=404)
-        return HTMLResponse(PAGE.replace("{token}", token), headers={"Cache-Control": "no-store"})
+        return HTMLResponse(PAGE.replace("{token}", token).replace("{logo}", logo_data_url()), headers={"Cache-Control": "no-store"})
 
     async def frame(request):
         if not allowed(request):

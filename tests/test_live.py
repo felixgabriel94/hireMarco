@@ -177,3 +177,15 @@ def test_the_live_run_hands_the_job_one_model_client():
     from hiremarco.master import live
 
     assert "client=MuseSpark(timeout=THINK_TIMEOUT)" in Path(live.__file__).read_text()
+
+
+def test_the_page_is_branded_black_with_the_tie_and_a_full_screen_button():
+    # Owner 2026-11-03: the phone's live view carries the brand like the download page, works lying flat, and goes full screen
+    from hiremarco.studio import live
+
+    app = live.make_app(live.Frames(lambda: b"\xff\xd8\xff"), "tok")
+    page = TestClient(app).get("/?t=tok").text
+    assert "background: #000" in page and 'src="data:image/png;base64,' in page and "hireMarco" in page
+    assert 'id="full"' in page and "webkitEnterFullscreen" in page and "requestFullscreen" in page
+    assert "@media (orientation: landscape)" in page and "{logo}" not in page and "{token}" not in page
+    assert live.LOGO.exists() and live.LOGO.stat().st_size < 20000
