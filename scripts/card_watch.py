@@ -174,14 +174,15 @@ def mirror_screen_recordings(footage: Path, staging: Path = STAGING) -> list[str
     return out
 
 
-def sweep(footage: Path, dry_run: bool = False, edit: Path | None = None, extra: list[str] | None = None) -> list[str]:
+def sweep(footage: Path, dry_run: bool = False, edit: Path | None = None, extra: list[str] | None = None,
+          cards: bool = True) -> list[str]:
     out = []
     for verdict in mirror_screen_recordings(footage):
         log_line(footage, verdict)
         print(verdict, flush=True)
         out.append(verdict)
     landed = False
-    for card in offload.candidates():
+    for card in (offload.candidates() if cards else []):
         verdict = handle(card, footage, dry_run)
         if verdict:
             log_line(footage, verdict)
@@ -204,6 +205,7 @@ def main(argv=None) -> int:
     ap.add_argument("--once", action="store_true", help="one sweep, then exit (for launchd WatchPaths)")
     ap.add_argument("--every", type=float, default=5.0, help="seconds between looks when watching")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--no-cards", action="store_true", help="only copy screen recordings; leave cards alone")
     ap.add_argument("--edit", type=Path, help="12-edit/marco folder: run the line-up on today's folder after each card")
     ap.add_argument("--anchor", help="passed to the line-up (default audio-apollo)", default="audio-apollo")
     ap.add_argument("--events", type=Path, help="Marco's events.jsonl, passed to the line-up")
@@ -213,7 +215,7 @@ def main(argv=None) -> int:
         print(f"{args.footage} is not mounted; is the LaCie plugged in?", file=sys.stderr)
         return 2
     if args.once:
-        sweep(args.footage, args.dry_run, args.edit, extra)
+        sweep(args.footage, args.dry_run, args.edit, extra, not args.no_cards)
         return 0
     print(f"watching /Volumes for camera cards, copying into {args.footage}", flush=True)
     while True:
@@ -221,7 +223,7 @@ def main(argv=None) -> int:
             print("LaCie went away; waiting", flush=True)
         else:
             try:
-                sweep(args.footage, args.dry_run, args.edit, extra)
+                sweep(args.footage, args.dry_run, args.edit, extra, not args.no_cards)
             except Exception as e:  # keep watching; the Owner hears about it in the log
                 log_line(args.footage, f"watcher error: {e!r}")
         time.sleep(args.every)
