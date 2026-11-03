@@ -62,6 +62,7 @@ class Clip:
     tc_string: str = ""
     drop_frame: bool = False
     camera: str = ""
+    audio_lead: float = 0.0  # seconds the audio stream starts after the video stream in the file
     raw_start: float | None = None  # epoch seconds from the device clock
     raw_source: str = ""
     start: float | None = None  # epoch seconds on the master clock
@@ -164,6 +165,10 @@ def probe(path: Path, device: str, local_tz: ZoneInfo) -> Clip | None:
         c.width, c.height = int(v.get("width") or 0), int(v.get("height") or 0)
     if a:
         c.audio_rate = int(a.get("sample_rate") or 48000)
+        try:
+            c.audio_lead = float(a.get("start_time") or 0.0) - (float(v.get("start_time") or 0.0) if v else 0.0)
+        except (TypeError, ValueError):
+            c.audio_lead = 0.0
         c.audio_channels = int(a.get("channels") or 2)
     # timecode: stream tags (tmcd or video) or format tags
     tc = ftags.get("timecode")
@@ -284,7 +289,7 @@ def render_window(clips: list[Clip], cache: AudioCache, t0: float, t1: float) ->
         if not c.has_audio or c.start is None or c.end < t0 or c.start > t1:
             continue
         x = cache.prepped(c)
-        a = int(round((c.start - t0) * SR))
+        a = int(round((c.start + c.audio_lead - t0) * SR))
         lo, hi = max(0, a), min(n, a + len(x))
         if hi > lo:
             out[lo:hi] += x[lo - a: hi - a]
@@ -313,13 +318,13 @@ def try_sync(clip: Clip, placed: list[Clip], cache: AudioCache, guess: float, se
         seg = x[int(p * SR): int((p + plen) * SR)]
         if np.abs(seg).max() < 1e-6:
             continue
-        t0 = guess + p - search
-        t1 = guess + p + len(seg) / SR + search
+        t0 = guess + clip.audio_lead + p - search
+        t1 = guess + clip.audio_lead + p + len(seg) / SR + search
         ref = render_window(placed, cache, t0, t1)
         if np.abs(ref).max() < 1e-9:
             continue
         lag, z = gcc_phat(seg, ref)
-        results.append((t0 + lag / SR - p, z))
+        results.append((t0 + lag / SR - p - clip.audio_lead, z))
     strong = [r for r in results if r[1] >= MIN_Z]
     best = None
     for r in strong:
@@ -340,6 +345,9 @@ def align(clips: list[Clip], anchor: str, cache: AudioCache, search: float, loca
     for c in clips:
         if c.device == anchor:
             c.start, c.method, c.z = c.raw_start, "anchor clock", 0.0
+        elif "Mac clock" in c.raw_source:  # from Marco's own manifests: same clock as his recorder, to the ms
+            c.start, c.method, c.z = c.raw_start, "anchor clock", 0.0
+            offsets.setdefault(c.device, 0.0)
     placed = [c for c in clips if c.start is not None]
     pending = [c for c in clips if c.start is None]
     utc_shift = local_tz.utcoffset(dt.datetime.now()).total_seconds()
@@ -378,13 +386,46 @@ def align(clips: list[Clip], anchor: str, cache: AudioCache, search: float, loca
     return offsets
 
 
+def covered(placed: list[Clip], pad: float) -> list[tuple[float, float]]:
+    """Time ranges where placed clips have sound, merged, padded."""
+    spans = sorted((c.start - pad, c.end + pad) for c in placed if c.has_audio and c.start is not None)
+    out: list[tuple[float, float]] = []
+    for a, b in spans:
+        if out and a <= out[-1][1]:
+            out[-1] = (out[-1][0], max(out[-1][1], b))
+        else:
+            out.append((a, b))
+    return out
+
+
+def coarse_scan(clip: Clip, placed: list[Clip], cache: AudioCache, win: float) -> list[tuple[float, float]]:
+    """One 60 s probe from the clip's middle, slid over every window with placed sound. Returns (start, z) hits."""
+    x = cache.prepped(clip).astype(np.float64)
+    p = max(0.0, len(x) / SR / 2 - CHUNK_S / 2)
+    seg = x[int(p * SR): int((p + CHUNK_S) * SR)]
+    if len(seg) < SR * 2 or np.abs(seg).max() < 1e-6:
+        return []
+    hits = []
+    for a, b in covered(placed, win):
+        t = a
+        while t < b:
+            t0, t1 = t, min(b, t + 2 * win)
+            ref = render_window(placed, cache, t0, t1)
+            if np.abs(ref).max() > 1e-9 and len(ref) > len(seg):
+                lag, z = gcc_phat(seg, ref)
+                hits.append((t0 + lag / SR - p - clip.audio_lead, z))
+            t += 2 * win - CHUNK_S
+    return sorted(hits, key=lambda h: -h[1])[:4]
+
+
 def wide_search(pending: list[Clip], placed: list[Clip], offsets: dict[str, float], cache: AudioCache, log) -> bool:
-    """A device whose clock is far off: scan its longest clip across the whole placed span."""
-    span0 = min(c.start for c in placed if c.has_audio) if any(c.has_audio for c in placed) else None
-    if span0 is None:
+    """A device whose clock is far off: find its longest clip anywhere there is placed sound.
+
+    A coarse one-probe scan picks the few best windows; each is then confirmed by try_sync, which
+    needs separate probes of the clip to agree. One strong peak on its own is not enough.
+    """
+    if not any(c.has_audio and c.start is not None for c in placed):
         return False
-    span1 = max(c.end for c in placed if c.has_audio)
-    win = 600.0
     for dev in sorted({c.device for c in pending if c.device not in offsets}):
         cands = sorted([c for c in pending if c.device == dev and c.has_audio], key=lambda k: -k.duration)
         if not cands:
@@ -392,12 +433,12 @@ def wide_search(pending: list[Clip], placed: list[Clip], offsets: dict[str, floa
         c = cands[0]
         log(f"  {dev}: clock far from the others, scanning the whole day for {c.path.name}")
         best = None
-        t = span0 - c.duration
-        while t < span1:
-            r = try_sync(c, placed, cache, t + win, win)
+        for start, z in coarse_scan(c, placed, cache, 600.0):
+            if z < MIN_Z * 0.5:
+                continue
+            r = try_sync(c, placed, cache, start, 2.0)
             if r and (best is None or r[1] > best[1]):
                 best = r
-            t += 2 * win - 30
         if best:
             c.start, c.z, c.matched_to = best
             c.method = "audio sync"
@@ -418,7 +459,7 @@ def apply_manifests(clips: list[Clip], tz: ZoneInfo, log):
     seen = set()
     for c in clips:
         for d in [c.path.parent, *c.path.parents][:4]:
-            for mf in ("screen.jsonl", "film.jsonl"):
+            for mf in ("screen.jsonl", "film.jsonl", "talkback.jsonl"):
                 f = d / mf
                 if f in seen or not f.exists():
                     continue
@@ -430,7 +471,7 @@ def apply_manifests(clips: list[Clip], tz: ZoneInfo, log):
                     except json.JSONDecodeError:
                         continue
                     name = Path(str(e.get("file") or e.get("path") or "")).name
-                    ts = next((e[k] for k in ("first_frame", "first_frame_at", "began", "start", "ts") if k in e), None)
+                    ts = next((e[k] for k in ("first_frame", "first_frame_at", "began", "played_at", "start", "ts") if k in e), None)
                     if name in by_name and ts:
                         t = parse_time_tag(str(ts), tz, assume_local=True)
                         if t is not None:
@@ -591,8 +632,10 @@ class Writer:
     def clip_el(self, parent, c: Clip, offset_s: float, lane: int | None, role: str, extra_kw: str | None = None,
                 note: str | None = None, max_dur: float | None = None):
         dur = c.duration if max_dur is None else min(c.duration, max_dur)
+        own = parent.tag == "event"  # browser clips keep their own frame count; timeline clips use the timeline's
+        dur_t = rt(self.asset_duration(c)) if own and max_dur is None else self.tb.t(dur, math.floor)
         attrs = dict(ref=c.asset_id, name=c.name, offset=self.tb.t(offset_s),
-                     start=rt(self.asset_start(c)), duration=self.tb.t(dur, math.floor))
+                     start=rt(self.asset_start(c)), duration=dur_t)
         if lane is not None:
             attrs["lane"] = str(lane)
         if c.has_video and c.fps:
@@ -606,7 +649,7 @@ class Writer:
         if note:
             ET.SubElement(el, "note").text = note
         kws = [c.device] + ([extra_kw] if extra_kw else [])
-        ET.SubElement(el, "keyword", start=rt(self.asset_start(c)), duration=self.tb.t(dur, math.floor), value=", ".join(kws))
+        ET.SubElement(el, "keyword", start=rt(self.asset_start(c)), duration=dur_t, value=", ".join(kws))
         return el
 
     def clip_note(self, c: Clip) -> str:
@@ -755,6 +798,8 @@ class Writer:
                 video_angle = aid
             if role_for.get(row[0].device) == "dialogue" and not any(k.has_video for k in row) and audio_angle is None:
                 audio_angle = aid
+        if video_angle is None:
+            video_angle = angles and hashlib.sha1(f"{title}|{angles[0][0]}".encode()).hexdigest()[:12]
         if audio_angle is None:
             audio_angle = video_angle
         mcc = ET.SubElement(ev, "mc-clip", ref=mid, name=title, start=rt(tc0), duration=rt(total))
@@ -843,8 +888,9 @@ def main(argv=None) -> int:
     anchor = args.anchor
     if not anchor:
         # the device with the most recorded sound: everything else syncs to it by ear
-        marco = [d for d in devices if "marco" in d.lower() and any(c.has_audio for c in clips if c.device == d)]
-        anchor = marco[0] if marco else max(devices, key=lambda d: sum(c.duration for c in clips if c.device == d and c.has_audio))
+        pref = [d for d in devices if any(k in d.lower() for k in ("apollo", "booth", "audio-apollo"))
+                and any(c.has_audio for c in clips if c.device == d)]
+        anchor = pref[0] if pref else max(devices, key=lambda d: sum(c.duration for c in clips if c.device == d and c.has_audio))
     if anchor not in devices:
         log(f"anchor {anchor!r} not among devices")
         return 1
@@ -854,7 +900,11 @@ def main(argv=None) -> int:
     # true time of day: shift everything so network-clock devices read their own clock
     truth = args.truth or [d for d in devices if any(k in d.lower() for k in ("iphone", "screen", "marco", "phone"))]
     diffs = [c.raw_start - c.start for c in clips if c.device in truth and c.method in ("audio sync", "anchor clock")]
-    shift = float(np.median(diffs)) if diffs else 0.0
+    if any("Mac clock" in c.raw_source and c.start is not None for c in clips):
+        diffs, truth = [], ["Marco's recordings (Mac clock)"]  # Marco's own manifests already carry true time of day
+        shift = 0.0
+    else:
+        shift = float(np.median(diffs)) if diffs else 0.0
     if abs(shift) > 0.0005:
         for c in clips:
             if not c.method.startswith("own clock"):  # unsynced clips already read their own clock
@@ -867,7 +917,7 @@ def main(argv=None) -> int:
             if c.method not in ("audio sync", "anchor clock") and abs(c.start - mid) > 12 * 3600:
                 c.method = "clock far off (in the browser only, not on timelines)"
                 log(f"  {c.device}/{c.path.name}: camera clock far from the rest; kept out of timelines")
-    log(f"time of day taken from: {', '.join(truth) if diffs else anchor + ' (no network-clock device synced)'}; shift {shift:+.3f}s")
+    log(f"time of day taken from: {', '.join(truth) if (diffs or shift == 0.0 and truth and 'Mac clock' in truth[0]) else anchor + ' (no network-clock device synced)'}; shift {shift:+.3f}s")
     events = load_events(args.events, tz) if args.events and args.events.exists() else []
     if args.fps:
         fps = Fraction(args.fps)

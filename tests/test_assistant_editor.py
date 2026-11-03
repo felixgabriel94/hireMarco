@@ -61,3 +61,21 @@ def test_unrelated_recordings_do_not_agree():
     # independent probes of an unrelated recording must not land on one start
     starts = [lag - i * ae.SR * 5 for i, lag in enumerate(lags)]
     assert len({round(s / (ae.SR * 0.005)) for s in starts}) > 1
+
+
+def test_audio_lead_shifts_clip_start(tmp_path):
+    """A file whose audio starts 32 ms after its video: the clip start is the video start."""
+    sr = ae.SR
+    rng = np.random.default_rng(5)
+    room = rng.standard_normal(sr * 30).astype(np.float32)
+    anchor = ae.Clip(path=tmp_path / "a.wav", device="booth", duration=30.0, has_video=False, has_audio=True)
+    anchor.start = 1000.0
+    late = ae.Clip(path=tmp_path / "b.mov", device="cam", duration=10.0, has_video=True, has_audio=True)
+    late.audio_lead = 0.032
+    late.raw_start = 1005.0
+    cache = ae.AudioCache(tmp_path / "cache")
+    cache.memo[anchor.path] = room / np.abs(room).max()
+    seg = room[int((5.0 + 0.032) * sr): int((15.0 + 0.032) * sr)]
+    cache.memo[late.path] = seg / np.abs(seg).max()
+    start, z, _ = ae.try_sync(late, [anchor], cache, 1004.0, 5.0)
+    assert abs(start - 1005.0) < 0.0015 and z >= ae.MIN_Z
