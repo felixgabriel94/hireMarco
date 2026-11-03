@@ -40,7 +40,7 @@ VIDEO_EXT = {".mov", ".mp4", ".m4v", ".mxf", ".mts", ".avi"}
 AUDIO_EXT = {".wav", ".bwf", ".aif", ".aiff", ".m4a", ".mp3", ".caf", ".flac"}
 SR = 8000  # analysis sample rate for sync
 CHUNK_S = 60.0  # seconds of a clip used for each sync probe
-MIN_Z = 9.0  # correlation peak z-score needed to trust a sync
+MIN_Z = 12.0  # correlation peak z-score each agreeing probe needs
 
 # ---------------------------------------------------------------- model
 
@@ -144,14 +144,23 @@ def probe(path: Path, device: str, local_tz: ZoneInfo) -> Clip | None:
     c = Clip(path=path, device=device, duration=duration,
              has_video=v is not None, has_audio=a is not None)
     if v:
-        rate = v.get("avg_frame_rate") or v.get("r_frame_rate") or "30/1"
-        try:
-            fr = Fraction(rate)
-        except (ValueError, ZeroDivisionError):
-            fr = Fraction(30)
-        if fr == 0:
-            fr = Fraction(v.get("r_frame_rate") or "30/1")
-        c.fps = snap_fps(fr)
+        cands = []
+        for key in ("r_frame_rate", "avg_frame_rate"):
+            try:
+                f = Fraction(v.get(key) or "0/1")
+                if f > 0:
+                    cands.append(f)
+            except (ValueError, ZeroDivisionError):
+                pass
+        try:  # counted frames over length: right when avg_frame_rate is skewed by a short last frame
+            nf = int(v.get("nb_frames") or 0)
+            vd = float(v.get("duration") or duration)
+            if nf > 0 and vd > 0:
+                cands.insert(0, Fraction(nf / vd).limit_denominator(100000))
+        except (TypeError, ValueError):
+            pass
+        fr = next((k for k in cands if snap_fps(k, strict=True)), cands[0] if cands else Fraction(30))
+        c.fps = snap_fps(fr)  # variable-rate screen recordings land on the nearest standard rate
         c.width, c.height = int(v.get("width") or 0), int(v.get("height") or 0)
     if a:
         c.audio_rate = int(a.get("sample_rate") or 48000)
@@ -198,12 +207,15 @@ def probe(path: Path, device: str, local_tz: ZoneInfo) -> Clip | None:
     return c
 
 
-def snap_fps(fr: Fraction) -> Fraction:
+def snap_fps(fr: Fraction, strict: bool = False) -> Fraction | None:
+    """Nearest standard rate within 1 %. strict: None if none is that close; else nearest standard."""
     known = [Fraction(24000, 1001), Fraction(24), Fraction(25), Fraction(30000, 1001),
              Fraction(30), Fraction(50), Fraction(60000, 1001), Fraction(60),
-             Fraction(120000, 1001), Fraction(120)]
-    best = min(known, key=lambda k: abs(float(k) - float(fr)))
-    return best if abs(float(best) - float(fr)) < 0.05 else fr
+             Fraction(100), Fraction(120000, 1001), Fraction(120)]
+    best = min(known, key=lambda k: abs(float(k) - float(fr)) / float(k))
+    if abs(float(best) - float(fr)) / float(best) <= 0.01:
+        return best
+    return None if strict else best
 
 
 # ---------------------------------------------------------------- audio
@@ -280,16 +292,25 @@ def render_window(clips: list[Clip], cache: AudioCache, t0: float, t1: float) ->
 
 
 def try_sync(clip: Clip, placed: list[Clip], cache: AudioCache, guess: float, search: float):
-    """Find clip start on the master clock near guess. Returns (start, z, matched) or None."""
+    """Find clip start on the master clock near guess. Returns (start, z, matched) or None.
+
+    The clip is cut into up to three separate probes. A sync counts only when at least two
+    probes, each with a strong peak, land on the same start within 5 ms. One strong peak on
+    its own is not trusted: chance peaks between unrelated recordings can score high.
+    """
     x = cache.prepped(clip).astype(np.float64)
     if len(x) < SR * 2 or np.abs(x).max() < 1e-6:
         return None
-    best = None
     dur = len(x) / SR
-    probes = [0.0] if dur <= CHUNK_S else [max(0.0, dur * f - CHUNK_S / 2) for f in (0.2, 0.5, 0.8)]
+    plen = min(CHUNK_S, dur / 2)
+    if plen >= 4.0:
+        n = min(3, int(dur // plen))
+        probes = [max(0.0, (i + 0.5) * dur / n - plen / 2) for i in range(n)]
+    else:
+        plen, probes = dur, [0.0]
     results = []
     for p in probes:
-        seg = x[int(p * SR): int((p + CHUNK_S) * SR)]
+        seg = x[int(p * SR): int((p + plen) * SR)]
         if np.abs(seg).max() < 1e-6:
             continue
         t0 = guess + p - search
@@ -298,16 +319,19 @@ def try_sync(clip: Clip, placed: list[Clip], cache: AudioCache, guess: float, se
         if np.abs(ref).max() < 1e-9:
             continue
         lag, z = gcc_phat(seg, ref)
-        start = t0 + lag / SR - p
-        results.append((start, z))
-        if best is None or z > best[1]:
-            best = (start, z)
-    if not best:
+        results.append((t0 + lag / SR - p, z))
+    strong = [r for r in results if r[1] >= MIN_Z]
+    best = None
+    for r in strong:
+        agree = [k for k in strong if abs(k[0] - r[0]) < 0.005]
+        if len(agree) >= 2 and (best is None or len(agree) > best[2] or (len(agree) == best[2] and r[1] > best[1])):
+            best = (float(np.median([k[0] for k in agree])), min(k[1] for k in agree), len(agree))
+    if best is None and len(probes) == 1 and strong and strong[0][1] >= 3 * MIN_Z:
+        best = (strong[0][0], strong[0][1], 1)  # very short clip: one probe, much stronger peak needed
+    if best is None:
         return None
-    agree = [r for r in results if abs(r[0] - best[0]) < 0.004 and r[1] > MIN_Z * 0.6]
-    z = best[1] + (2.0 * (len(agree) - 1))
     near = [c.name for c in placed if c.start is not None and c.start < best[0] + clip.duration and c.end > best[0]]
-    return best[0], z, ", ".join(near[:3])
+    return best[0], best[1], ", ".join(near[:3])
 
 
 def align(clips: list[Clip], anchor: str, cache: AudioCache, search: float, local_tz: ZoneInfo, log) -> dict[str, float]:
@@ -374,7 +398,7 @@ def wide_search(pending: list[Clip], placed: list[Clip], offsets: dict[str, floa
             if r and (best is None or r[1] > best[1]):
                 best = r
             t += 2 * win - 30
-        if best and best[1] >= MIN_Z + 3:
+        if best:
             c.start, c.z, c.matched_to = best
             c.method = "audio sync"
             offsets[dev] = c.start - c.raw_start
@@ -446,6 +470,8 @@ def load_events(path: Path, local_tz: ZoneInfo) -> list[tuple[float, str, str]]:
 # ---------------------------------------------------------------- transcripts (optional)
 
 
+LANG = "en"  # set by --lang; "auto" lets whisper guess, which invents text on clips without speech
+
 WHISPER_MODELS = [
     Path.home() / ".local/share/whisper-cpp/models/ggml-large-v3-turbo.bin",
     Path.home() / "tools/whisper.cpp/models/ggml-large-v3.bin",
@@ -469,7 +495,7 @@ def transcribe(clip: Clip, out: Path, log) -> str:
     subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", str(clip.path), "-vn", "-ac", "1",
                     "-ar", "16000", "-c:a", "pcm_s16le", str(wav)], check=True)
     try:
-        subprocess.run([exe, "-m", str(model), "-f", str(wav), "-l", "auto", "-otxt", "-osrt",
+        subprocess.run([exe, "-m", str(model), "-f", str(wav), "-l", LANG, "-otxt", "-osrt",
                         "-of", str(tdir / stem), "-np"], check=True, capture_output=True)
     except subprocess.CalledProcessError as e:
         log(f"  transcription failed for {clip.path.name}: {e.stderr[-300:] if e.stderr else e}")
@@ -765,6 +791,7 @@ def main(argv=None) -> int:
     ap.add_argument("--fps", default=None, help="timeline rate, e.g. 30000/1001 (default: most common camera rate)")
     ap.add_argument("--join", type=float, default=30.0, help="seconds between clips that still count as one setup")
     ap.add_argument("--transcribe", action="store_true", help="local whisper.cpp transcripts into clip notes (runs after the first FCPXML is written)")
+    ap.add_argument("--lang", default="en", help="transcript language for whisper (default en; es for Spanish; auto)")
     ap.add_argument("--truth", action="append", help="device folder(s) with a network-synced clock that sets time of day (default: iphone/screen/marco folders)")
     ap.add_argument("--extra", type=Path, action="append", default=[], help="another folder to include as its own device (repeatable), e.g. Marco's screen recordings")
     args = ap.parse_args(argv)
@@ -773,6 +800,8 @@ def main(argv=None) -> int:
         if not shutil.which(tool):
             print(f"missing {tool} on PATH", file=sys.stderr)
             return 2
+    global LANG
+    LANG = args.lang
     tz = ZoneInfo(args.tz)
     out = args.out
     out.mkdir(parents=True, exist_ok=True)
@@ -869,9 +898,12 @@ def main(argv=None) -> int:
             wr.writerow([c.device, str(c.path), dt.datetime.fromtimestamp(c.start, tz).isoformat(timespec="milliseconds"),
                          f"{c.duration:.2f}", c.method, f"{c.z:.1f}", f"{c.start - c.raw_start:+.3f}", c.raw_source, c.camera, c.matched_to])
     synced = sum(1 for c in clips if c.method in ("audio sync", "anchor clock"))
+    placed_clips = [c for c in clips if not c.method.startswith("clock far off")]
+    t_a, t_b = min(c.start for c in placed_clips), max(c.end for c in placed_clips)
+    n_markers = sum(1 for t, _, _ in events if t_a <= t <= t_b)
     weak = [c for c in clips if c.method.startswith(("own clock", "clock far off"))]
     summary = (f"{len(clips)} clips, {len(devices)} devices, {synced} locked by sound or anchor, "
-               f"{len(clips) - synced - len(weak)} placed by device clock, {len(weak)} unsynced, {len(events)} Marco markers")
+               f"{len(clips) - synced - len(weak)} placed by device clock, {len(weak)} unsynced, {n_markers} Marco markers on the day timeline")
     log(summary)
     log("device clock offsets vs anchor: " + ", ".join(f"{d} {o:+.3f}s" for d, o in offsets.items()))
     return 0

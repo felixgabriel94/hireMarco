@@ -43,3 +43,21 @@ def test_rational_time():
     tb = ae.Timebase(Fraction(30000, 1001))
     assert tb.t(1.0) == "30030/30000s".replace("30030/30000", "1001/1000")
     assert ae.rt(Fraction(3600)) == "3600s"
+
+
+def test_skewed_sony_rate_snaps_to_29_97():
+    # a real A7R III clip reports avg_frame_rate 15300000/511511 (29.91); it is 29.97
+    assert ae.snap_fps(Fraction(15300000, 511511), strict=True) == Fraction(30000, 1001)
+    assert ae.snap_fps(Fraction(1252950, 24161), strict=True) is None  # 51.9 fps variable-rate screen recording
+
+
+def test_unrelated_recordings_do_not_agree():
+    rng = np.random.default_rng(3)
+    t = np.arange(ae.SR * 40) / ae.SR
+    hum = np.sin(2 * np.pi * 60 * t) * 0.05
+    ref = hum + rng.standard_normal(len(t)) * 0.01
+    other = hum[: ae.SR * 20] + rng.standard_normal(ae.SR * 20) * 0.01
+    lags = [ae.gcc_phat(ae.prep(other[i * ae.SR * 5:(i + 1) * ae.SR * 5]), ae.prep(ref))[0] for i in range(3)]
+    # independent probes of an unrelated recording must not land on one start
+    starts = [lag - i * ae.SR * 5 for i, lag in enumerate(lags)]
+    assert len({round(s / (ae.SR * 0.005)) for s in starts}) > 1
