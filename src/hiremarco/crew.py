@@ -205,7 +205,18 @@ def hide_terminal(delays=(0.3, 1.5, 3.0)) -> None:
 
 
 def open_recorder(folder: Path) -> None:
-    """Open the recorder's .command behind the front app in a hidden Terminal, and hide Terminal again as it comes."""
+    """Start the recorder: as this process's own quiet child when it holds Terminal's grants (no window anywhere),
+    else through its .command in a hidden Terminal (a server a launchd job runs has no screen to lend, live
+    2026-11-03)."""
+    from hiremarco import grants
+
+    if grants.under_terminal():
+        Path(config.STATE_DIR).mkdir(parents=True, exist_ok=True)
+        log = (Path(config.STATE_DIR) / "screenrec.log").open("a")
+        subprocess.Popen(recorder_command(folder), stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL,
+                         env={**os.environ, "PYTHONUNBUFFERED": "1"}, start_new_session=True,
+                         cwd=str(Path(__file__).resolve().parents[2]))
+        return
     script = recorder_script(folder)
     subprocess.run(["open", "-g", "-j", "-a", "Terminal", str(script)], check=False, timeout=15)
     threading.Thread(target=hide_terminal, daemon=True, name="hide-terminal").start()

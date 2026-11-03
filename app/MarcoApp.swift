@@ -112,10 +112,10 @@ final class Marco: NSObject, NSApplicationDelegate {
             show("Could not start: \(error.localizedDescription)")
             return
         }
-        // in Terminal for its grants (a booth started by Marco's server lost them, live 2026-11-03), opened in the
-        // background and Terminal hidden at once and again as its window comes (Owner 2026-11-03: no Terminal window on
-        // the MacBook, on camera); its lines show on the TV in the terminal panel
-        openHidden(script)
+        // Marco's server starts the booth: as its own quiet child when the server was started from Terminal (its grants
+        // come along, no window anywhere), else through this .command in a hidden Terminal. When the server is down,
+        // the .command opens here, hidden at once (Owner 2026-11-03: no Terminal window on the MacBook, on camera).
+        askServer(orOpen: script)
         listening = true
         boothItem.state = .on
         deskItem.state = .off

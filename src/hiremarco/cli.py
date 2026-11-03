@@ -150,6 +150,9 @@ def cmd_serve(args) -> int:
         app = admit_only(app, allowed)
     # the allowlist judges the connection's own address: uvicorn would otherwise take the X-Forwarded-For a tunnel
     # sets as the caller (live 2026-10-30: the tunnel's calls were refused as the public address)
+    from hiremarco import grants
+
+    print(grants.line(), flush=True)  # a day's screen or microphone refusals read in a second (live 2026-11-03)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning", proxy_headers=False)
     return 0
 

@@ -100,28 +100,37 @@ def booth_running(port: int = 8790) -> bool:
 
 def ensure_booth(running=booth_running) -> str:
     """The booth sets sessions up; when it is not running, start it the way the menu-bar app does."""
-    import subprocess
-
     if running():
         return "booth running"
     from hiremarco.studio.beat_in import wake_display
 
     wake_display()  # the Mac waits dark while he is away; his word lights it up
+    return start_booth(running)
+
+
+def start_booth(running=booth_running) -> str:
+    """The booth, by whose grants this server has: started from a Terminal window, the server holds Terminal's and
+    the booth is its own quiet child, no window anywhere (Owner 2026-11-03: never a Terminal window on the MacBook,
+    on camera); under anything else (live 2026-11-03: the launchd job com.hiremarco.serve) it has none to lend, so
+    the booth opens through its .command behind the front app, and Terminal is hidden as fast as it can be."""
+    import subprocess
+
+    from hiremarco import grants
+
+    if grants.under_terminal():
+        return start_booth_quietly(running=running)
     script = config.STATE_DIR / "booth.command"
     if not script.exists():
         return "booth not running, and no booth.command to start it"
-    # opened behind the front app, then Terminal hidden: the booth runs in it (its microphone and screen grants are
-    # Terminal's), but nothing of it shows (Owner 2026-10-31: the halo and Logic are what the film sees). A booth
-    # started by this server instead lost those grants (live 2026-11-03: no screen, no Accessibility).
     subprocess.run(["open", "-g", "-j", "-a", "Terminal", str(script)], check=False, timeout=15)  # behind, hidden
     hide_terminal()
     return "booth started"
 
 
 def start_booth_quietly(running=booth_running, popen=None) -> str:
-    """The booth as this server's own background process, with no Terminal window anywhere. NOT IN USE: live 2026-11-03
-    a booth started this way had neither the screen nor Accessibility, though the server was started from Terminal;
-    kept, with its route, for when that is understood."""
+    """The booth as this server's own background process, with no Terminal window anywhere: it has whatever grants
+    this server has (Terminal's when the server was started from a Terminal window; none under a launchd job, live
+    2026-11-03, which is why ensure_booth asks grants first)."""
     import os
     import subprocess
     import sys
@@ -146,7 +155,7 @@ def make_booth_route():
     async def route(request: Request):
         if request.client is None or request.client.host not in ("127.0.0.1", "::1"):
             return JSONResponse({"status": "refused"}, status_code=403)
-        answer = await run_in_threadpool(start_booth_quietly)
+        answer = await run_in_threadpool(ensure_booth)
         Trace("booth from the app").done(answer)
         return JSONResponse({"status": answer})
 
