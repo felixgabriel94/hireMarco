@@ -401,6 +401,27 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
     return f"brain: {decision.action}; {did}{memory}"
 
 
+
+def crew_words(said: str, sender: str, message_id: str, wa: WhatsApp, *, take=None) -> str | None:
+    """Roll, Roll test, Action, Cut (Owner 2026-11-03): the whole message is the word. Read with blue ticks only (the
+    chat is on camera: no typing dots, no answer), done off Marco Live, in the order sent. Marco texts only when
+    something cannot record. None for any other words."""
+    from hiremarco import crew, events
+
+    def tell(text: str) -> None:
+        with events.aside():
+            wa.send_text(sender, text, idempotency_key=f"crew:{message_id}:{abs(hash(text)) % 10_000}")
+
+    if crew.words(said) is None:
+        return None
+    with events.aside():
+        try:
+            wa.mark_read(message_id)
+        except Exception:
+            pass
+        return (take or crew.take)(said, message_id, tell)
+
+
 _MONITOR_SEEN: dict[str, str] = {}
 
 
@@ -925,6 +946,10 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
     heard = message.text or f"[{message.kind}]"
     trace = Trace(f"heard: {heard[:60]}")
     try:
+        if message.kind == "text" and message.text and not message.quoted:
+            on_set = crew_words(message.text, message.sender, message.id, wa)
+            if on_set is not None:
+                return trace.done(on_set)
         wa.mark_read(message.id, typing=True)
         if message.kind == "text" and message.text and not message.quoted:
             moved = monitor_words(message.text, message.sender, message.id, wa)

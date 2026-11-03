@@ -112,7 +112,12 @@ final class Marco: NSObject, NSApplicationDelegate {
             return
         }
         let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
-        NSWorkspace.shared.open([script], withApplicationAt: terminal, configuration: NSWorkspace.OpenConfiguration())
+        // hidden and in the background (Owner 2026-11-03: no Terminal window on the MacBook, on camera); its lines
+        // show on the TV in the terminal panel (`marco terminal`), which the film recorder records
+        let opening = NSWorkspace.OpenConfiguration()
+        opening.activates = false
+        opening.hides = true
+        NSWorkspace.shared.open([script], withApplicationAt: terminal, configuration: opening)
         listening = true
         boothItem.state = .on
         deskItem.state = .off

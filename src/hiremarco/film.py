@@ -16,7 +16,8 @@ Settings, read like the secrets (process environment first, then the env file):
 
     HIREMARCO_FILM_DEVICE    the input device name, e.g. "Universal Audio Thunderbolt"
     HIREMARCO_FILM_CHANNELS  1-based input channels in file order; on the Apollo Twin X
-                             "1,3,4,5,6": the mic dry, the headphone mix (MON L/R), Logic alone (Virtual 1-2)
+                             "1,3,4,5,6": the mic dry, the headphone mix (MON L/R, Logic and Marco), Marco alone
+                             (Virtual 1-2; measured 2026-11-03: there is no Logic-only pair)
     HIREMARCO_FILM_RATE      the interface's sample rate, 48000 unless set
 """
 

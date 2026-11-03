@@ -188,9 +188,11 @@ class WindowCapture:
 
     def start(self) -> None:
         import ScreenCaptureKit as SCK
-        from AppKit import NSApplication
+        from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
 
-        NSApplication.sharedApplication()  # ScreenCaptureKit needs the window server session a Cocoa app opens
+        # ScreenCaptureKit needs the window server session a Cocoa app opens; Accessory keeps it out of the Dock
+        # (Owner 2026-11-03: the Python rocket bounced on camera whenever Logic opened)
+        NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyAccessory)
         content_filter, source, width, height, self._key = self._plan(self._content())
         self._output = output_class().alloc().init()
         self._output.capture = self

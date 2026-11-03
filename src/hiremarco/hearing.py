@@ -173,6 +173,12 @@ class Listener:
                                     summary="listening", task=events.task_words("listen"), call_id=heard_call)
                     if kind == "speechComplete" and event.get("transcript", "").strip():
                         heard = event["transcript"].strip()
+                        from hiremarco.crew import set_talk
+                        if set_talk(heard):   # "Roll", "Cut", "Session, take 2": said for the cameras, not to Marco
+                            events.emit("model_call_completed", source="meta", model=MODEL, operation="listening",
+                                        status="ok", summary="listening", call_id=heard_call)
+                            heard_call = None
+                            continue
                         events.emit("model_call_completed", source="meta", model=MODEL, operation="listening", status="ok",
                                     summary=f"\u201c{heard}\u201d", call_id=heard_call)
                         heard_call = None

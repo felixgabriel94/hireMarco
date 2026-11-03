@@ -37,6 +37,9 @@
     uv run marco voicenote send FILE     send a prepared voice note to the Owner on Return
     uv run marco film devices            the audio devices and their channel counts
     uv run marco film record             the booth on one clock until Ctrl+C, in 15-minute segments
+    uv run marco film roll DAY_FOLDER    every screen and the Apollo into a day folder (the crew starts this)
+    uv run marco crew roll|roll-test|action|cut|status   Roll / Action / Cut from the keyboard, as by text
+    uv run marco terminal                the terminal panel on the TV (the booth's lines)
     uv run marco monitor [level|up|down|set DB|mute|unmute]   the Apollo's speakers: read, or a slow fade under -40
     uv run marco dress PHOTO --say "..." Dress me from a photo on this Mac: what SAM sees and the board to the
                                          Owner's WhatsApp, his pick there (--dry-run: the pictures only, nothing sent)
@@ -654,6 +657,15 @@ def cmd_film(args) -> int:
         return 0
     import time
 
+    if args.action == "roll":
+        from pathlib import Path
+
+        from hiremarco.studio import screenrec
+
+        if not args.folder:
+            print("film roll takes the day folder")
+            return 2
+        return screenrec.main(Path(args.folder))
     from hiremarco.film import FilmRecorder
 
     rec = FilmRecorder()
@@ -667,6 +679,52 @@ def cmd_film(args) -> int:
     files = rec.stop()
     print(f"stopped: {rec.seconds:.0f} s in {len(files)} segment(s), {rec.dropped} overflow(s)")
     return 0 if rec.dropped == 0 else 1
+
+
+
+def cmd_crew(args) -> int:
+    """The crew's words from the keyboard, done exactly as by text (a problem is said by sound and printed here)."""
+    import json as _json
+    import time
+
+    from hiremarco import crew
+
+    if args.action == "status":
+        print(_json.dumps(crew.read_status(), indent=1))
+        return 0
+    if args.action in ("roll", "roll-test"):
+        print("rolling from the keyboard: Ctrl+C or `marco crew cut` in another window stops it", flush=True)
+    c = crew.Crew(tell=lambda text: print(f"problem: {text}", flush=True))
+    if args.action == "cut":
+        state = crew.read_status()
+        pid = state.get("pid")
+        if not pid:
+            print("nothing is rolling")
+            return 1
+        import os
+        import signal
+
+        os.kill(int(pid), signal.SIGINT)
+        print(f"asked the recorder ({pid}) to stop")
+        return 0
+    if args.action == "action":
+        print("Action is marked while rolling by text; from the keyboard there is nothing to mark")
+        return 1
+    print(c.do("roll test" if args.action == "roll-test" else "roll"), flush=True)
+    try:
+        while c.rolling():
+            time.sleep(0.5)
+    except KeyboardInterrupt:
+        pass
+    print(c.do("cut"))
+    return 0
+
+
+def cmd_terminal(args) -> int:
+    from hiremarco import termwindow
+
+    termwindow.show(screen=args.screen)
+    return 0
 
 
 def cmd_export_dialog(args) -> int:
@@ -1898,8 +1956,17 @@ def main(argv: list[str] | None = None) -> int:
     vn.set_defaults(func=cmd_voicenote)
 
     fm = sub.add_parser("film")
-    fm.add_argument("action", choices=["devices", "record"])
+    fm.add_argument("action", choices=["devices", "record", "roll"])
+    fm.add_argument("folder", nargs="?")
     fm.set_defaults(func=cmd_film)
+
+    cw = sub.add_parser("crew", help="Roll / Action / Cut from the keyboard: roll | roll-test | action | cut | status")
+    cw.add_argument("action", choices=["roll", "roll-test", "action", "cut", "status"])
+    cw.set_defaults(func=cmd_crew)
+
+    tm = sub.add_parser("terminal", help="the terminal panel on the TV: the booth's lines")
+    tm.add_argument("--screen", type=int, default=2)
+    tm.set_defaults(func=cmd_terminal)
 
     ed = sub.add_parser("export-dialog")
     ed.add_argument("folder")
