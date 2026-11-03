@@ -100,21 +100,47 @@ def booth_running(port: int = 8790) -> bool:
 
 def ensure_booth(running=booth_running) -> str:
     """The booth sets sessions up; when it is not running, start it the way the menu-bar app does."""
-    import subprocess
-
     if running():
         return "booth running"
     from hiremarco.studio.beat_in import wake_display
 
     wake_display()  # the Mac waits dark while he is away; his word lights it up
-    script = config.STATE_DIR / "booth.command"
-    if not script.exists():
-        return "booth not running, and no booth.command to start it"
-    # opened behind the front app, then Terminal hidden: the booth runs in it (its microphone and screen grants are
-    # Terminal's), but nothing of it shows (Owner 2026-10-31: the halo and Logic are what the film sees)
-    subprocess.run(["open", "-g", "-j", "-a", "Terminal", str(script)], check=False, timeout=15)  # behind, hidden
-    hide_terminal()
+    return start_booth_quietly(running=running)
+
+
+def start_booth_quietly(running=booth_running, popen=None) -> str:
+    """The booth as this server's own background process, with no Terminal window anywhere (Owner 2026-11-03: none on
+    the MacBook, on camera). The server is started from Terminal, so the booth keeps Terminal's microphone, screen and
+    Accessibility grants; its lines go to booth.log, which the terminal panel shows on the TV."""
+    import os
+    import subprocess
+    import sys
+
+    if running():
+        return "booth running"
+    config.STATE_DIR.mkdir(parents=True, exist_ok=True)
+    log = (config.STATE_DIR / "booth.log").open("a")
+    env = {**os.environ, "HIREMARCO_FROM_APP": "1", "PYTHONUNBUFFERED": "1"}
+    (popen or subprocess.Popen)([sys.executable, "-c", "import sys; from hiremarco.cli import main; sys.exit(main(['booth']))"],
+                                stdout=log, stderr=subprocess.STDOUT, stdin=subprocess.DEVNULL, env=env,
+                                start_new_session=True, cwd=str(Path(__file__).resolve().parents[2]))
     return "booth started"
+
+
+def make_booth_route():
+    """POST /internal/booth from this Mac only: the menu-bar app's way to start the booth when Logic opens."""
+    from starlette.concurrency import run_in_threadpool
+    from starlette.requests import Request
+    from starlette.responses import JSONResponse
+
+    async def route(request: Request):
+        if request.client is None or request.client.host not in ("127.0.0.1", "::1"):
+            return JSONResponse({"status": "refused"}, status_code=403)
+        answer = await run_in_threadpool(start_booth_quietly)
+        Trace("booth from the app").done(answer)
+        return JSONResponse({"status": answer})
+
+    return route
 
 
 def hide_terminal(wait_s: float = 1.5) -> None:
@@ -1143,5 +1169,6 @@ def build_app(*, reply: bool = True):
         owner=config.require("OWNER_WHATSAPP"),
         conn_factory=gate.connect,
         extra_routes=[Route("/llm/v1/chat/completions", make_relay(), methods=["POST"]),
-                      Route("/internal/offer", make_offer_route(), methods=["POST"])],
+                      Route("/internal/offer", make_offer_route(), methods=["POST"]),
+                      Route("/internal/booth", make_booth_route(), methods=["POST"])],
     )

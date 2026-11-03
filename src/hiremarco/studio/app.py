@@ -37,6 +37,7 @@ INFO = {
     "CFBundleVersion": "1",
     "LSMinimumSystemVersion": "14.0",
     "LSUIElement": True,  # menu bar only, no Dock icon
+    "NSAppTransportSecurity": {"NSAllowsLocalNetworking": True},  # it asks Marco's server on this Mac to start the booth
     "NSMicrophoneUsageDescription": "Marco listens for his name and your commands while Logic is open.",
     "NSAppleEventsUsageDescription": "Marco runs Logic's key commands and reads its tracks for you.",
 }

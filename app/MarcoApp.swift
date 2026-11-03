@@ -111,17 +111,36 @@ final class Marco: NSObject, NSApplicationDelegate {
             show("Could not start: \(error.localizedDescription)")
             return
         }
-        let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
-        // hidden and in the background (Owner 2026-11-03: no Terminal window on the MacBook, on camera); its lines
-        // show on the TV in the terminal panel (`marco terminal`), which the film recorder records
-        let opening = NSWorkspace.OpenConfiguration()
-        opening.activates = false
-        opening.hides = true
-        NSWorkspace.shared.open([script], withApplicationAt: terminal, configuration: opening)
+        // Marco's server starts the booth as its own background process: Terminal's grants, no window at all (Owner
+        // 2026-11-03: no Terminal window on the MacBook, on camera); its lines show on the TV in the terminal panel.
+        // When the server does not answer, the .command opens and Terminal is hidden at once.
+        askServer(orOpen: script)
         listening = true
         boothItem.state = .on
         deskItem.state = .off
         show("Listening in Logic")
+    }
+
+    func askServer(orOpen script: URL) {
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:8787/internal/booth")!)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 4
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            let started = (response as? HTTPURLResponse)?.statusCode == 200
+            DispatchQueue.main.async { if !started { self.openHidden(script) } }
+        }.resume()
+    }
+
+    func openHidden(_ script: URL) {
+        let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+        let opening = NSWorkspace.OpenConfiguration()
+        opening.activates = false
+        NSWorkspace.shared.open([script], withApplicationAt: terminal, configuration: opening)
+        for delay in [0.0, 0.15, 0.4, 1.0, 2.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                NSRunningApplication.runningApplications(withBundleIdentifier: "com.apple.Terminal").forEach { _ = $0.hide() }
+            }
+        }
     }
 
     func stop(_ label: String) {
