@@ -101,6 +101,12 @@ def readable(text: str) -> str:
     return ""
 
 
+def plain_whole(text: str) -> str:
+    """A model's plain line as a whole, or nothing: its second sentence alone can read as a fragment on screen."""
+    text = (text or "").strip()
+    return text if text and not JARGON.search(text) else ""
+
+
 def plain_findings(findings: list[str], most: int = 3) -> list[str]:
     """The audit's findings a judge can follow, worst first as the audit lists them; each is a measured finding, reworded."""
     out = []

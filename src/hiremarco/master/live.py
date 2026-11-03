@@ -114,6 +114,12 @@ def run_live(song: str | None = None, end_bar: int | None = None, *, purpose: st
 
     from hiremarco import stream
 
+    # a locked screen hides every Logic window from the script (run 37, live 2026-11-02: "no Mixer window" at 10:11 pm), so
+    # the Mac stays awake with its display on for exactly as long as this process lives
+    import os
+    import subprocess
+
+    subprocess.Popen(["caffeinate", "-di", "-w", str(os.getpid())], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     strip = StereoOut(conn=conn)
     steps = stream.Steps(also=log)   # every line also goes to Marco's running log, the window the film watches
     log = steps

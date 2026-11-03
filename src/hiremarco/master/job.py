@@ -575,7 +575,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             as_model("")
         events.emit("decision_made", source="marco", operation=r["role"].replace("_", " "), status="ok",
                     summary=f"{r['role'].replace('_', ' ')}: {r['plugin']}", detail=str(r.get("why", "")),
-                    thought=events.readable(str(r.get("plain", ""))),
+                    thought=events.plain_whole(str(r.get("plain", ""))),
                     metrics=[("Measured", str(r.get("measured", ""))[:24], "")] if r.get("measured") else None)
     log(f"   target {result.plan.target_lufs} LUFS, ceiling {result.plan.ceiling_dbtp} dBTP")
     if result.plan.critic:
