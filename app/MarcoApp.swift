@@ -98,6 +98,7 @@ final class Marco: NSObject, NSApplicationDelegate {
         let body = """
         #!/bin/zsh
         printf '\\e]0;hireMarco\\a'
+        osascript -e 'tell application "System Events" to set visible of process "Terminal" to false' >/dev/null 2>&1 &
         echo "hireMarco: listening while Logic is open. This window closes when he stops."
         cd '\(paths.repo)' || exit 1
         export HIREMARCO_FROM_APP=1 PYTHONUNBUFFERED=1
@@ -135,6 +136,7 @@ final class Marco: NSObject, NSApplicationDelegate {
         let terminal = URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
         let opening = NSWorkspace.OpenConfiguration()
         opening.activates = false
+        opening.hides = true   // a Terminal that is not yet running launches hidden; a running one is hidden below
         NSWorkspace.shared.open([script], withApplicationAt: terminal, configuration: opening)
         for delay in [0.0, 0.15, 0.4, 1.0, 2.0] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
