@@ -47,6 +47,8 @@ SETTLE_S = 12.0
 TRACE_TITLE = "Marco Live"
 TERMINAL_TITLE = "Marco Terminal"
 STATUS = "screenrec.json"
+MOV = "com.apple.quicktime-movie"
+HEVC = "hvc1"
 
 
 def slug(title: str) -> str:
@@ -158,7 +160,6 @@ class Piece:
     """One file: a recording output on a stream, from its first frame to its last."""
 
     def __init__(self, stream: "Stream", path: Path):
-        import AVFoundation
         import ScreenCaptureKit as SCK
         from Foundation import NSURL
 
@@ -168,8 +169,8 @@ class Piece:
         self.done = threading.Event()
         cfg = SCK.SCRecordingOutputConfiguration.alloc().init()
         cfg.setOutputURL_(NSURL.fileURLWithPath_(str(path)))
-        cfg.setOutputFileType_(AVFoundation.AVFileTypeQuickTimeMovie)
-        cfg.setVideoCodecType_(AVFoundation.AVVideoCodecTypeHEVC)
+        cfg.setOutputFileType_(MOV)          # AVFileTypeQuickTimeMovie, without AVFoundation's bindings
+        cfg.setVideoCodecType_(HEVC)         # AVVideoCodecTypeHEVC, the Mac's hardware encoder
         self.delegate = delegate_class().alloc().init()
         self.delegate.piece = self
         self.output = SCK.SCRecordingOutput.alloc().initWithConfiguration_delegate_(cfg, self.delegate)
