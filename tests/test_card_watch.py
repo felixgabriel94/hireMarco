@@ -51,3 +51,22 @@ def test_unknown_card_is_reported_not_guessed(world, monkeypatch):
     assert len(out) == 1 and "cannot tell which camera" in out[0] and "--device" in out[0]
     assert not list(card_watch.today_folder(footage).rglob("a.mp4"))
     assert card_watch.sweep(footage) == []
+
+
+def test_screen_recording_mirrored_once_and_kept(world, tmp_path, monkeypatch):
+    footage, card = world
+    monkeypatch.setattr(offload, "candidates", lambda: [])
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    rec = staging / "Screen Recording 2026-11-03 at 1.00.00 PM.mov"
+    rec.write_bytes(os.urandom(20_000))
+    old = rec.stat().st_mtime - 60
+    os.utime(rec, (old, old))
+    (staging / "growing.mov").write_bytes(b"x")  # just written: left for later
+    monkeypatch.setattr(card_watch, "STAGING", staging)
+    out = card_watch.mirror_screen_recordings(footage, staging)
+    assert len(out) == 1 and "verified" in out[0]
+    copies = list(footage.rglob("screen/manual/Screen Recording*.mov"))
+    assert len(copies) == 1 and copies[0].read_bytes() == rec.read_bytes()
+    assert rec.exists()  # local copy kept
+    assert card_watch.mirror_screen_recordings(footage, staging) == []

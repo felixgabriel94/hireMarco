@@ -10,8 +10,8 @@ each copy by SHA-256. The device folder is guessed from the card's layout (Sony,
 place is reported, not guessed. When the copy ends the Owner gets a macOS notification and a line in
 <footage>/cards.log, and the card is left untouched: nothing is ever formatted or deleted. The same card plugged
 in twice is not copied twice; a card that failed is tried again on the next plug-in.
-It also keeps the Mac's Cmd+Shift+5 save location on today's screen/manual folder, so the Owner's own
-recordings follow the date. The watcher never touches the shared repo, the trace, or WhatsApp.
+It also copies the Owner's own Cmd+Shift+5 recordings from ~/Movies/screen-manual-staging (macOS cannot save
+them straight to the LaCie) into <footage>/<day>/screen/manual, verified; the local file is kept. The watcher never touches the shared repo, the trace, or WhatsApp.
 """
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ import argparse
 import datetime as dt
 import json
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -118,27 +119,67 @@ def line_up(footage: Path, edit: Path, extra: list[str]) -> str:
     return f"Line-up failed on {day}: {err}"
 
 
-_pointed_at: Path | None = None
+STAGING = Path.home() / "Movies" / "screen-manual-staging"
+SETTLE_S = 10.0  # a recording counts as finished once its size has not changed for this long
 
 
-def point_screen_recordings(footage: Path) -> Path | None:
-    """Keep the Mac's Cmd+Shift+5 save location on today's screen/manual folder, so it follows the date."""
-    global _pointed_at
-    target = today_folder(footage) / "screen" / "manual"
-    if _pointed_at == target or sys.platform != "darwin":
-        return None
-    target.mkdir(parents=True, exist_ok=True)
-    subprocess.run(["defaults", "write", "com.apple.screencapture", "location", str(target)], check=False)
-    subprocess.run(["killall", "SystemUIServer"], check=False, capture_output=True)
-    _pointed_at = target
-    return target
+def mirror_screen_recordings(footage: Path, staging: Path = STAGING) -> list[str]:
+    """Copy each finished Cmd+Shift+5 recording from the local staging folder to today's screen/manual on the LaCie.
+
+    macOS cannot save a screen recording straight to the LaCie (screencaptureui has no access to removable
+    volumes), so the Mac saves locally and Marco copies. Every copy is verified by SHA-256 and logged. The local
+    file is KEPT: deletes are the Owner's hand. A file still growing is left for the next look.
+    """
+    out = []
+    if not staging.exists():
+        return out
+    now = time.time()
+    STATE.mkdir(parents=True, exist_ok=True)
+    seen = STATE / "screen-mirrored.jsonl"
+    done = set()
+    if seen.exists():
+        for ln in seen.read_text().splitlines():
+            try:
+                row = json.loads(ln)
+                done.add((row["src"], row["sha256"]))
+            except (ValueError, KeyError):
+                continue
+    for p in sorted(staging.iterdir()):
+        if not p.is_file() or p.name.startswith(".") or p.suffix.lower() not in (".mov", ".mp4", ".png", ".jpg"):
+            continue
+        st = p.stat()
+        if now - st.st_mtime < SETTLE_S:
+            continue
+        want = offload.sha256(p)
+        if (str(p), want) in done:
+            continue
+        shot = dt.datetime.fromtimestamp(st.st_mtime).astimezone().strftime("%Y-%m-%d")
+        dest_dir = footage / shot / "screen" / "manual"
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        target = dest_dir / p.name
+        if target.exists() and offload.sha256(target) != want:
+            target = target.with_name(f"{target.stem}_{want[:8]}{target.suffix}")
+        if not (target.exists() and offload.sha256(target) == want):
+            tmp = target.with_name(target.name + ".part")
+            shutil.copy2(p, tmp)
+            if offload.sha256(tmp) != want:
+                tmp.unlink(missing_ok=True)
+                out.append(f"Screen recording {p.name} did NOT verify on the LaCie; local copy kept, will retry")
+                continue
+            tmp.rename(target)
+        with open(seen, "a") as f:
+            f.write(json.dumps({"at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+                                "src": str(p), "dst": str(target), "sha256": want, "bytes": st.st_size}) + "\n")
+        out.append(f"Screen recording {p.name} copied to the LaCie and verified ({st.st_size / 1e6:.0f} MB)")
+    return out
 
 
 def sweep(footage: Path, dry_run: bool = False, edit: Path | None = None, extra: list[str] | None = None) -> list[str]:
     out = []
-    moved = point_screen_recordings(footage)
-    if moved:
-        log_line(footage, f"screen recordings now save to {moved}")
+    for verdict in mirror_screen_recordings(footage):
+        log_line(footage, verdict)
+        print(verdict, flush=True)
+        out.append(verdict)
     landed = False
     for card in offload.candidates():
         verdict = handle(card, footage, dry_run)
