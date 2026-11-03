@@ -399,7 +399,7 @@ function ingest(e){
  S.events.push(e);
  const ts=toMs(e.ts??e.time??e.timestamp)??vnow();
  if(S.anchorTs==null||ts>=S.anchorTs){S.anchorTs=ts;S.anchorWall=performance.now();}
- if(Array.isArray(e.stages)&&e.stages.length){S.stages=e.stages.map(String);S.stageIdx=-1;S.maxIdx=-1;S.corr=null;S.runs++;}
+ if(Array.isArray(e.stages)&&e.stages.length){S.stages=e.stages.map(String);S.stageIdx=-1;S.maxIdx=-1;S.corr=null;S.runs++;S.calls=new Map();S.catches=0;}
  if(e.run_id&&e.run_id!==S.runId){if(S.runId!=null||!Array.isArray(e.stages))S.runs++;S.runId=e.run_id;S.stageIdx=-1;S.maxIdx=-1;S.corr=null;}
  const st=statusOf(e);let ck=catchKind(e,st);const dir=msgDir(e);
  if(e.stage!=null&&e.stage!==''){
@@ -478,7 +478,7 @@ function renderMind(){const cur=$('cur'),prev=$('prev');
   if(focus.status==='running'){cur.className='';
    cur.innerHTML='<div class="khd"><span class="kind"><span class="w">calling</span><b>'+esc(m.name)+'</b></span><span class="clock" data-clock="'+focus.startTs+'"></span></div><div class="big">'+esc(focus.task||'')+'<span class="caret"></span></div>'+(m.desc?'<div class="why">'+esc(m.desc)+'</div>':'')+(running[1]?'<div class="also"><span><span class="w">also calling</span>&nbsp;&nbsp;<b>'+esc(modelOf(running[1].key,running[1].model).name)+'</b></span><span class="c2" data-clock="'+running[1].startTs+'"></span></div>':'');
   }else{const st=focus.status;cur.className=st==='error'?'fail':st==='held'?'catch':'';
-   const lab=st==='error'?'failed':st==='held'?'held':({sam31:'found',museimage10:'painted',musevoicetranscribe10:'heard'}[l.key]||(MODELS.some(m=>m.key===l.key)?'decided':'done'));const sum=focus.summary||(st==='error'?focus.error:'')||focus.task||'';
+   const lab=st==='error'?'failed':st==='held'?'held':({sam31:'found',museimage10:'painted',musevoicetranscribe10:'heard'}[l.key]||(MODELS.some(m=>m.key===l.key)?'decided':(l.word||'done'));const sum=focus.summary||(st==='error'?focus.error:'')||focus.task||'';
    const took=focus.latency_ms!=null?Number(focus.latency_ms):(focus.endTs&&focus.startTs?focus.endTs-focus.startTs:null);
    cur.innerHTML='<div class="khd"><span class="kind"><span class="w">'+lab+'</span><b>'+esc(m.name)+'</b></span>'+(took!=null?'<span class="clock final">'+fmtClock(took)+'</span>':'')+'</div><div class="big">'+esc(sum)+'</div>'+(focus.detail?'<div class="why">'+esc(focus.detail)+'</div>':'')+proofHtml(focus);}
  }else if(focus.kind==='msg'){cur.className='plain';
@@ -538,8 +538,8 @@ function rich(text,ts){const el=Math.max(0,vnow()-(ts||vnow()));const d=Math.max
 function wd(word,kind){const cls='wd wd-'+kind;if(kind==='think')return '<span class="'+cls+'"><span class="th"><i></i><i></i><i></i></span>'+word+'</span>';if(kind==='ring')return '<span class="'+cls+'"><span class="sig"><i></i></span>'+word+'</span>';if(kind==='use')return '<span class="'+cls+'"><span class="sig"></span>'+word+'</span>';return '<span class="'+cls+'">'+word+'</span>';}
 function streamLine(l,isNew,showProof){const mo=pickMark(l,S.slots||[]);const cls='sl'+(isNew?' new':'');const tg=markHtml(mo,l);
  if(l.kind==='call'){const m=modelOf(l.key,l.model);
-  if(l.status==='running'){const phone=/phone|voice call|on a call|\bcall\b/i.test([l.task,l.via,l.motif].filter(Boolean).join(' '))&&!/call_id/.test('');return '<div class="'+cls+' run"><div class="sh"><span class="w">'+(phone?wd('calling','ring'):wd('using','use'))+'</span><b>'+esc(m.name)+'</b>'+tg+'<span class="sc" data-clock="'+l.startTs+'"></span></div><div class="st">'+esc(l.task||'')+'<span class="caret"></span></div></div>';}
-  const st=l.status;const tone=st==='error'?' fail':st==='held'?' catch':' done';const lab=st==='error'?'failed':st==='held'?'held':({sam31:'found',museimage10:'painted',musevoicetranscribe10:'heard'}[l.key]||(MODELS.some(m=>m.key===l.key)?'decided':'done'));
+  if(l.status==='running'){const phone=/phone|voice call|on a call|\bcall\b/i.test([l.task,l.via,l.motif].filter(Boolean).join(' '))&&!/call_id/.test('');return '<div class="'+cls+' run"><div class="sh"><span class="w">'+(phone?wd('calling','ring'):wd(l.word?l.word.replace(/ed$/,'ing'):'using','use'))+'</span><b>'+esc(m.name)+'</b>'+tg+'<span class="sc" data-clock="'+l.startTs+'"></span></div><div class="st">'+esc(l.task||'')+'<span class="caret"></span></div></div>';}
+  const st=l.status;const tone=st==='error'?' fail':st==='held'?' catch':' done';const lab=st==='error'?'failed':st==='held'?'held':({sam31:'found',museimage10:'painted',musevoicetranscribe10:'heard'}[l.key]||(MODELS.some(m=>m.key===l.key)?'decided':(l.word||'done'));
   const took=l.latency_ms!=null?Number(l.latency_ms):(l.endTs&&l.startTs?l.endTs-l.startTs:null);const sum=l.summary||(st==='error'?l.error:'')||l.task||'';
   const pr=[];if(showProof){if(l.metrics&&typeof l.metrics==='object')Object.entries(l.metrics).slice(0,2).forEach(([k,v])=>pr.push('<span>'+esc(k.replace(/_/g,' '))+' '+esc(Array.isArray(v)?v.join(', '):typeof v==='object'?JSON.stringify(v):v)+'</span>'));if(l.request_id)pr.push('<span>'+esc(shortReq(l.request_id))+'</span>');}
   return '<div class="'+cls+tone+'"><div class="sh"><span class="w">'+lab+'</span><b>'+esc(m.name)+'</b>'+tg+(took!=null?'<span class="sc final">'+fmtClock(took)+'</span>':'<span></span>')+'</div><div class="st">'+rich(sum,l.endTs||l.ts)+'</div>'+(pr.length?'<div class="sp">'+pr.join('')+'</div>':'')+'</div>';}
@@ -562,7 +562,7 @@ function renderStream(cur,prev){prev.innerHTML='';cur.style.visibility='visible'
  if(pinned){clearTimeout(renderStream._t);renderStream._t=setTimeout(render,HOLD-(now-pinned.ts)+50);}
  const lastDone=[...vis].sort((a,b)=>(b.touch||b.placedAt)-(a.touch||a.placedAt)).find(l=>l.kind==='call'&&l.status!=='running');
  cur.innerHTML=vis.map(l=>{const isNew=l.fresh;l.fresh=false;return streamLine(l,isNew,l===lastDone);}).join('');tick();}
-function renderModels(){const calls=[...S.calls.values()];const shown=(S.slots||[]).filter(l=>l&&l.kind==='call');const active=new Map();shown.forEach(l=>{const st=l.status==='running'?'':l.status==='error'?' failed':l.status==='held'?' held':' done';if(!active.has(l.key)||st==='')active.set(l.key,st);});const busy=active.size>0;$('models').classList.toggle('busy',busy);
+function renderModels(){const calls=[...S.calls.values()];const shown=[...S.calls.values()].filter(l=>l.status==='running').concat((S.slots||[]).filter(l=>l&&l.kind==='call'));const active=new Map();shown.forEach(l=>{const st=l.status==='running'?'':l.status==='error'?' failed':l.status==='held'?' held':' done';if(!active.has(l.key)||st==='')active.set(l.key,st);});const busy=active.size>0;$('models').classList.toggle('busy',busy);
  $('models').innerHTML=MODELS.map(m=>{const mine=calls.filter(c=>c.key===m.key);const run=active.has(m.key);const tone=run?active.get(m.key):'';
   const last=mine.slice().sort((a,b)=>(a.touch||0)-(b.touch||0)).pop();const err=!run&&last&&last.status==='error';
   return '<div class="m'+(run?' run'+tone:'')+(mine.length?' used':'')+(err?' err':'')+'"><i></i><span>'+m.name+'</span><span class="c">'+(mine.length?mine.length:'')+'</span></div>';}).join('');}

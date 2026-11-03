@@ -38,7 +38,7 @@ MAIL_FLAG = "trace.mail"
 VOICE_MODEL = "muse-voice-transcribe-1.0"
 # Words a judge who has never been in a studio would not follow (Owner, 2026-11-02: nobody gets lost). The sentence on
 # the screen says it in everyday words; the trade's words and numbers stay in the proof and the raw events.
-JARGON = re.compile(r"\b(lufs|lu|dbtp|db|hz|khz|crest|limiter|compressors?|plug-?ins?|chain|mix|mixes|master|mastering|print|prints|printed|printing|"
+JARGON = re.compile(r"(?:\b|(?<=\d))(lufs|lu|dbtp|db|hz|khz|crest|limiter|compressors?|plug-?ins?|chain|mix|mixes|master|mastering|print|prints|printed|printing|"
                     r"bounce|stems?|eq|rms|peaks?|transients?|correlation|mono|bus|inserts?|strip|side ?chain|saturat\w*|resonan\w*|octaves?|"
                     r"s-master-\d+|r-aud-\d+)\b", re.I)
 # what the audit's findings mean, in everyday words; a finding not here stays in the proof and off the big lines
@@ -94,7 +94,8 @@ def task_words(job: str) -> str:
 
 
 def readable(text: str) -> str:
-    """The first sentence with no trade words in it, or nothing: a line a judge cannot follow stays off the big lines."""
+    """The first sentence with no trade words in it, or nothing: a line a judge cannot follow stays off the big lines.
+    A unit stuck to its number ("~261Hz", run 37) is a trade word too."""
     for sentence in re.split(r"(?<=[.!?])\s+", (text or "").strip()):
         if sentence and not JARGON.search(sentence):
             return sentence
@@ -173,8 +174,9 @@ def emit(kind: str, *, source: str, model: str = "", operation: str = "", status
          tool: str = "", request_id: str = "", attempt: int | None = None, call_id: str = "", tokens: dict | None = None,
          cost_usd: float | None = None, plain: str = "", stage: str = "", stages: list[str] | None = None, task: str = "",
          thought: str = "", motif: str = "", via: str = "", text: str = "", sender: str = "", subject: str = "",
-         pid: int | None = None, at: Path | None = None) -> dict:
-    """One line of the stream, written now; returns the row."""
+         pid: int | None = None, word: str = "", at: Path | None = None) -> dict:
+    """One line of the stream, written now; returns the row. ``word`` is what a finished step says it was on the
+    screen (tested, checked), in place of done, which is kept for a finished result (Owner 2026-11-03)."""
     if kind not in KINDS:
         raise ValueError(f"not an event kind: {kind}")
     if status not in STATUSES:
@@ -184,6 +186,8 @@ def emit(kind: str, *, source: str, model: str = "", operation: str = "", status
            "status": status, "summary": _cut(summary, SUMMARY_CHARS)}
     if detail:
         row["detail"] = _cut(detail, DETAIL_CHARS)
+    if word:
+        row["word"] = word
     for name, value, limit in (("plain", plain, PLAIN_CHARS), ("task", task, LINE_CHARS), ("thought", thought, LINE_CHARS),
                                ("text", text, LINE_CHARS), ("sender", sender, SUMMARY_CHARS), ("subject", subject, SUBJECT_CHARS)):
         if value:
@@ -241,20 +245,21 @@ def thought(words: str, *, detail: str = "", motif: str = "", learned: bool = Fa
 
 
 @contextmanager
-def step(task: str, *, tool: str = "Logic Pro", motif: str = "", done: str = "", plain: str = "") -> Iterator[dict]:
+def step(task: str, *, tool: str = "Logic Pro", motif: str = "", done: str = "", plain: str = "", word: str = "") -> Iterator[dict]:
     """A long step with no model in it (a print, a measurement): on the screen with a running clock, so Marco at work
-    never reads as idle. ``result["summary"]`` set inside the block is what the line says when it ends."""
+    never reads as idle. ``result["summary"]`` set inside the block is what the line says when it ends; ``word`` is
+    the label it ends with (tested, checked) where done would overclaim: done is for a finished result."""
     call_id, began, result = new_call_id(), time.monotonic(), {"summary": done or task}
     emit("tool_invoked", source="marco", tool=tool, operation="step", status="running", summary=task, task=task,
-         motif=motif, plain=plain, call_id=call_id)
+         motif=motif, plain=plain, call_id=call_id, word=word)
     try:
         yield result
     except Exception as exc:
         emit("tool_completed", source="marco", tool=tool, operation="step", status="failed", summary=f"{task}: {type(exc).__name__}",
-             call_id=call_id, latency_ms=int((time.monotonic() - began) * 1000))
+             call_id=call_id, latency_ms=int((time.monotonic() - began) * 1000), word=word)
         raise
     emit("tool_completed", source="marco", tool=tool, operation="step", status="ok", summary=result["summary"], call_id=call_id,
-         latency_ms=int((time.monotonic() - began) * 1000), metrics=result.get("metrics"))
+         latency_ms=int((time.monotonic() - began) * 1000), metrics=result.get("metrics"), word=word)
 
 
 def mail_flag() -> Path:
@@ -291,10 +296,10 @@ def for_page(row: dict) -> dict | None:
             return line("thought", thought=row.get("summary"))
         if status == "running":
             return line("call_start", call_id=row["call_id"], model=name, task=row.get("task") or row.get("operation"),
-                        status="running", request_id=row.get("request_id"), attempt=row.get("attempt"))
+                        status="running", request_id=row.get("request_id"), attempt=row.get("attempt"), word=row.get("word"))
         return line("call_end", call_id=row["call_id"], model=name, status=PAGE_STATUS.get(status, "ok"), summary=row.get("summary"),
                     detail=row.get("detail"), latency_ms=row.get("latency_ms"), request_id=row.get("request_id"),
-                    metrics=_page_metrics(row))
+                    metrics=_page_metrics(row), word=row.get("word"))
     if kind in ("tool_invoked", "tool_completed"):
         if status == "refused":
             return line("held", status="held", summary=row.get("summary"), detail=row.get("detail"))

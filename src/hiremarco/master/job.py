@@ -55,6 +55,7 @@ class Job:
     today: str = field(default_factory=lambda: date.today().isoformat())
     bpm: float | None = None          # the song's tempo, for the pumping check (a ducker shows at the beat rate)
     check_range: tuple[int, int] | None = None   # the loudest eight bars of the mix print, once it is read
+    budget_s: float = 45 * 60.0       # past this, no more tests or passes: Marco prints what he has and says so (Owner 2026-11-03)
 
     @property
     def bar_s(self) -> float | None:
@@ -229,26 +230,32 @@ def run_bench(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycl
     ensure_range(bouncer, bars[1], toggle_cycle, log)
     try:
         full = measure(short_print("bench full chain"))
-        for ins in [i for i in strip.read().inserts if i.marcos and i.name in marcos and not i.bypassed]:
+        on_bench = [i for i in strip.read().inserts if i.marcos and i.name in marcos and not i.bypassed]
+        seen: dict[str, int] = {}
+        for ins in on_bench:
+            # two of one plugin on the strip (run 37: Pro-Q 3 twice) are told apart on the screen by their order
+            seen[ins.name] = seen.get(ins.name, 0) + 1
+            label = ins.name if sum(i.name == ins.name for i in on_bench) == 1 \
+                else f"{ins.name}, the {('first', 'second', 'third', 'fourth')[min(seen[ins.name], 4) - 1]} one"
             strip.bypass(True, rows=[ins.y])
             try:
-                with events.step(f"Try the song without {ins.name}", motif="rec"):
+                # the verdict is the test's own line, not a second thought under it (Owner 2026-11-03: one line per task)
+                with events.step(f"Try the song without {label}", motif="rec", word="tested") as line:
                     without = measure(short_print(f"bench without {ins.name}"))
+                    band_moves = {k: round(full["bands"][k] - without["bands"][k], 1) for k in full["bands"]
+                                  if not math.isnan(full["bands"][k]) and not math.isnan(without["bands"][k])}
+                    widest = max(band_moves.items(), key=lambda kv: abs(kv[1])) if band_moves else ("", 0.0)
+                    effect = {"level_db": round(full["lufs"] - without["lufs"], 1), "crest_db": round(full["crest"] - without["crest"], 1),
+                              "tilt_db_per_octave": round(full["tilt"] - without["tilt"], 2), "widest_band": widest[0], "band_db": widest[1]}
+                    earned = bool(abs(effect["level_db"]) >= EARN_DB or abs(effect["crest_db"]) >= EARN_DB
+                                  or abs(effect["tilt_db_per_octave"]) >= EARN_TILT or abs(effect["band_db"]) >= EARN_DB)
+                    line["summary"] = f"{label} stays. It makes a real difference." if earned else f"Without {label}, nothing changes."
             finally:
                 strip.bypass(False, rows=[ins.y])
-            band_moves = {k: round(full["bands"][k] - without["bands"][k], 1) for k in full["bands"]
-                          if not math.isnan(full["bands"][k]) and not math.isnan(without["bands"][k])}
-            widest = max(band_moves.items(), key=lambda kv: abs(kv[1])) if band_moves else ("", 0.0)
-            effect = {"level_db": round(full["lufs"] - without["lufs"], 1), "crest_db": round(full["crest"] - without["crest"], 1),
-                      "tilt_db_per_octave": round(full["tilt"] - without["tilt"], 2), "widest_band": widest[0], "band_db": widest[1]}
-            earned = bool(abs(effect["level_db"]) >= EARN_DB or abs(effect["crest_db"]) >= EARN_DB
-                          or abs(effect["tilt_db_per_octave"]) >= EARN_TILT or abs(effect["band_db"]) >= EARN_DB)
             rows.append({"name": ins.name, "y": round(ins.y), "earned": earned, **effect})
             if earned:
                 log(f"   {ins.name} earns its place: without it level {-effect['level_db']:+.1f} dB, crest "
                     f"{-effect['crest_db']:+.1f} dB, tilt {-effect['tilt_db_per_octave']:+.2f}, {widest[0]} {-widest[1]:+.1f} dB")
-                events.thought(f"{ins.name} stays. It makes a real difference.",
-                               detail=f"Without it: level {-effect['level_db']:+.1f} dB, crest {-effect['crest_db']:+.1f} dB.")
             else:
                 log(f"   {ins.name} changes nothing measurable here (level {effect['level_db']:+.1f}, crest "
                     f"{effect['crest_db']:+.1f}, {widest[0]} {widest[1]:+.1f} dB): taken off")
@@ -370,7 +377,7 @@ def climb_ladder(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_c
         locators(*bars)
         ensure_range(bouncer, bars[1], toggle_cycle, log)
         name = bouncing.free_name(folder, bouncing.print_name(job.song, label, job.today))
-        with events.step("Try the loudest part, one step louder", motif="fader"):
+        with events.step("Try the loudest part, one step louder", motif="fader", word="tested"):
             return bouncer.print(bouncing.CHECK, folder, name).path
 
     def compare(path: Path):
@@ -494,6 +501,18 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
 
     # 1. the mix as it stands: Marco's own inserts bypassed, the artist's untouched
     log("1. the mix print")
+    began = time.monotonic()
+
+    def out_of_time(what: str) -> bool:
+        """Past the budget, a test or a pass is skipped and the screen says so; the goal is a finished song, not a long night."""
+        if time.monotonic() - began <= job.budget_s:
+            return False
+        log(f"   out of time for {what}: {int((time.monotonic() - began) / 60)} minutes in, the budget is {int(job.budget_s / 60)}")
+        events.emit("tool_skipped", source="marco", status="refused", tool="Logic Pro", summary=f"No time left for {what}.",
+                    detail=f"{int((time.monotonic() - began) / 60)} minutes in; the budget is {int(job.budget_s / 60)}.",
+                    plain="Marco is out of time for more tests. He goes with what he has.")
+        return True
+
     events.emit("job_started", source="marco", operation="Mastering the song", status="ok", stages=STAGES, stage="Listen",
                 plain="Marco is finishing this song so it is ready for release.", pid=os.getpid())
     select_track()   # a plain track first: a stack selected makes the Mixer's Single view too wide to click
@@ -578,6 +597,12 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
                     thought=events.plain_whole(str(r.get("plain", ""))),
                     metrics=[("Measured", str(r.get("measured", ""))[:24], "")] if r.get("measured") else None)
     log(f"   target {result.plan.target_lufs} LUFS, ceiling {result.plan.ceiling_dbtp} dBTP")
+    # the goal, said before any tool moves, so what follows reads against it and done means it was met (Owner 2026-11-03)
+    events.stage("Think", "Marco's goal: as loud as today's records, under the limit, still breathing.", motif="vu")
+    events.emit("decision_made", source="marco", operation="the goal", status="ok",
+                summary="The goal is set.", thought="The goal is set. Every step from here is measured against it.",
+                detail=f"{result.plan.target_lufs} LUFS integrated, true peak under {result.plan.ceiling_dbtp} dBTP, the song still moving.",
+                metrics=[("Loudness", str(result.plan.target_lufs), "LUFS"), ("Ceiling", str(result.plan.ceiling_dbtp), "dBTP")])
     if result.plan.critic:
         log(f"   critic: {'approved' if result.plan.critic[0] else 'held'}: {result.plan.critic[1]}")
     if result.plan.critic and not result.plan.critic[0]:
@@ -724,7 +749,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
     # 4b. the chain proves it passes audio before anything is set or printed for real
     log("4b. the chain check")
     events.stage("Build", "Marco is checking the sound gets through his tools.")
-    with events.step("Play a short test through the tools", motif="wave"):
+    with events.step("Play a short test through the tools", motif="wave", word="tested"):
         result.dead += [d for d in prove_chain(strip, bouncer, locators, toggle_cycle, job, log, plugin_of=plugin_of, mark=mark_plugin,
                                                mix_path=result.mix)
                         if d not in result.dead]
@@ -750,6 +775,9 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
     select_track()
     chain = channel.read(fresh=True)
     for round_no in range(1, MAX_ROUNDS + 1):
+        if round_no > 1 and out_of_time("a corrected version"):
+            result.rounds = round_no - 1
+            break
         result.rounds = round_no
         settings = planning.settings_for(chain, result.audit_mix, deltas, result.plan, direction=direction,
                                          client=client, hearing=result.hearing)
@@ -763,12 +791,17 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             log(f"   the second pass gave nothing usable ({str(exc)[-120:]}); the first print stands")
             result.rounds = round_no - 1
             break
-        result.settings += settings.changes
+        # the record carries what reached the plugins, not what was asked (run 37: eleven changes were dropped unsaid and
+        # the record listed them as set); what was dropped is logged with its reason
+        landed = getattr(channel, "landed", None)
+        result.settings += settings.changes if landed is None else landed
+        for reason in getattr(channel, "dropped", None) or []:
+            log(f"   not applied: {reason}")
         log(f"   {settings.said}")
         if events.readable(settings.said):
             events.thought(events.readable(settings.said))
 
-        if bench and round_no == 1:
+        if bench and round_no == 1 and not out_of_time("the tests"):
             # 5b. the bench: each insert printed with and without over the same bars, now that it is set; what
             # changes nothing comes off (Owner 2026-11-02: every decision earns its place with a measured reason)
             log("5b. the bench")
@@ -777,7 +810,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             if any(not row["earned"] for row in result.bench):
                 chain = channel.read(fresh=True)
 
-        if ladder and round_no == 1 and job.bpm and job.bar_s:
+        if ladder and round_no == 1 and job.bpm and job.bar_s and not out_of_time("the loudness ladder"):
             # 5c. the loudness ladder: as loud as this mix stays clean, on its loudest bars (Owner 2026-11-02)
             log("5c. the loudness ladder")
             events.stage("Test", "Marco turns it up, one step at a time, until it suffers.")
@@ -797,13 +830,17 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             line["metrics"] = [("Length", f"{master.seconds:.0f}", "s")]
         result.master = master.path
         events.stage("Check", "Marco is checking what actually came out.")
-        with events.step("Measure what came out", tool="Marco's ears", motif="vu") as line:
+        with events.step("Measure what came out", tool="Marco's ears", motif="vu", word="checked") as line:
             result.audit_master = auditing.audit_file(master.path)
-            line["summary"] = "Measured."
-            line["metrics"] = [("Loudness", str(result.audit_master.base.lufs), "LUFS"), ("True peak", str(result.audit_master.base.true_peak_db), "dBTP")]
+            gap = result.plan.target_lufs - result.audit_master.base.lufs
+            over = result.audit_master.base.true_peak_db - result.plan.ceiling_dbtp
+            line["summary"] = ("On the mark." if abs(gap) <= LUFS_TOLERANCE and over <= CEILING_TOLERANCE
+                               else "Off the mark." if over > CEILING_TOLERANCE else "Too quiet." if gap > 0 else "Too loud.")
+            line["metrics"] = [("Loudness", str(result.audit_master.base.lufs), "LUFS"), ("True peak", str(result.audit_master.base.true_peak_db), "dBTP"),
+                               ("Range", str(result.audit_master.loudness_range), "LU")]
         am = result.audit_master
         if listen is not None:
-            with events.step("Listen to what came out", tool="Marco's ears", motif="wave"):
+            with events.step("Listen to what came out", tool="Marco's ears", motif="wave", word="checked"):
                 result.hearing_master = listen(master.path)
             for line in listening.highlights(result.hearing_master):
                 log(f"   {line}")
@@ -855,9 +892,13 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
     }, indent=1, default=str))
     if deliver is not None and result.master is not None and not result.stopped:
         log("7. the delivery")
-        events.stage("Deliver", "It is done. Marco is sending the song to the artist.")
-        log("   " + deliver(result.master, result.caption))
-        events.emit("message_sent", source="marco", status="ok", via="WhatsApp", text=result.caption)
+        events.stage("Deliver", "Done. It hits every mark.")
+        went = deliver(result.master, result.caption)
+        log("   " + went)
+        # the screen says texted only when a text went out: a delivery that only names the file is not a send (run 37)
+        if went.startswith("sent"):
+            events.emit("message_sent", source="marco", status="ok", via="WhatsApp", text=result.caption,
+                        plain="Marco is sending the song to the artist.")
         log("   " + deliver(result.mix, f"The mix as it stands, no master: {result.audit_mix.base.lufs} LUFS, "
                                         f"{result.audit_mix.base.true_peak_db} dBTP, 32-bit float."))
     events.emit("job_ended", source="marco", status="ok", summary="Done")

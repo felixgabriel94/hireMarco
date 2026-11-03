@@ -26,12 +26,26 @@ def build(design: str) -> str:
     counted = "const n=[...S.calls.values()].filter(c=>MODELS.some(m=>m.key===c.key)).length;const t=$('tally')"
     decided = "const lab=st==='error'?'failed':st==='held'?'held':'decided';"
     worded = "const lab=st==='error'?'failed':st==='held'?'held':({sam31:'found',museimage10:'painted',musevoicetranscribe10:'heard'}[l.key]||(MODELS.some(m=>m.key===l.key)?'decided':'done'));"
-    if not (sample and links and styled and icon and tally in page and decided in page):
-        raise SystemExit(f"the design changed shape: sample {sample}, fonts {links}, style {styled}, icon {icon}, tally {tally in page}, decided {decided in page}")
+    # a step that is a test or a check ends with its own word (tested, checked); done is kept for a finished result, and
+    # a running test says testing (Owner 2026-11-03)
+    worded = worded.replace("'decided':'done'))", "'decided':(l.word||'done'))")
+    using = "wd('using','use')"
+    testing = "wd(l.word?l.word.replace(/ed$/,'ing'):'using','use')"
+    # a model's light is on for as long as a call of its runs, whether or not its line is in a slot on screen; a finished
+    # run leaves its count behind so the header counts this job's calls, not the day's (Owner 2026-11-03)
+    shown = "const shown=(S.slots||[]).filter(l=>l&&l.kind==='call');"
+    lit = "const shown=[...S.calls.values()].filter(l=>l.status==='running').concat((S.slots||[]).filter(l=>l&&l.kind==='call'));"
+    run_start = "S.runs++;}"
+    run_reset = "S.runs++;S.calls=new Map();S.catches=0;}"
+    if not (sample and links and styled and icon and tally in page and decided in page and using in page and shown in page
+            and page.count(run_start) == 1):
+        raise SystemExit(f"the design changed shape: sample {sample}, fonts {links}, style {styled}, icon {icon}, tally {tally in page}, "
+                         f"decided {decided in page}, using {using in page}, shown {shown in page}, run {page.count(run_start)}")
     # the mode's word on screen (the design carries it hidden): a replay must not pass as live; and the path keeps Deliver in
     # frame when a step back marks several stages
     extra = ".mode .mlabel{display:inline}.mode.replay .mlabel{color:var(--catch)}.mode.live .mlabel{color:var(--accent)}\n.banner #path{gap:0 14px}\n"
-    return page.replace(tally, counted).replace(decided, worded).replace("</style>", extra + "</style>", 1)
+    return (page.replace(tally, counted).replace(decided, worded).replace(using, testing).replace(shown, lit)
+            .replace(run_start, run_reset).replace("</style>", extra + "</style>", 1))
 
 
 if __name__ == "__main__":

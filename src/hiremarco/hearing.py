@@ -158,19 +158,24 @@ class Listener:
                 await ws.send(json.dumps({"type": "endStream"}))
 
             sender = asyncio.create_task(pump())
+            heard_call = None   # the stream runs for hours; each sentence is its own line on screen
             try:
                 async for raw in ws:
                     if isinstance(raw, bytes):
                         continue
                     event = json.loads(raw)
                     kind = event.get("type")
-                    if kind == "speechComplete" and event.get("transcript", "").strip():
-                        heard = event["transcript"].strip()
-                        heard_call = events.new_call_id()   # the stream runs for hours; each sentence is its own line on screen
+                    if heard_call is None and kind != "error" and isinstance(event.get("transcript"), str) and event["transcript"].strip():
+                        # the line opens at the first words heard and closes when the sentence is complete, so the model's
+                        # light holds for as long as it is listening, not for an instant (Owner 2026-11-03)
+                        heard_call = events.new_call_id()
                         events.emit("model_call_started", source="meta", model=MODEL, operation="listening", status="running",
                                     summary="listening", task=events.task_words("listen"), call_id=heard_call)
+                    if kind == "speechComplete" and event.get("transcript", "").strip():
+                        heard = event["transcript"].strip()
                         events.emit("model_call_completed", source="meta", model=MODEL, operation="listening", status="ok",
                                     summary=f"\u201c{heard}\u201d", call_id=heard_call)
+                        heard_call = None
                         yield heard
                     elif self.on_partial is not None and isinstance(event.get("transcript"), str) \
                             and kind != "error":

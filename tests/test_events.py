@@ -64,3 +64,21 @@ def test_tail_returns_whole_lines_and_a_new_offset(tmp_path):
         f.write('"}\n')
     rows, offset3 = events.tail(at, offset2)
     assert [r["summary"] for r in rows] == ["half"] and offset3 == at.stat().st_size
+
+
+def test_a_unit_stuck_to_its_number_is_a_trade_word_too():
+    assert events.JARGON.search("at ~261Hz / C4 you hear it") and events.JARGON.search("about 2.5dB louder")
+    assert events.readable("Turning it up helps. at ~261Hz you hear the fundamentals.") == "Turning it up helps."
+
+
+def test_a_step_carries_the_word_it_ends_with_to_the_page(tmp_path, monkeypatch):
+    from hiremarco import config
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
+    with events.step("Try the song without Pro-L 2", motif="rec", word="tested") as line:
+        line["summary"] = "Pro-L 2 stays. It makes a real difference."
+    rows = [json.loads(l) for l in (tmp_path / events.NAME).read_text().splitlines()]
+    assert [r["word"] for r in rows] == ["tested", "tested"]
+    start, end = events.for_page(rows[0]), events.for_page(rows[1])
+    assert start["type"] == "call_start" and start["word"] == "tested"
+    assert end["type"] == "call_end" and end["word"] == "tested" and end["summary"].startswith("Pro-L 2 stays")

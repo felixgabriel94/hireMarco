@@ -417,3 +417,68 @@ def test_inserts_come_back_in_even_when_a_new_insert_shifts_the_rows(tmp_path, m
              log=lambda s: None)
     states = {i.name: i.bypassed for i in strip.inserts}
     assert states["Gain"] is False and states["Ozone 11 I"] is False and states["UAD Manley Variable Mu"[:30]] is False
+
+
+def _events(tmp_path):
+    from hiremarco import events
+
+    return [json.loads(l) for l in (tmp_path / "state" / events.NAME).read_text().splitlines()]
+
+
+def _plain_run(tmp_path, monkeypatch, *, deliver, channel=None, job=None, bench=False):
+    from hiremarco import config
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+    strip, bouncer, channel = FakeStrip(), FakeBouncer(tmp_path, [-30.0, -20.0, -12.0]), channel or FakeChannel()
+    plan = MasterPlan([{"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB short"}], -12.0, -1.0, "A clean mix.", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings(
+        [{"slot": 1, "parameter": "Gain", "value": 6, "unit": "dB", "why": "6 dB in stages"},
+         {"slot": 1, "parameter": "Band 1 Shape", "value": 0, "unit": "", "choice": "gain", "why": "junk"}], "Up 6 dB."))
+    lines = []
+    job = job or jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+                      toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2"}, deliver=deliver, log=lines.append,
+                      bench=bench)
+    return result, lines, strip
+
+
+def test_the_screen_says_texted_only_when_a_text_went_out(tmp_path, monkeypatch):
+    # run 37 (2026-11-03): the delivery only named the file, and the screen showed a green bubble with ticks
+    _plain_run(tmp_path, monkeypatch, deliver=lambda p, c: f"{p} ({c})")
+    kinds = [r["kind"] for r in _events(tmp_path)]
+    assert "message_sent" not in kinds and any(r.get("plain") == "Done. It hits every mark." for r in _events(tmp_path))
+    _plain_run(tmp_path, monkeypatch, deliver=lambda p, c: "sent to the Owner")
+    sent = [r for r in _events(tmp_path) if r["kind"] == "message_sent"]
+    assert len(sent) == 1 and sent[0]["via"] == "WhatsApp" and sent[0]["plain"] == "Marco is sending the song to the artist."
+
+
+def test_the_record_carries_what_landed_and_the_log_names_what_did_not(tmp_path, monkeypatch):
+    class Channel(FakeChannel):
+        def apply_changes(self, changes, chain=None):
+            self.landed = [changes[0]]
+            self.dropped = ["slot 1 Band 1 Shape: 'gain' is not one of its options"]
+            return {}
+
+    result, lines, _ = _plain_run(tmp_path, monkeypatch, deliver=lambda p, c: "sent", channel=Channel())
+    assert [c["parameter"] for c in result.settings] == ["Gain"]
+    assert json.loads(result.record.read_text())["settings"] == result.settings
+    assert any(l.startswith("   not applied: slot 1 Band 1 Shape") for l in lines)
+
+
+def test_the_goal_is_said_before_any_tool_moves_and_the_check_reads_against_it(tmp_path, monkeypatch):
+    _plain_run(tmp_path, monkeypatch, deliver=lambda p, c: "sent")
+    rows = _events(tmp_path)
+    goal = next(i for i, r in enumerate(rows) if r.get("plain", "").startswith("Marco's goal:"))
+    first_build = next(i for i, r in enumerate(rows) if r.get("stage") == "Build")
+    assert goal < first_build and rows[goal + 1]["metrics"][0] == {"label": "Loudness", "value": "-12.0", "unit": "LUFS"}
+    check = next(r for r in rows if r["kind"] == "tool_completed" and r.get("task") is None and r.get("word") == "checked")
+    assert check["summary"] == "On the mark." and [m["label"] for m in check["metrics"]] == ["Loudness", "True peak", "Range"]
+
+
+def test_past_the_budget_the_tests_are_skipped_and_the_screen_says_so(tmp_path, monkeypatch):
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02", budget_s=0)
+    result, lines, strip = _plain_run(tmp_path, monkeypatch, deliver=lambda p, c: "sent", job=job, bench=True)
+    assert ("bypass", True) not in strip.log and result.master is not None
+    skipped = [r for r in _events(tmp_path) if r["kind"] == "tool_skipped"]
+    assert skipped and skipped[0]["summary"] == "No time left for the tests." and any("out of time for the tests" in l for l in lines)

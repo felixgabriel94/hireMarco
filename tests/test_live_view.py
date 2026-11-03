@@ -220,3 +220,12 @@ def test_talk_in_the_room_stays_off_the_screen_during_a_job_and_a_stopped_job_sa
     pacer.add([row("model_call_completed", source="meta", model=events.VOICE_MODEL, summary="Solo it.", call_id="w")])
     assert pacer.waiting[-1]["call_id"] == "w"
     assert events.for_page(row("job_ended", status="ok", summary="Done")) is None
+
+
+def test_the_page_says_testing_lights_a_running_model_and_counts_one_job(tmp_path):
+    # Owner 2026-11-03: done only for a finished result; a model lit the whole time it is in use; the header's count
+    # is this job's, not the day's
+    page = tracewindow.PAGE.read_text()
+    assert "'decided':(l.word||'done')" in page and "l.word.replace(/ed$/,'ing'):'using'" in page
+    assert "[...S.calls.values()].filter(l=>l.status==='running').concat(" in page
+    assert page.count("S.runs++;S.calls=new Map();S.catches=0;}") == 1

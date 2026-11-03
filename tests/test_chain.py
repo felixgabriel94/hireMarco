@@ -196,3 +196,17 @@ def test_a_control_named_with_its_value_in_brackets_and_a_slot_counted_from_zero
     # slot 1 is Pro-Q 3 (no Input); the brain's "slot 1 Input" means slot 2, the 76, counted from zero
     channel.apply_changes([{"slot": 1, "parameter": "Input (+4.00 dB)", "value": 3, "unit": "db", "why": "a dB down"}])
     assert fake.plugins[2][1]["Input"] == 3000 and fake.plugins[1][1]["Band 1 Gain"] == 30000
+
+
+def test_a_word_in_choice_on_a_plain_control_is_noise_and_the_value_still_lands(tmp_path, rules):
+    # run 37 (2026-11-03): the menu field came back as "gain", "-1.0 dB", "Band 1 Frequency" on controls that are not
+    # menus, and every change carrying one was dropped unsaid; the record listed them as set
+    fake = FakeChain()
+    channel = Channel(run=fake, conn=gate.connect(":memory:"), rules_path=rules)
+    channel.read()
+    channel.apply_changes([{"slot": 1, "parameter": "Band 1 Gain", "value": 40, "unit": "%", "choice": "-1.0 dB", "why": "mud"},
+                           {"slot": 1, "parameter": "Band 1 Shape", "value": 0, "unit": "", "choice": "Tilt Shelf", "why": "bell"},
+                           {"slot": 1, "parameter": "Band 1 Slope", "value": 0, "unit": "", "choice": "steep", "why": "x"}])
+    assert fake.plugins[1][1]["Band 1 Gain"] == 24000
+    assert [(c["parameter"], c["choice"]) for c in channel.landed] == [("Band 1 Gain", "")]
+    assert len(channel.dropped) == 2 and "Band 1 Shape" in channel.dropped[0] and "'steep'" in channel.dropped[1]

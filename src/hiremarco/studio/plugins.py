@@ -76,6 +76,18 @@ PROTECTED = re.compile(r"bypass|midi|solo|audition|side ?chain|sidechain|invert|
 # a pan or a solo stays out of reach (PROTECTED).
 MENU = re.compile(r"^Band \d+ (Stereo Placement|Shape|Slope)$")
 PLACEMENTS = ("Left", "Right", "Stereo", "Mid", "Side")
+# Pro-Q 3's shape and slope words as its manual lists them; a word outside its menu is refused by name (run 37,
+# 2026-11-03: the menu field came back with "gain" and "-1.0 dB", and the changes carrying them were dropped unsaid)
+SHAPES = ("Bell", "Low Shelf", "Low Cut", "High Shelf", "High Cut", "Notch", "Band Pass", "Tilt Shelf", "Flat Tilt")
+SLOPES = ("6 dB/oct", "12 dB/oct", "18 dB/oct", "24 dB/oct", "30 dB/oct", "36 dB/oct", "48 dB/oct", "72 dB/oct",
+          "96 dB/oct", "Brickwall")
+
+
+def menu_options(param: str) -> tuple[str, ...]:
+    """The words a band's menu takes, or nothing for a control that is not a menu."""
+    if not MENU.match(param):
+        return ()
+    return PLACEMENTS if param.endswith("Stereo Placement") else SHAPES if param.endswith("Shape") else SLOPES
 
 
 @dataclass

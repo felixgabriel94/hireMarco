@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 from hiremarco import gate
 from hiremarco.meta.client import MuseSpark
-from hiremarco.studio.plugins import MENU, PLACEMENTS, PluginError, PluginState, parse, shown_lands, shown_target
+from hiremarco.studio.plugins import MENU, PluginError, PluginState, menu_options, parse, shown_lands, shown_target
 from hiremarco.studio.presets import SCRIPTS
 
 MODEL = "muse-wonder-1.0"
@@ -62,9 +62,12 @@ SCHEMA = {
                     "slot": {"type": "integer"},
                     "parameter": {"type": "string", "description": "the control's name exactly as listed under "
                                                                     "parameters, with nothing before it"},
-                    "value": {"type": "number", "description": "0 for a menu"},
-                    "unit": {"type": "string", "description": "'%' or the control's unit from in_units; empty for a menu"},
-                    "choice": {"type": "string", "description": "for a control under menus only: the option, such as Side for a Stereo Placement or Low Cut for a Shape; empty otherwise"},
+                    "value": {"type": "number", "description": "the number for every control under parameters; 0 for a control under menus"},
+                    "unit": {"type": "string", "description": "'%' or the control's unit from in_units; empty for a control under menus"},
+                    "choice": {"type": "string", "description": "only for a control listed under menus (a band's Stereo Placement, "
+                                                                 "Shape or Slope): that menu's option word, such as Side or Low Cut. "
+                                                                 "The empty string for every other control; a number or a unit here "
+                                                                 "is wrong, those go in value and unit"},
                     "why": {"type": "string", "description": "the technical reason, one sentence, with the number on "
                                                              "this track it answers to and the effect expected on the print"},
                 },
@@ -297,26 +300,30 @@ class Channel:
         self.reasons = {}
         by_number = {s.number: s for s in chain.active() if s.state}
         per_slot: dict[int, dict[str, float]] = {}
+        landed, dropped = [], []   # what reaches the plugins, and what does not with why: the record says only what was set
         for c in changes[:max_changes]:
             number, value, unit = int(c["slot"]), float(c["value"]), str(c.get("unit", "%"))
             slot = by_number.get(number)
-            choice = str(c.get("choice") or "").strip()
-            if choice:
-                # a band's menu, set by its word and read back; an option outside the placements is refused by name
-                param = str(c["parameter"])
-                if slot is not None and MENU.match(param) and param in slot.state.fixed \
-                        and (not param.endswith("Stereo Placement") or choice in PLACEMENTS):
+            choice, param = str(c.get("choice") or "").strip(), str(c["parameter"])
+            if MENU.match(param):
+                # a band's menu, set by its word and read back; a word outside the menu's options is refused by name
+                if slot is not None and param in slot.state.fixed and choice in menu_options(param):
                     self.reasons[(number, param)] = str(c.get("why", "")).strip()
                     per_slot.setdefault(number, {})[param] = f"~{choice}"
+                    landed.append({**c, "slot": number, "parameter": param})
+                else:
+                    dropped.append(f"slot {number} {param}: {choice!r} is not one of its options")
                 continue
-            name = control_named(str(c["parameter"]), slot.state.changeable()) if slot is not None else None
+            # a word in choice for a control that is not a menu (run 37: "gain", "-1.0 dB") is noise; the value stands
+            name = control_named(param, slot.state.changeable()) if slot is not None else None
             if name is None and by_number.get(number + 1) is not None:
                 # the brain counted slots from zero (live 2026-11-02, run 26: "slot 0 Gain" for slot 1): the next
                 # slot is taken when it has the control and the named one does not
-                name = control_named(str(c["parameter"]), by_number[number + 1].state.changeable())
+                name = control_named(param, by_number[number + 1].state.changeable())
                 if name is not None:
                     number, slot = number + 1, by_number[number + 1]
             if name is None:
+                dropped.append(f"slot {number} {param}: not a control Marco moves on that slot")
                 continue  # a bypassed slot, an unknown slot, or a control Marco does not move
             self.reasons[(number, name)] = str(c.get("why", "")).strip()
             if unit != "%" and slot.state.in_shown_unit(name, unit):
@@ -326,14 +333,17 @@ class Channel:
                 if LEVEL_WORDS.search(name) and unit.lower().startswith("db") and now is not None:
                     value = min(max(value, now[0] - LEVEL_DB), now[0] + LEVEL_DB)
                 per_slot.setdefault(number, {})[name] = shown_target(value, unit)
+                landed.append({**c, "slot": number, "parameter": name, "value": value, "choice": ""})
                 continue
             percent = bounded(name, slot.state.percent(name), slot.state.percent_of(name, value, unit))
             per_slot.setdefault(number, {})[name] = slot.state.raw(name, percent)
+            landed.append({**c, "slot": number, "parameter": name, "choice": ""})
         if not per_slot:
-            raise PluginError("no usable change came back")
+            raise PluginError("no usable change came back" + ("; " + "; ".join(dropped) if dropped else ""))
         self.undo = {n: {k: by_number[n].state.params[k] if k in by_number[n].state.params else f"~{by_number[n].state.fixed[k]}"
                          for k in vals} for n, vals in per_slot.items()}
         results = self._apply(per_slot)
+        self.landed, self.dropped = landed, dropped
         self._keep_undo()
         return results
 
