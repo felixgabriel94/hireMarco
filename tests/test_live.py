@@ -168,3 +168,12 @@ def test_the_link_is_texted_when_marco_can_and_kept_on_the_mac_when_he_cannot():
 
     assert "printed and copied" in booth(outside).hear("Marco, live view")
     assert said[-1] == LIVE_ON and any("outside the 24-hour window" in line for line in logged)
+
+
+def test_the_live_run_hands_the_job_one_model_client():
+    # run 38 (2026-11-03): without a client the judge and the meter payoff stay off, and the suite's fakes never saw it
+    from pathlib import Path
+
+    from hiremarco.master import live
+
+    assert "client=MuseSpark(timeout=THINK_TIMEOUT)" in Path(live.__file__).read_text()

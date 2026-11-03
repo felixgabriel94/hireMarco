@@ -51,6 +51,8 @@ def run_live(song: str | None = None, end_bar: int | None = None, *, purpose: st
     from hiremarco.studio.arrange import live_arranger
     from hiremarco.studio.beat_in import BeatLoader
     from hiremarco.studio.bounce import Bouncer
+    from hiremarco.master.plan import THINK_TIMEOUT
+    from hiremarco.meta.client import MuseSpark
     from hiremarco.studio.chain import Channel
     from hiremarco.studio.logic import Press, _osascript as press_keys, _script
     from hiremarco.studio.stereo_out import StereoOut, front_is_logic
@@ -154,4 +156,5 @@ def run_live(song: str | None = None, end_bar: int | None = None, *, purpose: st
                     locators=live_arranger(conn).locators, toggle_cycle=toggle_cycle, select_track=select_track,
                     look_at_face=lambda: look_at_face(strip.name, log=log), listen=listening.listen, audition=auditioning.run, bench=True, ladder=True,
                     critic=Critic(effort="max", tokens=4000, timeout=600.0),
-                    deliver=deliver, payoff=payoff, log=log)
+                    client=MuseSpark(timeout=THINK_TIMEOUT),   # one client for the plan, the ears and the brain; without it the
+                    deliver=deliver, payoff=payoff, log=log)   # judge and the meter payoff stay off (run 38, 2026-11-03)

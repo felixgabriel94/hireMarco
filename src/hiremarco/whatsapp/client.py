@@ -216,7 +216,8 @@ class WhatsApp:
         except httpx.HTTPError as exc:
             raise WhatsAppError(f"upload failed: {type(exc).__name__}") from exc
         if response.status_code >= 400:
-            raise WhatsAppError(f"media upload returned HTTP {response.status_code}")
+            # WhatsApp's own reason rides along (run 38, 2026-11-03: a bare 400 on a WAV told nobody why)
+            raise WhatsAppError(f"media upload returned HTTP {response.status_code}: {response.text[:300]}")
         media_id = response.json().get("id")
         if not media_id:
             raise WhatsAppError("media upload returned no id")
