@@ -41,8 +41,10 @@ def build(design: str) -> str:
     # final version saved, the file sent, the file measured; the meter mark stays for loudness work. Joins the studio
     # family so the no-repeat rule rotates it like the others
     eq_mark = "if(mo==='eq')return"
-    wavefile_mark = ("if(mo==='wavefile')return '<span class=\"mk sv wavefile\"><svg viewBox=\"0 0 30 30\"><rect x=\"2\" y=\"2\" width=\"26\" height=\"26\" rx=\"5\"/>"
-                     "<path d=\"M6 15 L9 15 L10.5 10 L12.5 20 L14.5 11.5 L16.5 18 L18.5 13 L20.5 16 L22.5 14.5 L24 15\"/></svg></span>';\n " + eq_mark)
+    wavefile_mark = ("if(mo==='wavefile')return '<span class=\"mk sv wavefile\"><svg viewBox=\"0 0 30 38\"><rect x=\"2\" y=\"2\" width=\"26\" height=\"26\" rx=\"5\"/>"
+                     "<path d=\"M6 15 L9 15 L10.5 10 L12.5 20 L14.5 11.5 L16.5 18 L18.5 13 L20.5 16 L22.5 14.5 L24 15\"/>"
+                     "<text x=\"15\" y=\"36.5\" text-anchor=\"middle\" font-size=\"7.5\" font-family=\"JetBrains Mono, Menlo, monospace\" letter-spacing=\"1\" fill=\"currentColor\" stroke=\"none\">WAV</text>"
+                     "</svg></span>';\n " + eq_mark)   # with the label (Owner 2026-11-03: "B with label")
     motifs = "const MOTIFS={bars:5,vu:0,"
     motifs_more = "const MOTIFS={wavefile:0,bars:5,vu:0,"
     family = "studio:['vu','eq','wave','knob','fader','rec','bars']"
@@ -51,7 +53,7 @@ def build(design: str) -> str:
     file_route = (" if(/\\.wav\\b|\\.aiff?\\b|the final version|the corrected version|the song as it stands|the finished song|a link to/.test(t))return 'wavefile';\n"
                   + rec_route)
     vu_css = ".mk.vu svg{"
-    wavefile_css = ".mk.wavefile svg{width:28px;height:28px}\n" + vu_css
+    wavefile_css = ".mk.wavefile{height:36px}.mk.wavefile svg{width:28px;height:36px}\n" + vu_css
     if not (sample and links and styled and icon and tally in page and decided in page and using in page and shown in page
             and page.count(run_start) == 1 and page.count(eq_mark) == 1 and page.count(motifs) == 1 and page.count(family) == 1
             and page.count(rec_route) == 1 and page.count(vu_css) == 1):

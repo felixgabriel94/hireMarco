@@ -235,6 +235,6 @@ def test_a_song_file_gets_the_wave_file_mark_and_loudness_keeps_the_meter():
     # Owner 2026-11-03, option B: a square tile with a waveform for anything that is a song file
     page = tracewindow.PAGE.read_text()
     assert "if(mo==='wavefile')return '<span class=\"mk sv wavefile\">" in page and "const MOTIFS={wavefile:0," in page
-    assert "'rec','bars','wavefile']" in page and ".mk.wavefile svg{width:28px;height:28px}" in page
+    assert "'rec','bars','wavefile']" in page and ".mk.wavefile{height:36px}.mk.wavefile svg{width:28px;height:36px}" in page and ">WAV</text>" in page
     route = page[page.index("return 'wavefile';"):]
     assert page.index("return 'wavefile';") < page.index("return 'rec';") and "the final version" in page[page.index("function motifOf"):page.index("return 'wavefile';")]
