@@ -502,6 +502,70 @@ def apply_manifests(clips: list[Clip], tz: ZoneInfo, log):
                 log(f"  {f}: exact start for {n} files")
 
 
+# ---------------------------------------------------------------- count-in detector
+
+
+def countin_template(sr: int = SR) -> np.ndarray:
+    """Marco's Roll cue: 1 kHz beeps at 0, 0.5, 1.0 s (60 ms) and 1.5 s (250 ms, the sync mark)."""
+    t = np.arange(int(2.0 * sr)) / sr
+    y = np.zeros_like(t)
+    for at, dur in ((0.0, 0.06), (0.5, 0.06), (1.0, 0.06), (1.5, 0.25)):
+        m = (t >= at) & (t < at + dur)
+        y[m] = np.sin(2 * np.pi * 1000.0 * (t[m] - at))
+    return y
+
+
+def find_countins(x: np.ndarray, sr: int = SR) -> list[tuple[float, float]]:
+    """Seconds (onset of the long beep) where the count-in is heard, with a score, strongest first.
+
+    Envelope matched filter: the four-beep rhythm is unique enough that speech and music do not
+    mimic it; the long beep's onset is then refined on the raw 1 kHz band.
+    """
+    if len(x) < sr * 3:
+        return []
+    # 1 kHz band energy envelope at 1 ms steps
+    n = len(x)
+    t = np.arange(n) / sr
+    band = x * np.exp(-2j * np.pi * 1000.0 * t)
+    hop = sr // 1000
+    frames = n // hop
+    env = np.abs(band[: frames * hop].reshape(frames, hop).mean(axis=1))
+    env = env / (np.median(env) + 1e-9)
+    tmpl = np.zeros(2000)
+    for at, dur in ((0, 60), (500, 60), (1000, 60), (1500, 250)):
+        tmpl[at: at + dur] = 1.0
+    tmpl -= tmpl.mean()
+    score = np.correlate(env, tmpl, mode="valid")
+    if not len(score):
+        return []
+    thresh = score.mean() + 8 * score.std()
+    hits = []
+    i = 0
+    while i < len(score):
+        if score[i] > thresh:
+            j = i + int(np.argmax(score[i: i + 2000]))
+            if complete_countin(env[j: j + 2000]):
+                hits.append((j / 1000.0 + 1.5, float((score[j] - score.mean()) / (score.std() + 1e-9))))
+            i = j + 2000
+        else:
+            i += 1
+    return sorted(hits, key=lambda h: -h[1])
+
+
+def complete_countin(e: np.ndarray) -> bool:
+    """All four beats present at their spacing, the fourth long, each well above the gaps between them.
+
+    A camera that started after the first beat, or a count buried in room sound, fails here
+    rather than locking one beat off.
+    """
+    if len(e) < 1760:
+        return False
+    beats = [e[5:55].mean(), e[505:555].mean(), e[1005:1055].mean(), e[1505:1555].mean()]
+    tail = e[1600:1740].mean()  # the long beat still sounding where a short one would have stopped
+    gaps = np.concatenate([e[100:480], e[600:980], e[1100:1480]]).mean()
+    return min(beats) > 4 * gaps and tail > 3 * gaps and tail > 0.4 * beats[3]
+
+
 # ---------------------------------------------------------------- markers from Marco's log
 
 
@@ -965,6 +1029,24 @@ def main(argv=None) -> int:
     log(f"time of day taken from: {', '.join(truth) if (diffs or shift == 0.0 and truth and 'Mac clock' in truth[0]) else anchor + ' (no network-clock device synced)'}; shift {shift:+.3f}s")
     events = load_events(args.events, tz) if args.events and args.events.exists() else []
     events = sorted(events + load_slates(shoot, tz, log))
+    # count-ins: where each clip heard Marco's Roll cue, as a check on the sync and an extra marker
+    heard: dict[str, list[float]] = {}
+    for c in clips:
+        if c.has_audio and c.start is not None and not c.method.startswith("clock far off"):
+            for sec, score in find_countins(cache.get(c).astype(np.float64)):
+                heard.setdefault(c.device, []).append(c.start + c.audio_lead + sec)
+    marks = sorted(t for v in heard.values() for t in v)
+    groups: list[list[float]] = []
+    for t in marks:
+        if groups and t - groups[-1][-1] < 1.0:
+            groups[-1].append(t)
+        else:
+            groups.append([t])
+    for g in groups:
+        spread = (max(g) - min(g)) * 1000
+        events.append((float(np.median(g)), "Roll cue", f"heard by {len(g)} clips, spread {spread:.0f} ms"))
+        log(f"  count-in at {dt.datetime.fromtimestamp(np.median(g), tz).strftime('%H:%M:%S.%f')[:-3]} heard by {len(g)} clips, spread {spread:.0f} ms")
+    events.sort()
     if args.fps:
         fps = Fraction(args.fps)
     else:

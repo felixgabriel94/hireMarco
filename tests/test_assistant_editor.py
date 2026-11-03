@@ -106,3 +106,32 @@ def test_short_clip_locks_despite_a_louder_unrelated_neighbour(tmp_path):
     cam10.raw_start = 1070.0
     r = ae.try_sync(cam10, [anchor, cam40], cache, 1070.0, 300.0)
     assert r is not None and abs(r[0] - 1080.5) < 0.0015 and r[2] == "apollo"
+
+
+def test_countin_is_found_in_noisy_room_audio():
+    rng = np.random.default_rng(21)
+    sr = ae.SR
+    x = rng.standard_normal(sr * 30) * 0.1
+    t = np.arange(len(x)) / sr
+    x += np.sin(2 * np.pi * 220 * t) * 0.3 * (np.sin(2 * np.pi * 0.5 * t) > 0)  # a hummed note on and off
+    cue = ae.countin_template(sr) * 0.5
+    at = int(7.3 * sr)
+    x[at: at + len(cue)] += cue
+    hits = ae.find_countins(x, sr)
+    assert hits and abs(hits[0][0] - (7.3 + 1.5)) < 0.003
+    assert ae.find_countins(x[: at - sr], sr) == []
+
+
+def test_partial_countin_is_rejected():
+    rng = np.random.default_rng(22)
+    sr = ae.SR
+    x = rng.standard_normal(sr * 20) * 0.1
+    cue = ae.countin_template(sr) * 0.5
+    at = int(5.0 * sr)
+    x[at: at + len(cue)] += cue
+    cut = x[at + int(0.3 * sr):]  # the camera started after the first beat
+    assert ae.find_countins(cut, sr) == []
+    faint = rng.standard_normal(sr * 20) * 0.3
+    faint[at: at + len(cue)] += cue * 0.03  # count buried in the room sound
+    hits = ae.find_countins(faint, sr)
+    assert all(abs(h[0] - 6.5) < 0.003 for h in hits)  # found right or not at all
