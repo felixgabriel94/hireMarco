@@ -135,3 +135,30 @@ def test_partial_countin_is_rejected():
     faint[at: at + len(cue)] += cue * 0.03  # count buried in the room sound
     hits = ae.find_countins(faint, sr)
     assert all(abs(h[0] - 6.5) < 0.003 for h in hits)  # found right or not at all
+
+
+def test_all_day_body_mic_locks_to_a_short_anchor_segment(tmp_path):
+    """A 20-minute body-mic file with the anchor recording only one 50 s stretch of it (minute 13):
+    probes spread over the whole file would miss it; probes placed where the anchor has sound lock."""
+    sr = ae.SR
+    rng = np.random.default_rng(5)
+    total = 20 * 60
+    t = np.arange(sr * total) / sr
+    env = (np.sin(2 * np.pi * 1.9 * t) ** 2) * (rng.random(total + 1)[t.astype(int)] > 0.35)
+    room = (np.convolve(rng.standard_normal(len(t)), np.ones(8) / 8, "same") * env).astype(np.float32)
+    del t, env
+    cache = ae.AudioCache(tmp_path / "cache")
+
+    def clip(name, a, b, dev, filt):
+        c = ae.Clip(path=tmp_path / name, device=dev, duration=b - a, has_video=False, has_audio=True)
+        seg = np.convolve(room[int(a * sr): int(b * sr)], filt, "same") + rng.standard_normal(int((b - a) * sr)).astype(np.float32) * 0.05
+        x = ae.prep(seg)
+        cache.memo[c.path] = (x / np.abs(x).max()).astype(np.float32)
+        return c
+
+    apollo = clip("apollo.wav", 780.0, 830.0, "audio-apollo", [1.0])
+    apollo.start = 50_000.0 + 780.0
+    rode = clip("rode.wav", 0.0, total, "audio-rode-me", [0.4, 0.4, 0.2])
+    guess = 50_000.0 + 2.5  # its own clock is 2.5 s off
+    r = ae.try_sync(rode, [apollo], cache, guess, 300.0)
+    assert r is not None and abs(r[0] - 50_000.0) < 0.0015 and r[2] == "apollo"

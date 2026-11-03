@@ -253,8 +253,9 @@ class AudioCache:
 
 
 def prep(x: np.ndarray) -> np.ndarray:
-    x = x.astype(np.float64)
-    x = x - x.mean() if len(x) else x
+    # float32 throughout: an all-day body-mic file at 8 kHz is ~1 GB as float32, twice that as float64
+    x = x.astype(np.float32, copy=False)
+    x = x - np.float32(x.mean(dtype=np.float64)) if len(x) else x
     # high-pass by first difference: room tone and hum matter less
     return np.diff(x, prepend=x[:1]) if len(x) else x
 
@@ -328,7 +329,7 @@ def try_sync(clip: Clip, placed: list[Clip], cache: AudioCache, guess: float, se
     within 5 ms. One strong peak on its own is not trusted: chance peaks between unrelated
     recordings can score high.
     """
-    x = cache.prepped(clip).astype(np.float64)
+    x = cache.prepped(clip)
     if len(x) < SR * 2 or np.abs(x).max() < 1e-6:
         return None
     dur = len(x) / SR
@@ -339,9 +340,13 @@ def try_sync(clip: Clip, placed: list[Clip], cache: AudioCache, guess: float, se
     else:
         n, plen = 1, dur
     probes = [max(0.0, (i + 0.5) * dur / n - plen / 2) for i in range(n)]
+    if dur > 3 * CHUNK_S:
+        long = long_clip_probes(clip, placed, guess, dur, search)
+        if long:
+            probes, plen = long
     results: list[tuple[float, float, Clip]] = []  # (clip start, z, reference clip)
     for p in probes:
-        seg = x[int(p * SR): int((p + plen) * SR)]
+        seg = x[int(p * SR): int((p + plen) * SR)].astype(np.float64)
         if np.abs(seg).max() < 1e-6:
             continue
         t0 = guess + clip.audio_lead + p - search
@@ -361,6 +366,35 @@ def try_sync(clip: Clip, placed: list[Clip], cache: AudioCache, guess: float, se
     if best is None:
         return None
     return best[0], best[1], best[3].name
+
+
+def long_clip_probes(clip: Clip, placed: list[Clip], guess: float, dur: float, search: float):
+    """Probe positions for a long recording (an all-day body mic): only where placed clips have sound.
+
+    Spread over a long file, three probes mostly land where nothing else was recording, so the two
+    that must agree never can. Here the overlap between the clip's expected span and the placed
+    sound is found, and up to three 60 s probes are spread across it (offsets into the clip).
+    """
+    lo, hi = guess - search, guess + dur + search
+    spans = []
+    for a, b in covered(placed, 0.0):
+        a, b = max(a, lo), min(b, hi)
+        if b - a >= 4.0:
+            spans.append((a, b))
+    if not spans:
+        return []
+    total = sum(b - a for a, b in spans)
+    plen = min(CHUNK_S, max(4.0, total / 3))  # a short overlap gets three shorter probes, not one long one
+    out = []
+    for i in range(3):
+        target = (i + 0.5) * total / 3  # the middle of the i-th third of the overlapping sound
+        for a, b in spans:
+            if target <= b - a:
+                p = a + target - plen / 2 - guess - clip.audio_lead
+                out.append(min(max(0.0, p), max(0.0, dur - plen)))
+                break
+            target -= b - a
+    return sorted(set(round(p, 3) for p in out)), plen
 
 
 def align(clips: list[Clip], anchor: str, cache: AudioCache, search: float, local_tz: ZoneInfo, log) -> dict[str, float]:
