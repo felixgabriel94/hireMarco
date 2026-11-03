@@ -13,7 +13,9 @@ command. The only exception is a problem: when a stream cannot start or dies and
 problem sound and texts the Owner what is wrong.
 
 Roll: the LaCie is checked first (never a silent fallback to the Mac), the recorder starts as its own process
-(``marco film roll``), and Marco waits until every stream is live. Only then the count-in plays, on the MacBook's own
+(``marco film roll``, opened through a hidden Terminal, because a process Marco's server starts itself is refused the
+screen while one Terminal starts has it: live 2026-11-03, the booth's rule too), and Marco waits until every stream
+is live. Only then the count-in plays, on the MacBook's own
 speakers (picked by name, so the cameras hear it) and on Marco's Apollo channel (the headphones and the film's audio).
 The long fourth beep is the Roll instant written to ``screen/slate.jsonl``. Right after the count the monitors are
 muted if they were not already; Cut unmutes them only if Marco muted them. The speakers' level does not move from Roll
@@ -26,6 +28,7 @@ import json
 import os
 import queue
 import re
+import shlex
 import signal
 import subprocess
 import sys
@@ -176,6 +179,48 @@ def recorder_command(folder: Path) -> list[str]:
             "film", "roll", str(folder)]
 
 
+def recorder_script(folder: Path) -> Path:
+    """The recorder's .command, for Terminal to open: Terminal's screen grant comes with it, and the first line hides
+    Terminal again the instant the window exists (Owner 2026-11-03: never a Terminal window on the MacBook)."""
+    log = Path(config.STATE_DIR) / "screenrec.log"
+    script = Path(config.STATE_DIR) / "film.command"
+    words = " ".join(shlex.quote(w) for w in recorder_command(folder))
+    body = ("#!/bin/zsh\n"
+            "printf '\\e]0;hireMarco recorder\\a'\n"
+            "osascript -e 'tell application \"System Events\" to set visible of process \"Terminal\" to false' >/dev/null 2>&1 &\n"
+            f"cd {shlex.quote(str(Path(__file__).resolve().parents[2]))} || exit 1\n"
+            "export PYTHONUNBUFFERED=1\n"
+            f"exec {words} >> {shlex.quote(str(log))} 2>&1\n")
+    script.parent.mkdir(parents=True, exist_ok=True)
+    script.write_text(body)
+    script.chmod(0o755)
+    return script
+
+
+def hide_terminal(delays=(0.3, 1.5, 3.0)) -> None:
+    for delay in delays:
+        time.sleep(delay)
+        subprocess.run(["osascript", "-e", 'tell application "System Events" to set visible of process "Terminal" to false'],
+                       check=False, capture_output=True, timeout=10)
+
+
+def open_recorder(folder: Path) -> None:
+    """Open the recorder's .command behind the front app in a hidden Terminal, and hide Terminal again as it comes."""
+    script = recorder_script(folder)
+    subprocess.run(["open", "-g", "-j", "-a", "Terminal", str(script)], check=False, timeout=15)
+    threading.Thread(target=hide_terminal, daemon=True, name="hide-terminal").start()
+
+
+def alive(pid: int | None) -> bool:
+    if not pid:
+        return False
+    try:
+        os.kill(int(pid), 0)
+    except (OSError, ValueError):
+        return False
+    return True
+
+
 def panel_running() -> bool:
     done = subprocess.run(["pgrep", "-f", "hiremarco.cli import main.*terminal|marco terminal"],
                           capture_output=True, text=True)
@@ -196,20 +241,23 @@ class Crew:
 
     def __init__(self, *, root: Path = FOOTAGE, tell: Callable[[str], None] | None = None,
                  play_cue: Callable[[str], tuple[float | None, list[str]]] = play, hand=None,
-                 spawn: Callable[[Path], subprocess.Popen] | None = None, status: Callable[[], dict] = read_status,
+                 spawn: Callable[[Path], None] = open_recorder, status: Callable[[], dict] = read_status,
+                 is_alive: Callable[[int | None], bool] = alive, kill: Callable[[int, int], None] = os.kill,
                  sleep: Callable[[float], None] = time.sleep, clock: Callable[[], float] = time.time,
                  panel: Callable[[], None] = start_panel, ready_timeout: float = READY_TIMEOUT_S):
         self.root = root
         self.tell = tell or (lambda text: None)
         self.play_cue = play_cue
         self._hand = hand
-        self.spawn = spawn or self._spawn
+        self.spawn = spawn
         self.status = status
+        self.is_alive = is_alive
+        self.kill = kill
         self.sleep = sleep
         self.clock = clock
         self.panel = panel
         self.ready_timeout = ready_timeout
-        self.proc: subprocess.Popen | None = None
+        self.pid: int | None = None        # the recorder's process, read from its status file
         self.folder: Path | None = None
         self.rolled_at: float | None = None
         self.told: set[str] = set()
@@ -224,14 +272,8 @@ class Crew:
             self._hand = monitor.hand()
         return self._hand
 
-    def _spawn(self, folder: Path) -> subprocess.Popen:
-        log = Path(config.STATE_DIR) / "screenrec.log"
-        log.parent.mkdir(parents=True, exist_ok=True)
-        return subprocess.Popen(recorder_command(folder), stdout=log.open("a"), stderr=subprocess.STDOUT,
-                                start_new_session=True, cwd=str(Path(__file__).resolve().parents[2]))
-
     def rolling(self) -> bool:
-        return self.proc is not None and self.proc.poll() is None
+        return self.pid is not None and self.is_alive(self.pid)
 
     def problem(self, text: str) -> None:
         """The one time Marco breaks the silence on set: the problem sound, then a text saying what is wrong."""
@@ -239,7 +281,7 @@ class Crew:
             return
         self.told.add(text)
         self.play_cue(PROBLEM_SOUND)
-        self.tell(text)
+        self.tell(f"{text} ({datetime.fromtimestamp(self.clock()).strftime('%-I:%M:%S%p').lower()})")
 
     def _flag(self, on: bool) -> None:
         from hiremarco.studio import monitor
@@ -276,8 +318,18 @@ class Crew:
             self.panel()
         except Exception:
             pass   # the recorder says so if the panel is missing
-        self.proc = self.spawn(folder)
+        try:
+            status_path().unlink()
+        except OSError:
+            pass
+        self.spawn(folder)
         state = self._wait_ready()
+        if self.pid is None or not self.is_alive(self.pid):
+            self.pid = None
+            self._flag(False)
+            self.problem("The recorder didn't start, so nothing is recording. Text Roll again; if it fails twice, "
+                         "start it from the keyboard: marco crew roll.")
+            return "crew: the recorder did not start"
         if not state.get("ready"):
             missing = [n for n, s in (state.get("streams") or {}).items() if not s.get("live")]
             if not state.get("audio_live"):
@@ -302,13 +354,16 @@ class Crew:
         return f"crew: rolling into {folder.name}, {live} screens" + (" + audio" if state.get("audio_live") else "")
 
     def _wait_ready(self) -> dict:
+        """The recorder's status file, once it says ready, or once its process is gone, or after the timeout."""
         waited, state = 0.0, {}
         while waited < self.ready_timeout:
             state = self.status()
-            if state.get("pid") == getattr(self.proc, "pid", None) and state.get("ready"):
-                return state
-            if self.proc is not None and self.proc.poll() is not None:
-                return state
+            if state.get("pid"):
+                self.pid = int(state["pid"])
+                if state.get("ready"):
+                    return state
+                if not self.is_alive(self.pid):
+                    return state
             self.sleep(0.25)
             waited += 0.25
         return state
@@ -320,13 +375,13 @@ class Crew:
         self._watching = True
 
         def run():
-            while self.rolling():
+            pid = self.pid
+            while self.pid == pid and self.is_alive(pid):
                 time.sleep(WATCH_S)
                 for line in self.status().get("problems") or []:
                     self.problem(line)
             self._watching = False
-            if self.proc is not None and self.proc.returncode not in (0, None, -signal.SIGINT, -signal.SIGTERM) \
-                    and self.folder is not None and self.rolled_at is not None:
+            if self.pid == pid and self.folder is not None:   # gone without a Cut
                 self.problem("The recorder stopped by itself. Text Roll to start again.")
 
         threading.Thread(target=run, daemon=True, name="crew-watch").start()
@@ -338,17 +393,25 @@ class Crew:
         return "crew: action"
 
     def cut(self) -> str:
-        if self.proc is None or self.folder is None:
+        if self.pid is None or self.folder is None:
             self._flag(False)
             return "crew: cut while not rolling"
         cut_at = self.clock()
         self.play_cue(CUT_SOUND)
-        proc, self.proc = self.proc, None
+        pid, self.pid = self.pid, None
         try:
-            proc.send_signal(signal.SIGINT)
-            proc.wait(timeout=STOP_TIMEOUT_S)
-        except (subprocess.TimeoutExpired, ProcessLookupError):
-            proc.kill()
+            self.kill(pid, signal.SIGINT)
+        except ProcessLookupError:
+            pass
+        waited = 0.0
+        while self.is_alive(pid) and waited < STOP_TIMEOUT_S:
+            self.sleep(0.25)
+            waited += 0.25
+        if self.is_alive(pid):
+            try:
+                self.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
         state = self.status()
         files = int(state.get("files") or 0)
         length = round(cut_at - (self.rolled_at or cut_at), 1)

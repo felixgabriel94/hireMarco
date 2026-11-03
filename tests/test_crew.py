@@ -23,24 +23,6 @@ def test_spoken_crew_words_and_slates_are_set_talk():
         assert not crew.set_talk(said), said
 
 
-class Proc:
-    def __init__(self, pid=4242):
-        self.pid, self.returncode, self.signals = pid, None, []
-
-    def poll(self):
-        return self.returncode
-
-    def send_signal(self, sig):
-        self.signals.append(sig)
-        self.returncode = -sig
-
-    def wait(self, timeout=None):
-        return self.returncode
-
-    def kill(self):
-        self.returncode = -9
-
-
 class Hand:
     def __init__(self, already=False):
         self.already, self.muted_by_me, self.calls = already, False, []
@@ -55,19 +37,31 @@ class Hand:
         return self.muted_by_me
 
 
+class Fakes:
+    """The recorder as the crew sees it: a status file, a process that is alive until it is killed."""
+
+    def __init__(self, ready=True, audio=True, pid=4242):
+        self.pid, self.living, self.kills, self.spawned, self.played, self.told = pid, {pid}, [], [], [], []
+        self.status = {"pid": pid, "ready": ready, "audio_live": audio, "files": 9,
+                       "streams": {"tv": {"live": True}, "logic-main": {"live": ready}}}
+
+    def kill(self, pid, sig):
+        self.kills.append((pid, sig))
+        self.living.discard(pid)
+
+
 def make(tmp_path, monkeypatch, *, ready=True, audio=True, root=None):
     monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
     root = root or (tmp_path / "13-footage")
     root.mkdir(parents=True, exist_ok=True)
-    played, told, proc = [], [], Proc()
+    f = Fakes(ready=ready, audio=audio)
     clock = iter(range(1_800_000_000, 1_800_009_999, 10))
-    status = {"pid": proc.pid, "ready": ready, "audio_live": audio, "files": 9,
-              "streams": {"tv": {"live": True}, "logic-main": {"live": ready}}}
-    c = crew.Crew(root=root, tell=told.append, hand=Hand(),
-                  play_cue=lambda name: (played.append(name), (1_800_000_000.0, []))[1],
-                  spawn=lambda folder: proc, status=lambda: status, sleep=lambda s: None,
-                  clock=lambda: float(next(clock)), panel=lambda: None, ready_timeout=1.0)
-    return c, played, told, proc, root
+    c = crew.Crew(root=root, tell=f.told.append, hand=Hand(),
+                  play_cue=lambda name: (f.played.append(name), (1_800_000_000.0, []))[1],
+                  spawn=f.spawned.append, status=lambda: f.status, is_alive=lambda pid: pid in f.living,
+                  kill=f.kill, sleep=lambda s: None, clock=lambda: float(next(clock)), panel=lambda: None,
+                  ready_timeout=1.0)
+    return c, f.played, f.told, f, root
 
 
 def slates(folder):
@@ -93,7 +87,7 @@ def test_action_marks_and_cut_stops_reports_and_gives_the_monitors_back(tmp_path
     assert c.do("action") == "crew: action"
     result = c.do("cut")
     assert result.startswith("crew: cut after ") and "9 files" in result
-    assert proc.signals and played == [crew.ROLL_SOUND, crew.CUT_SOUND]
+    assert proc.kills == [(4242, 2)] and proc.spawned and played == [crew.ROLL_SOUND, crew.CUT_SOUND]
     assert c.hand.calls == ["mute", "unmute"]
     assert not (tmp_path / "state" / monitor.ROLLING_FLAG).exists()
     day = next(root.iterdir())
@@ -119,7 +113,7 @@ def test_no_lacie_means_the_problem_sound_and_a_text_never_a_fallback(tmp_path, 
     c, played, told, proc, root = make(tmp_path, monkeypatch)
     c.root = tmp_path / "not-mounted"
     assert c.do("roll") == "crew: no LaCie, not rolling"
-    assert played == [crew.PROBLEM_SOUND] and "LaCie" in told[0]
+    assert played == [crew.PROBLEM_SOUND] and "LaCie" in told[0] and proc.spawned == []
     assert not c.rolling()
 
 
@@ -127,7 +121,24 @@ def test_a_stream_that_did_not_start_is_said_and_no_count_in_plays(tmp_path, mon
     c, played, told, proc, root = make(tmp_path, monkeypatch, ready=False)
     c.do("roll")
     assert played == [crew.PROBLEM_SOUND]
-    assert "logic-main" in told[0] and "rolling" in told[0]
+    assert "logic-main" in told[0] and "rolling" in told[0] and told[0].endswith("m)")   # the time: no two texts alike
+
+
+def test_a_recorder_that_died_at_the_start_is_said(tmp_path, monkeypatch):
+    c, played, told, proc, root = make(tmp_path, monkeypatch, ready=False)
+    proc.living.clear()
+    c.do("roll")
+    assert played == [crew.PROBLEM_SOUND] and not c.rolling() and "didn't start" in told[0]
+    assert not (tmp_path / "state" / monitor.ROLLING_FLAG).exists()
+
+
+def test_the_recorder_opens_through_a_hidden_terminal(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path)
+    script = crew.recorder_script(tmp_path / "2026-11-04")
+    body = script.read_text()
+    assert body.startswith("#!/bin/zsh") and "set visible of process \"Terminal\" to false" in body
+    assert "film roll" in body and "2026-11-04" in body and "screenrec.log" in body
+    assert script.stat().st_mode & 0o111
 
 
 def test_crew_words_in_whatsapp_get_blue_ticks_no_typing_no_reply_no_trace(tmp_path, monkeypatch):
