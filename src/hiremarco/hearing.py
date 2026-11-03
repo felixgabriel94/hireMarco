@@ -115,11 +115,23 @@ class Listener:
     """One realtime session: feed it PCM chunks, get finished sentences back."""
 
     def __init__(self, *, keywords: list[str] | None = None, joblog: JobLog | None = None,
-                 connect: Callable | None = None, on_partial: Callable[[str], None] | None = None):
+                 connect: Callable | None = None, on_partial: Callable[[str], None] | None = None,
+                 addressed: Callable[[str], bool] | None = None):
         self.keywords = keywords if keywords is not None else STUDIO_KEYWORDS
         self.on_partial = on_partial  # each partial transcript while a sentence is still being spoken
+        # which words reach the screen: only a line meant for Marco (Owner 2026-11-03: the room's own conversation
+        # is not Marco's thinking and stays off Marco Live); by default a line that opens with his name, and the
+        # booth passes its own judgement, which knows when he is already listening without his name
+        self.addressed = addressed
         self.joblog = joblog or JobLog()
         self._connect = connect
+
+    def for_marco(self, text: str) -> bool:
+        if self.addressed is not None:
+            return bool(self.addressed(text))
+        from hiremarco.studio.commands import strip_wake
+
+        return strip_wake(text) is not None
 
     def handshake(self) -> dict:
         return {
@@ -165,9 +177,11 @@ class Listener:
                         continue
                     event = json.loads(raw)
                     kind = event.get("type")
-                    if heard_call is None and kind != "error" and isinstance(event.get("transcript"), str) and event["transcript"].strip():
-                        # the line opens at the first words heard and closes when the sentence is complete, so the model's
-                        # light holds for as long as it is listening, not for an instant (Owner 2026-11-03)
+                    if heard_call is None and kind != "error" and isinstance(event.get("transcript"), str) \
+                            and event["transcript"].strip() and self.for_marco(event["transcript"]):
+                        # a line meant for Marco opens on the screen at its first words and closes when the sentence is
+                        # complete, so the model's light holds for as long as it is listening (Owner 2026-11-03); talk in
+                        # the room never opens one
                         heard_call = events.new_call_id()
                         events.emit("model_call_started", source="meta", model=MODEL, operation="listening", status="running",
                                     summary="listening", task=events.task_words("listen"), call_id=heard_call)
@@ -175,12 +189,22 @@ class Listener:
                         heard = event["transcript"].strip()
                         from hiremarco.crew import set_talk
                         if set_talk(heard):   # "Roll", "Cut", "Session, take 2": said for the cameras, not to Marco
-                            events.emit("model_call_completed", source="meta", model=MODEL, operation="listening",
-                                        status="ok", summary="listening", call_id=heard_call)
+                            if heard_call is not None:
+                                events.emit("model_call_completed", source="meta", model=MODEL, operation="listening",
+                                            status="ok", summary="listening", call_id=heard_call)
                             heard_call = None
                             continue
-                        events.emit("model_call_completed", source="meta", model=MODEL, operation="listening", status="ok",
-                                    summary=f"\u201c{heard}\u201d", call_id=heard_call)
+                        if self.for_marco(heard):
+                            if heard_call is None:
+                                heard_call = events.new_call_id()
+                                events.emit("model_call_started", source="meta", model=MODEL, operation="listening", status="running",
+                                            summary="listening", task=events.task_words("listen"), call_id=heard_call)
+                            events.emit("model_call_completed", source="meta", model=MODEL, operation="listening", status="ok",
+                                        summary=f"\u201c{heard}\u201d", call_id=heard_call)
+                        elif heard_call is not None:
+                            # it opened with his name and turned out not to be for him: closed without the room's words
+                            events.emit("model_call_completed", source="meta", model=MODEL, operation="listening", status="ok",
+                                        summary="Talk in the room, not for Marco.", call_id=heard_call)
                         heard_call = None
                         yield heard
                     elif self.on_partial is not None and isinstance(event.get("transcript"), str) \

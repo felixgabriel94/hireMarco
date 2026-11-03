@@ -1834,7 +1834,12 @@ def run_booth(*, dry_run: bool = False) -> int:
                         if calls_marco(partial):
                             booth.called_at = time.monotonic()
 
-                    async for line in Listener(on_partial=heard_name).sentences(mic()):
+                    def for_marco(text: str) -> bool:
+                        # what reaches Marco Live: a line with his name, or one said while he is still with you (the
+                        # same window hear() uses); the room's own conversation stays off the screen (Owner 2026-11-03)
+                        return strip_wake(text) is not None or (not booth.rolling and time.monotonic() - booth.awake_at < AWAKE)
+
+                    async for line in Listener(on_partial=heard_name, addressed=for_marco).sentences(mic()):
                         await asyncio.to_thread(booth.hear, line)
                     break  # the mic closed
                 except RuntimeError as dropped:

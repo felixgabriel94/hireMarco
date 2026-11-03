@@ -126,3 +126,52 @@ def test_an_error_event_carries_the_servers_message_and_empty_frames_are_never_s
     with pytest.raises(RuntimeError, match="invalid_request_error: audio frame was empty"):
         asyncio.run(run())
     assert b"" not in sock.sent and sum(1 for s in sock.sent if isinstance(s, bytes)) == 2
+
+
+def test_only_a_line_for_marco_reaches_the_screen(tmp_path, monkeypatch):
+    # Owner 2026-11-03: Marco Live showed the room's whole conversation; it shows what is said to Marco, nothing else
+    from hiremarco import config, events
+
+    monkeypatch.setenv("HIREMARCO_STATE", str(tmp_path))
+    monkeypatch.setenv("MODEL_API_KEY", "k")
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+
+    async def chunks():
+        yield b"\x00\x00" * 2400
+
+    def rows():
+        return [(r["kind"], r["summary"], r["call_id"]) for r in
+                (json.loads(l) for l in (tmp_path / "state" / events.NAME).read_text().splitlines())]
+
+    sock = FakeSocket([
+        {"type": "transcript", "transcript": "so Lucie, the chorus", "final": False},
+        {"type": "speechComplete", "turnId": 0, "transcript": "so Lucie, the chorus needs another take."},
+        {"type": "transcript", "transcript": "Marco, take", "final": False},
+        {"type": "speechComplete", "turnId": 1, "transcript": "Marco, take me to the chorus."},
+    ])
+
+    async def run():
+        listener = Listener(joblog=JobLog(tmp_path / "j.jsonl"), connect=lambda url: sock)
+        return [s async for s in listener.sentences(chunks())]
+
+    assert asyncio.run(run()) == ["so Lucie, the chorus needs another take.", "Marco, take me to the chorus."]
+    seen = rows()
+    assert [(k, s) for k, s, _ in seen] == [("model_call_started", "listening"),
+                                            ("model_call_completed", "“Marco, take me to the chorus.”")]
+    assert seen[0][2] == seen[1][2]
+
+    # the booth's own judgement wins when it is given: a line that opened as his and turned out not to be closes without
+    # the room's words, and a line without his name while he is still listening shows
+    sock2 = FakeSocket([{"type": "transcript", "transcript": "Marco's", "final": False},
+                        {"type": "speechComplete", "turnId": 0, "transcript": "Marco's line was great there."},
+                        {"type": "speechComplete", "turnId": 1, "transcript": "take me to the chorus."}])
+
+    async def run2():
+        listener = Listener(joblog=JobLog(tmp_path / "j.jsonl"), connect=lambda url: sock2,
+                            addressed=lambda text: not text.endswith("there."))
+        return [s async for s in listener.sentences(chunks())]
+
+    asyncio.run(run2())
+    assert [(k, s) for k, s, _ in rows()[2:]] == [
+        ("model_call_started", "listening"), ("model_call_completed", "Talk in the room, not for Marco."),
+        ("model_call_started", "listening"), ("model_call_completed", "“take me to the chorus.”")]
