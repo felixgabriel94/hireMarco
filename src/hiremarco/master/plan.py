@@ -103,7 +103,8 @@ SETTINGS_INSTRUCTIONS = (
     "expected lines, and you say why it is that value here. Use only the slots and control names given; a control "
     "listed in in_units is answered in that unit (dB, dBTP, ms, Hz, kHz, %), the rest as 0 to 100 percent of range; "
     "and leave alone what you are unsure of. A band's menus are listed under menus: on Pro-Q 3 each band has a Stereo "
-    "Placement (Left, Right, Stereo, Mid, Side), a Shape and a Slope, answered with choice and value 0. Stereo is the "
+    "Placement (Left, Right, Stereo, Mid, Side), a Shape and a Slope, answered with choice as exactly one of the words "
+    "under menu_options and value 0; a number, a frequency or a sentence in choice is refused. Stereo is the "
     "default and stays unless the audit or an audition names a problem that lives on one side, in the middle or in the "
     "sides, such as a wide low end (a band on Side); a tool or a setting is used only for a need, never to use it. "
     "Under direction you may get what a part of the sound sounded like on its own. Every change carries its reason with the number on this track it "
@@ -306,8 +307,10 @@ def roles_for(audit: Audit, deltas: Deltas | None, room: set[str], *, purpose: s
 
 
 def usable_changes(data: dict, chain: Chain) -> int:
-    """How many of the answer's changes name a control that exists on the slot they name (or the next one)."""
+    """How many of the answer's changes name a control that exists on the slot they name (or the next one); a menu
+    counts only with one of its own words in choice (run 38, 2026-11-03: three menus answered with a sentence)."""
     from hiremarco.studio.chain import control_named
+    from hiremarco.studio.plugins import MENU, menu_options
 
     by_number = {s.number: s for s in chain.slots if s.state}
     count = 0
@@ -315,6 +318,11 @@ def usable_changes(data: dict, chain: Chain) -> int:
         try:
             number, name = int(c.get("slot", 0)), str(c.get("parameter", ""))
         except (TypeError, ValueError):
+            continue
+        if MENU.match(name):
+            if str(c.get("choice") or "").strip() in menu_options(name) and any(
+                    by_number.get(n) is not None and name in by_number[n].state.fixed for n in (number, number + 1)):
+                count += 1
             continue
         for n in (number, number + 1):
             slot = by_number.get(n)
@@ -342,7 +350,10 @@ def settings_for(chain: Chain, audit: Audit, deltas: Deltas | None, plan: Master
         # asked once more with the exact names per slot
         listing = {s.number: sorted(s.state.changeable()) for s in chain.slots if s.state}
         data = _ask(client, SETTINGS_INSTRUCTIONS, {**payload, "note": "name each control exactly as this list "
-                                                                         "gives it, per slot, nothing else", "controls": listing},
+                                                                         "gives it, per slot, nothing else; a menu takes exactly "
+                                                                         "one of its menu_options words in choice, and every other "
+                                                                         "control takes its number in value with choice empty",
+                                                     "controls": listing},
                     job="master_settings", schema=CHANGES_SCHEMA, tokens=TOKENS_SETTINGS)
     changes = []
     for c in data.get("changes", []):

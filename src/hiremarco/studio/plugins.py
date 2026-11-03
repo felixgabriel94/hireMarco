@@ -144,6 +144,9 @@ class PluginState:
         menus = {n: v for n, v in self.fixed.items() if MENU.match(n) and not any(n.startswith(p + " ") for p in idle)}
         if menus:
             view["menus"] = menus
+            # the words each menu takes, so the brain answers with one of them (run 38, 2026-11-03: it answered a
+            # menu with a sentence, which is refused by name, and the run had nothing left to set)
+            view["menu_options"] = {n: list(menu_options(n)) for n in menus}
         profile = self.profile()
         if profile is not None:
             from hiremarco.mix.profiles import for_model as profile_view

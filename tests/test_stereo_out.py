@@ -129,30 +129,30 @@ def test_remove_is_planned_in_a_dry_run_and_refuses_a_row_that_is_not_there(tmp_
         so.remove("Pro-L 2", 500)
 
 
-def test_logic_behind_another_app_is_brought_back_from_the_dock_not_stopped(tmp_path, monkeypatch):
-    # Owner 2026-11-03: three runs ended because the Owner was reading the thread on the Mac; Marco clicks Logic in
-    # the Dock and carries on, and stops only when Logic will not come back
+def test_logic_behind_another_app_is_brought_back_not_stopped(tmp_path, monkeypatch):
+    # Owner 2026-11-03: three runs ended because the Owner was reading the thread on the Mac; Marco brings Logic back
+    # with activate and carries on, and stops only when Logic will not come back
     import json
 
     from hiremarco import config, events
 
     monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
-    fronts, scripts = iter(["Claude", "Logic Pro", "Logic Pro"]), []
+    fronts, scripts = iter(["Claude", "Logic Pro"]), []
 
     def osa(script):
         scripts.append(script)
         return next(fronts) if script == stereo_out.FRONT else ""
 
     stereo_out.front_is_logic(osa=osa, sleep=lambda s: None)
-    assert scripts == [stereo_out.FRONT, stereo_out.DOCK_LOGIC, stereo_out.FRONT, stereo_out.FRONT]
+    assert scripts == [stereo_out.FRONT, stereo_out.ACTIVATE, stereo_out.FRONT]
     rows = [json.loads(l) for l in (tmp_path / "state" / events.NAME).read_text().splitlines()]
     assert rows[-1]["summary"] == "Claude was in front; Marco brought Logic back." and rows[-1]["plain"].startswith("Marco brings Logic back")
 
     stuck = []
     with pytest.raises(RuntimeError, match="would not come back"):
         stereo_out.front_is_logic(osa=lambda s: stuck.append(s) or ("Claude" if s == stereo_out.FRONT else ""), sleep=lambda s: None)
-    assert stereo_out.DOCK_LOGIC in stuck and 'tell application "Logic Pro" to activate' in stuck
+    assert stuck == [stereo_out.FRONT, stereo_out.ACTIVATE, stereo_out.FRONT]
 
     quiet = []
     stereo_out.front_is_logic(osa=lambda s: quiet.append(s) or "Logic Pro", sleep=lambda s: None)
-    assert quiet == [stereo_out.FRONT]   # Logic already in front: no click, no line on the screen
+    assert quiet == [stereo_out.FRONT]   # Logic already in front: no call, no line on the screen

@@ -94,23 +94,21 @@ def same_plugin(wanted: str, shown: str) -> bool:
 
 
 FRONT = 'tell application "System Events" to get name of first process whose frontmost is true'
-DOCK_LOGIC = 'tell application "System Events" to tell process "Dock" to click UI element "Logic Pro" of list 1'
+ACTIVATE = 'tell application "Logic Pro" to activate'
 
 
 def front_is_logic(osa: Callable[[str], str] | None = None, sleep: Callable[[float], None] = time.sleep) -> None:
     """Logic in front before any click. When another app is in front (live 2026-11-02 and 2026-11-03: the Owner reading
-    the thread on the Mac ended three runs), Marco clicks Logic in the Dock, the way a person brings it back, waits and
-    checks again; `activate` is the quiet fallback, and he stops only when neither brings Logic back (Owner 2026-11-03:
-    continue, do not stop). Nothing is clicked in Logic until it is in front."""
+    the thread on the Mac ended three runs), Marco brings Logic back with the system's own activate, one call with no
+    mouse and no dependence on the Dock, waits and checks again; he stops only when Logic will not come back (Owner
+    2026-11-03: continue, do not stop; the icon's reaction in the Dock matters only at the first open, which is a launch
+    and bounces whatever starts it). Nothing is clicked in Logic until it is in front."""
     osa = osa or _osa
     name = osa(FRONT)
     if name == "Logic Pro":
         return
-    osa(DOCK_LOGIC)
+    osa(ACTIVATE)
     sleep(1.0)
-    if osa(FRONT) != "Logic Pro":
-        osa('tell application "Logic Pro" to activate')
-        sleep(1.0)
     now = osa(FRONT)
     if now != "Logic Pro":
         raise RuntimeError(f"Logic is not in front ({now or 'nothing'}) and would not come back; nothing was clicked")

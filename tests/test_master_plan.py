@@ -193,3 +193,18 @@ def test_settings_naming_controls_that_do_not_exist_are_asked_again_with_the_lis
     assert len(seen) == 2 and s.changes[0]["parameter"] == "Gain"
     body = json.loads(seen[1]["messages"][-1]["content"])
     assert body["controls"] == {"1": ["Gain"]} and "exactly as this list" in body["note"]
+
+
+def test_a_menu_answered_with_a_sentence_is_not_a_usable_change():
+    # run 38 (2026-11-03): Wonder answered three menus with "tilt_shelf_1500_#1_gain_1.0..." and nothing else; the
+    # words were refused by name and the run stopped instead of asking again
+    state = PluginState("Pro-Q 3", params={"Band 1 Gain": 30000.0}, ranges={"Band 1 Gain": (0.0, 60000.0)},
+                        fixed={"Band 1 Shape": "Bell", "Band 1 Stereo Placement": "Stereo"})
+    chain = Chain([Slot(2, "Pro-Q 3", False, state)])
+    junk = {"changes": [{"slot": 2, "parameter": "Band 1 Shape", "value": 0, "unit": "", "choice": "tilt_shelf_1500_#1_gain_1.0"},
+                        {"slot": 2, "parameter": "Band 1 Stereo Placement", "value": 0, "unit": "", "choice": "wide"}]}
+    assert plan.usable_changes(junk, chain) == 0
+    good = {"changes": [{"slot": 2, "parameter": "Band 1 Shape", "value": 0, "unit": "", "choice": "Tilt Shelf"},
+                        {"slot": 2, "parameter": "Band 1 Gain", "value": -1.0, "unit": "dB", "choice": "-1.0 dB"}]}
+    assert plan.usable_changes(good, chain) == 2
+    assert state.for_model()["menu_options"]["Band 1 Shape"][0] == "Bell"
