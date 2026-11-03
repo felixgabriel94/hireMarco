@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Marco's card watcher as a launchd agent. Copy to ~/Library/LaunchAgents/ai.hiremarco.cardwatch.plist,
+     fix the paths, then: launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.hiremarco.cardwatch.plist
+     Stop with: launchctl bootout gui/$(id -u)/ai.hiremarco.cardwatch -->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>ai.hiremarco.cardwatch</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/felixgabriel/.local/bin/uv</string>
+    <string>run</string>
+    <string>--project</string>
+    <string>/Users/felixgabriel/Code/hiremarco</string>
+    <string>python</string>
+    <string>/Users/felixgabriel/Code/hiremarco-editor/scripts/card_watch.py</string>
+    <string>--footage</string>
+    <string>/Volumes/LaCie/hireMarco Hackathon/13-footage</string>
+    <string>--edit</string>
+    <string>/Volumes/LaCie/hireMarco Hackathon/12-edit/marco</string>
+    <string>--events</string>
+    <string>/Users/felixgabriel/.local/state/hiremarco/events.jsonl</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>/Users/felixgabriel/.local/state/hiremarco/cardwatch.log</string>
+  <key>StandardErrorPath</key><string>/Users/felixgabriel/.local/state/hiremarco/cardwatch.log</string>
+</dict>
+</plist>
