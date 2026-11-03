@@ -287,7 +287,7 @@ class WhatsApp:
         sent = gate.execute_effect(
             self.conn, run, tenant_id=TENANT, idempotency_key=idempotency_key, capability="send_document",
             channel="whatsapp", target=to, department="assistant",
-            message=f"document {filename} {hashlib.sha256(data).hexdigest()[:16]}: {caption}",
+            message=f"file {filename} {hashlib.sha256(data).hexdigest()[:16]}: {caption}",   # a song is a file, not a document (Owner 2026-11-03)
             critic=critic, rules_path=self.rules_path,
         )
         remember(self.conn, "marco", f"[file {filename}] {caption}")
