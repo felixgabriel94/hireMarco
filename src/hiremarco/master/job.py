@@ -539,7 +539,7 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
     except Exception as exc:
         # the page says the job stopped, not the last thing it was doing, and the beat stops with it
         events.emit("job_ended", source="marco", status="failed", summary=f"{type(exc).__name__}: {str(exc)[-100:]}",
-                    plain="Marco stopped here. Something went wrong, and he says so.")
+                    plain="Marco hits a wall and stops rather than guess.")   # Owner 2026-11-03: no "says so" without a real message
         raise
     finally:
         release_lock(lock)
@@ -985,7 +985,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
                 result.stopped = "the master failed verification against the mix: " + "; ".join(result.verdict.reasons)
                 log(f"   {result.stopped}")
                 events.emit("job_ended", source="marco", status="failed", summary="Not verified",
-                            plain="The final version failed its check. Marco stops and says so.")
+                            plain="The final version failed its check. Marco stops rather than guess.")
                 break
         gap = result.plan.target_lufs - am.base.lufs
         over = am.base.true_peak_db - result.plan.ceiling_dbtp
