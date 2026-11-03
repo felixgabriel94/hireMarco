@@ -10,7 +10,8 @@ each copy by SHA-256. The device folder is guessed from the card's layout (Sony,
 place is reported, not guessed. When the copy ends the Owner gets a macOS notification and a line in
 <footage>/cards.log, and the card is left untouched: nothing is ever formatted or deleted. The same card plugged
 in twice is not copied twice; a card that failed is tried again on the next plug-in.
-The watcher never touches the shared repo, the trace, or WhatsApp.
+It also keeps the Mac's Cmd+Shift+5 save location on today's screen/manual folder, so the Owner's own
+recordings follow the date. The watcher never touches the shared repo, the trace, or WhatsApp.
 """
 from __future__ import annotations
 
@@ -117,8 +118,27 @@ def line_up(footage: Path, edit: Path, extra: list[str]) -> str:
     return f"Line-up failed on {day}: {err}"
 
 
+_pointed_at: Path | None = None
+
+
+def point_screen_recordings(footage: Path) -> Path | None:
+    """Keep the Mac's Cmd+Shift+5 save location on today's screen/manual folder, so it follows the date."""
+    global _pointed_at
+    target = today_folder(footage) / "screen" / "manual"
+    if _pointed_at == target or sys.platform != "darwin":
+        return None
+    target.mkdir(parents=True, exist_ok=True)
+    subprocess.run(["defaults", "write", "com.apple.screencapture", "location", str(target)], check=False)
+    subprocess.run(["killall", "SystemUIServer"], check=False, capture_output=True)
+    _pointed_at = target
+    return target
+
+
 def sweep(footage: Path, dry_run: bool = False, edit: Path | None = None, extra: list[str] | None = None) -> list[str]:
     out = []
+    moved = point_screen_recordings(footage)
+    if moved:
+        log_line(footage, f"screen recordings now save to {moved}")
     landed = False
     for card in offload.candidates():
         verdict = handle(card, footage, dry_run)
