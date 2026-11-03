@@ -30,13 +30,13 @@ CANDIDATES: dict[str, list[str]] = {
              "UAD elysia alpha master", "UAD Manley Variable Mu", "UAD API 2500", "SSL Native Bus Compressor 2",
              "Ozone 11 Vintage Compressor", "Compressor"],
     # native plug-ins before the UAD DSP ones: a DSP plug-in on the Stereo Out prints only in real time (2026-11-02)
-    "tonal_eq": ["AMEK EQ 250", "Pro-Q 3", "Ozone 11 Vintage EQ", "UAD Manley Massive Passive MST", "UAD Pultec EQP-1A",
+    "tonal_eq": ["AMEK EQ 250", "Pro-Q 3", "SSL Native X-EQ 2", "SSL Fusion Violet EQ", "Ozone 11 Vintage EQ", "UAD Manley Massive Passive MST", "UAD Pultec EQP-1A",
                  "Vintage Tube EQ", "Channel EQ"],
     "color": ["Kiive Tape Face", "UAD Ampex ATR-102", "Black Box Analog Design HG-2MS", "Saturn 2",
-              "SSL Fusion Vintage Drive", "Ozone 11 Vintage Tape", "UAD Oxford Inflator", "Phat FX"],
+              "SSL Fusion Vintage Drive", "Virtual Tape Machines", "SSL Native X-Saturator v6", "Ozone 11 Vintage Tape", "UAD Oxford Inflator", "Phat FX"],
     "width": ["Ozone 11 Imager", "SSL Fusion Stereo Image", "Black Box Analog Design HG-2MS", "Stereo Spread",
               "Direction Mixer"],
-    "limiter": ["Pro-L 2", "UAD Oxford Limiter", "Ozone 11 Maximizer", "bx_limiter True Peak", "SSL X-Limit",
+    "limiter": ["Pro-L 2", "UAD Oxford Limiter", "Ozone 11 Maximizer", "FG-X 2", "bx_limiter True Peak", "SSL X-Limit",
                 "UAD Precision Limiter", "Adaptive Limiter", "Limiter"],
     "meter": ["Tonal Balance Control 2", "SSL Meter", "Loudness Meter", "MultiMeter", "Correlation Meter"],
 }

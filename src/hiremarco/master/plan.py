@@ -77,7 +77,7 @@ AUDIT_SCHEMA = {
             "role": {"type": "string"}, "plugin": {"type": "string"},
             "measured": {"type": "string", "description": "the number on this track the decision rests on, as the audit gives it"},
             "why": {"type": "string", "description": "the principle and the move, one sentence"},
-            "plain": {"type": "string", "description": "the same decision for someone who knows nothing about audio: first person, one short sentence, at most 12 words, no units and no plug-in names"},
+            "plain": {"type": "string", "description": "the same decision for someone who has never been in a studio: first person, one short everyday sentence, at most 12 words, no numbers, no units, no plug-in names, no music or audio terms"},
             "expected": {"type": "string", "description": "what the print should measure differently with it in"},
             "exception": {"type": "string", "description": "what about this track would make the rule not apply, and why it applies"}},
             "required": ["role", "plugin", "measured", "why", "plain", "expected", "exception"], "additionalProperties": False}},
@@ -152,8 +152,10 @@ def _audit_line(text: str) -> str:
 
 
 def _settings_line(text: str) -> str:
-    said = str(json.loads(text).get("said", "")).strip()
-    return said.split(". ")[0].rstrip(".") + "." if said else f"{len(json.loads(text).get('changes') or [])} controls set."
+    from hiremarco import events
+
+    data = json.loads(text)
+    return events.readable(str(data.get("said", ""))) or f"{len(data.get('changes') or [])} controls set, each with a reason."
 
 
 SUMMARIES = {"master_audit": _audit_line, "master_settings": _settings_line}

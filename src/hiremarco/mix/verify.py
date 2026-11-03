@@ -122,7 +122,7 @@ def compare(mix_path: Path, master_path: Path, bpm: float, *, start_s: float | N
     stretch = f"{length_s:.0f} s from {start_s:.0f} s" if start_s is not None and length_s else "the whole song"
     call_id = events.new_call_id()
     events.emit("verification_started", source="marco", operation="verification", status="running",
-                summary=f"{Path(master_path).stem[:50]} against the mix, {stretch}", call_id=call_id)
+                summary="Compare the result with the original.", detail=f"{Path(master_path).stem[:50]}, {stretch}", call_id=call_id)
     began = time.monotonic()
     v = Verdict(True)
     try:
@@ -130,7 +130,8 @@ def compare(mix_path: Path, master_path: Path, bpm: float, *, start_s: float | N
     finally:
         events.emit("verification_completed", source="marco", operation="verification",
                     status="ok" if v.passed else "failed",
-                    summary=("verified" if v.passed else "not verified: " + (v.reasons[0] if v.reasons else "")),
+                    summary="Checked." if v.passed else "The check failed.", detail="" if v.passed else (v.reasons[0] if v.reasons else ""),
+                    plain="" if v.passed else "The check failed. The song changed more than it should.",
                     metrics=_verdict_metrics(v), latency_ms=int((time.monotonic() - began) * 1000), call_id=call_id)
     return v
 

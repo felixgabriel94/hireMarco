@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from hiremarco import gate, rules
+from hiremarco import events, gate, rules
 from hiremarco.meta.client import MuseSpark
 
 TENANT = "owner"
@@ -41,7 +41,7 @@ def parse(text: str) -> tuple[bool, str]:
 def verdict_line(text: str) -> tuple[str, str]:
     """The critic's verdict for the live view: a hold reads as held."""
     approved, reason = parse(text)
-    return ("ok", f"Approved. {reason}") if approved else ("refused", f"Held. {reason}")
+    return ("ok", "Approved.") if approved else ("refused", f"Held. {events.readable(reason)}".strip())
 
 
 class Critic:

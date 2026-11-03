@@ -232,7 +232,7 @@ def run_bench(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycl
         for ins in [i for i in strip.read().inserts if i.marcos and i.name in marcos and not i.bypassed]:
             strip.bypass(True, rows=[ins.y])
             try:
-                with events.step(f"Print the song without {ins.name}", motif="rec"):
+                with events.step(f"Try the song without {ins.name}", motif="rec"):
                     without = measure(short_print(f"bench without {ins.name}"))
             finally:
                 strip.bypass(False, rows=[ins.y])
@@ -247,13 +247,13 @@ def run_bench(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycl
             if earned:
                 log(f"   {ins.name} earns its place: without it level {-effect['level_db']:+.1f} dB, crest "
                     f"{-effect['crest_db']:+.1f} dB, tilt {-effect['tilt_db_per_octave']:+.2f}, {widest[0]} {-widest[1]:+.1f} dB")
-                events.thought(f"{ins.name} stays. It does measurable work here.",
+                events.thought(f"{ins.name} stays. It makes a real difference.",
                                detail=f"Without it: level {-effect['level_db']:+.1f} dB, crest {-effect['crest_db']:+.1f} dB.")
             else:
                 log(f"   {ins.name} changes nothing measurable here (level {effect['level_db']:+.1f}, crest "
                     f"{effect['crest_db']:+.1f}, {widest[0]} {widest[1]:+.1f} dB): taken off")
                 events.emit("tool_skipped", source="marco", status="refused", tool="Logic Pro", summary=f"{ins.name} taken off.",
-                            detail="It changed nothing he could measure.", plain=f"Marco took {ins.name} off. It changed nothing.")
+                            detail="It changed nothing he could measure.", plain=f"Marco removed {ins.name}. It made no difference.")
                 try:
                     strip.remove(ins.name, ins.y)
                 except Exception as exc:   # noqa: BLE001
@@ -329,7 +329,7 @@ def emit_analysis(audit, hearing) -> None:
             if rest:
                 stands.append(("Vocal balance", f"{stems['lufs']['vocals'] - max(rest):+.1f}", "dB"))
         events.emit("analysis_generated", source="marco", operation="mastering analysis", status="ok",
-                    summary=f"{b.lufs} LUFS, {b.true_peak_db} dBTP, crest {b.crest_db} dB, range {a.loudness_range} LU",
+                    summary="Measured.",
                     metrics=stands[:4], confidence=a.key_confidence if a.key else None)
     except Exception:   # noqa: BLE001  (the trace never stops the work)
         pass
@@ -370,7 +370,7 @@ def climb_ladder(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_c
         locators(*bars)
         ensure_range(bouncer, bars[1], toggle_cycle, log)
         name = bouncing.free_name(folder, bouncing.print_name(job.song, label, job.today))
-        with events.step(f"Print the loudest bars at {label.removeprefix('ladder ')}", motif="fader"):
+        with events.step("Try the loudest part, one step louder", motif="fader"):
             return bouncer.print(bouncing.CHECK, folder, name).path
 
     def compare(path: Path):
@@ -400,9 +400,9 @@ def climb_ladder(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_c
         ensure_range(bouncer, job.end_bar, toggle_cycle, log)
     if out.ceiling_gain_db is not None:
         events.emit("decision_made", source="marco", operation="loudness ceiling", status="ok",
-                    summary=f"ceiling: limiter gain {out.ceiling_gain_db:+.1f} dB, {out.ceiling_lufs:.1f} LUFS on the loudest bars",
+                    summary="As loud as it goes before it suffers.",
                     detail=f"what gave first: {out.gave_first}" if out.gave_first else "nothing gave within the ladder",
-                    thought=f"The ceiling is {out.ceiling_lufs:.1f} LUFS on the loudest bars. Louder breaks it.",
+                    thought="That is as loud as this song goes before it suffers.",
                     metrics=[("Steps", str(len(out.steps)), ""), ("Ceiling", f"{out.ceiling_lufs:.1f}", "LUFS")])
     return out.as_dict()
 
@@ -489,7 +489,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
     # 1. the mix as it stands: Marco's own inserts bypassed, the artist's untouched
     log("1. the mix print")
     events.emit("job_started", source="marco", operation="Mastering the song", status="ok", stages=STAGES, stage="Listen",
-                plain="Marco is printing the mix so he can measure it.", pid=os.getpid())
+                plain="Marco is finishing this song so it is ready for release.", pid=os.getpid())
     select_track()   # a plain track first: a stack selected makes the Mixer's Single view too wide to click
     strip.open_mixer()
     before = strip.read()
@@ -507,9 +507,10 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
     else:
         locators(1, job.end_bar)
         ensure_range(bouncer, job.end_bar, toggle_cycle, log)
-        with events.step("Print the mix as it stands", motif="rec") as line:
+        with events.step("Save the song as it stands", motif="rec") as line:
             mix = bouncer.print(bouncing.MIX, bounces, mix_name)
-            line["summary"] = f"Mix printed: {mix.seconds} s."
+            line["summary"] = "Saved."
+            line["metrics"] = [("Length", f"{mix.seconds:.0f}", "s")]
         log(f"   {mix.path.name}: {mix.seconds} s, {mix.rate} Hz {mix.subtype}, {mix.took_s} s to print")
     result.mix = mix.path
     if job.bpm and job.check_range is None:
@@ -528,10 +529,11 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
 
     # 2. the audit, against the references the artist owns
     log("2. the audit")
-    events.stage("Listen", "Marco is measuring the mix before he touches it.")
-    with events.step("Measure loudness, peaks, tone and width", tool="Marco's ears", motif="vu") as line:
+    events.stage("Listen", "Marco is measuring the song before he touches it.")
+    with events.step("Measure volume, tone and width", tool="Marco's ears", motif="vu") as line:
         result.audit_mix = auditing.audit_file(mix.path)
-        line["summary"] = f"{result.audit_mix.base.lufs} LUFS, crest {result.audit_mix.base.crest_db} dB."
+        line["summary"] = "Measured."
+        line["metrics"] = [("Loudness", str(result.audit_mix.base.lufs), "LUFS"), ("Crest", str(result.audit_mix.base.crest_db), "dB")]
     if result.audit_mix.base.silent:
         result.stopped = f"the mix print is silent ({mix.path.name}); nothing to master"
         log(f"   {result.stopped}")
@@ -550,12 +552,12 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             log(f"   {line}")
 
     emit_analysis(result.audit_mix, result.hearing)
-    for finding in auditing.findings(result.audit_mix)[:3]:
-        events.thought(f"I found this: {finding}.")
+    for words in events.plain_findings(auditing.findings(result.audit_mix)):
+        events.thought(words)
 
     # 3. the plan, from the deepest brain, judged by the critic
     log("3. the plan")
-    events.stage("Think", "Marco is writing the mastering plan.")
+    events.stage("Think", "Marco is deciding what this song needs.")
     result.plan = planning.roles_for(result.audit_mix, deltas, room, purpose=job.purpose, direction=job.direction,
                                      stock_only=job.stock_only, client=client, critic=critic, hearing=result.hearing)
     for r in result.plan.roles:
@@ -567,7 +569,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             as_model("")
         events.emit("decision_made", source="marco", operation=r["role"].replace("_", " "), status="ok",
                     summary=f"{r['role'].replace('_', ' ')}: {r['plugin']}", detail=str(r.get("why", "")),
-                    thought=str(r.get("plain", "")) or f"{r['role'].replace('_', ' ')}: {r['plugin']}.",
+                    thought=events.readable(str(r.get("plain", ""))),
                     metrics=[("Measured", str(r.get("measured", ""))[:24], "")] if r.get("measured") else None)
     log(f"   target {result.plan.target_lufs} LUFS, ceiling {result.plan.ceiling_dbtp} dBTP")
     if result.plan.critic:
@@ -575,7 +577,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
     if result.plan.critic and not result.plan.critic[0]:
         result.stopped = f"the critic held the plan: {result.plan.critic[1]}"
         log(f"   {result.stopped}")
-        events.emit("job_ended", source="marco", status="refused", summary="Held", plain="The critic held the plan. Marco stops here.")
+        events.emit("job_ended", source="marco", status="refused", summary="Held", plain="A second opinion held the plan. Marco stops here.")
         return result
     if job.purpose == "mix" or not PURPOSES[job.purpose]["limiter"]:
         result.stopped = "a mix for mastering takes no chain; the mix print is the delivery"
@@ -583,7 +585,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
 
     # 4. the chain on the Stereo Out, in the rulebook's order
     log("4. the chain")
-    events.stage("Build", "Marco is putting the plug-ins on the output.")
+    events.stage("Build", "Marco is setting up his tools in the studio software.")
     strip.open_mixer()   # the Mixer window was gone once by this step (live 2026-11-02, run 13); it comes back
     # what counts as on the strip: every insert that was there before the job, bypassed or not. A run that died
     # mid-way leaves the whole chain bypassed, and counting only what was in doubled the chain (runs 14 and 23,
@@ -645,7 +647,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
                 break
             log(f"   {landed[-1]} shows a notice on its face: {face.notice!r}; left out")
             events.emit("tool_skipped", source="marco", status="refused", tool="Logic Pro", summary=f"{candidate} left out.",
-                        detail=f"Its window says: {face.notice}", plain=f"Marco left {candidate} out. It is not licensed here.")
+                        detail=f"Its window says: {face.notice}", plain=f"Marco left {candidate} out. Its license is not active.")
             row = [i for i in after.inserts if i.name == landed[-1]][-1]
             strip.bypass(True, rows=[row.y])
             if mark_plugin is not None:
@@ -700,7 +702,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             plugin = plugin_of.get(row["name"], row["name"])
             log(f"   {row['name']} shows {face.notice!r} on its face: not owned, taken off the strip")
             events.emit("tool_skipped", source="marco", status="refused", tool="Logic Pro", summary=f"{plugin} taken off.",
-                        detail=f"Its window says: {face.notice}", plain=f"Marco took {plugin} off. It is not owned.")
+                        detail=f"Its window says: {face.notice}", plain=f"Marco removed {plugin}. It is not licensed here.")
             try:
                 strip.remove(row["name"], row["y"])
             except Exception as exc:   # noqa: BLE001
@@ -715,15 +717,15 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
 
     # 4b. the chain proves it passes audio before anything is set or printed for real
     log("4b. the chain check")
-    events.stage("Build", "Marco is proving the chain passes sound.")
-    with events.step("Print a short check through the chain", motif="wave"):
+    events.stage("Build", "Marco is checking the sound gets through his tools.")
+    with events.step("Play a short test through the tools", motif="wave"):
         result.dead += [d for d in prove_chain(strip, bouncer, locators, toggle_cycle, job, log, plugin_of=plugin_of, mark=mark_plugin,
                                                mix_path=result.mix)
                         if d not in result.dead]
 
     # 5. the settings, read and set through the Inspector's output strip
     log("5. the settings")
-    events.stage("Build", "Marco is setting every control, with a reason.")
+    events.stage("Build", "Marco is setting every control, and writing down why.")
     select_track()
     chain = channel.read(fresh=True)
     direction = job.direction
@@ -743,14 +745,14 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             break
         result.settings += settings.changes
         log(f"   {settings.said}")
-        if settings.said:
-            events.thought(settings.said)
+        if events.readable(settings.said):
+            events.thought(events.readable(settings.said))
 
         if bench and round_no == 1:
             # 5b. the bench: each insert printed with and without over the same bars, now that it is set; what
             # changes nothing comes off (Owner 2026-11-02: every decision earns its place with a measured reason)
             log("5b. the bench")
-            events.stage("Test", "Every tool has to earn its place. Marco tests each one.")
+            events.stage("Test", "Every tool must earn its place. Marco tests each one.")
             result.bench = run_bench(strip, bouncer, locators, toggle_cycle, job, log, marcos_inserts(job.song))
             if any(not row["earned"] for row in result.bench):
                 chain = channel.read(fresh=True)
@@ -758,7 +760,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
         if ladder and round_no == 1 and job.bpm and job.bar_s:
             # 5c. the loudness ladder: as loud as this mix stays clean, on its loudest bars (Owner 2026-11-02)
             log("5c. the loudness ladder")
-            events.stage("Test", "Marco turns it up one step at a time, until it breaks.")
+            events.stage("Test", "Marco turns it up, one step at a time, until it suffers.")
             try:
                 result.ladder = climb_ladder(strip, bouncer, locators, toggle_cycle, channel, job, result, listen, log)
             except Exception as exc:   # noqa: BLE001
@@ -766,20 +768,22 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
 
         # 6. the master print, read back
         log(f"6. the master print (round {round_no})")
-        events.stage("Print", f"Marco is printing the master, round {round_no}.")
+        events.stage("Print", f"Marco is saving the final version, attempt {round_no}.")
         name = bouncing.free_name(bounces, bouncing.print_name(job.song, "master" if round_no == 1 else f"master v{round_no}",
                                                                job.today))
-        with events.step(f"Print the master, round {round_no}", motif="rec") as line:
+        with events.step(f"Save the final version, attempt {round_no}", motif="rec") as line:
             master = bouncer.print(bouncing.MASTER, bounces, name)
-            line["summary"] = f"Master printed: {master.seconds} s."
+            line["summary"] = "Saved."
+            line["metrics"] = [("Length", f"{master.seconds:.0f}", "s")]
         result.master = master.path
-        events.stage("Check", "Marco is measuring what actually landed.")
-        with events.step("Measure the print", tool="Marco's ears", motif="vu") as line:
+        events.stage("Check", "Marco is checking what actually came out.")
+        with events.step("Measure what came out", tool="Marco's ears", motif="vu") as line:
             result.audit_master = auditing.audit_file(master.path)
-            line["summary"] = f"{result.audit_master.base.lufs} LUFS, {result.audit_master.base.true_peak_db} dBTP."
+            line["summary"] = "Measured."
+            line["metrics"] = [("Loudness", str(result.audit_master.base.lufs), "LUFS"), ("True peak", str(result.audit_master.base.true_peak_db), "dBTP")]
         am = result.audit_master
         if listen is not None:
-            with events.step("Listen to the print", tool="Marco's ears", motif="wave"):
+            with events.step("Listen to what came out", tool="Marco's ears", motif="wave"):
                 result.hearing_master = listen(master.path)
             for line in listening.highlights(result.hearing_master):
                 log(f"   {line}")
@@ -792,7 +796,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
                 result.stopped = "the master failed verification against the mix: " + "; ".join(result.verdict.reasons)
                 log(f"   {result.stopped}")
                 events.emit("job_ended", source="marco", status="failed", summary="Not verified",
-                            plain="The master failed against the mix. Marco stops and says so.")
+                            plain="The final version failed its check. Marco stops and says so.")
                 break
         gap = result.plan.target_lufs - am.base.lufs
         over = am.base.true_peak_db - result.plan.ceiling_dbtp
@@ -811,9 +815,9 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
                      f"other control where it is, and hold the ceiling at {result.plan.ceiling_dbtp} dBTP")
         log(f"   {direction}")
         events.emit("verification_completed", source="marco", operation="the master against its target", status="failed",
-                    summary=f"{am.base.lufs} LUFS against {result.plan.target_lufs}, {am.base.true_peak_db} dBTP against {result.plan.ceiling_dbtp}.",
-                    plain=f"The print came out too {'quiet' if gap > 0 else 'loud'}" + (" and over the ceiling" if over > CEILING_TOLERANCE else "")
-                    + ". Marco goes back to fix it.", stage="Build",
+                    summary="It missed the target.",
+                    plain=(f"It came out too {'quiet' if gap > 0 else 'loud'}" + (" and over the safe limit" if over > CEILING_TOLERANCE else "")
+                           if abs(gap) > LUFS_TOLERANCE else "It came out over the safe limit") + ". Marco goes back to fix it.", stage="Build",
                     metrics=[("Loudness", str(am.base.lufs), "LUFS"), ("True peak", str(am.base.true_peak_db), "dBTP")])
         chain = channel.read(fresh=False)
 
@@ -831,7 +835,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
     }, indent=1, default=str))
     if deliver is not None and result.master is not None and not result.stopped:
         log("7. the delivery")
-        events.stage("Deliver", "The master is done. Marco is sending it to the artist.")
+        events.stage("Deliver", "It is done. Marco is sending the song to the artist.")
         log("   " + deliver(result.master, result.caption))
         events.emit("message_sent", source="marco", status="ok", via="WhatsApp", text=result.caption)
         log("   " + deliver(result.mix, f"The mix as it stands, no master: {result.audit_mix.base.lufs} LUFS, "

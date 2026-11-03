@@ -35,6 +35,23 @@ PLAIN_CHARS = 90      # the design's budget for the Now sentence (trace/FEED-RUL
 LINE_CHARS = 120      # task, thought, a text, the design's hard limit
 SUBJECT_CHARS = 40
 MAIL_FLAG = "trace.mail"
+# Words a judge who has never been in a studio would not follow (Owner, 2026-11-02: nobody gets lost). The sentence on
+# the screen says it in everyday words; the trade's words and numbers stay in the proof and the raw events.
+JARGON = re.compile(r"\b(lufs|lu|dbtp|db|hz|khz|crest|limiter|compressors?|plug-?ins?|chain|mix|mixes|master|mastering|print|prints|printed|printing|"
+                    r"bounce|stems?|eq|rms|peaks?|transients?|correlation|mono|bus|inserts?|strip|side ?chain|saturat\w*|resonan\w*|octaves?|"
+                    r"s-master-\d+|r-aud-\d+)\b", re.I)
+# what the audit's findings mean, in everyday words; a finding not here stays in the proof and off the big lines
+PLAIN_FINDINGS = (
+    (r"clipped", "Parts of the recording hit the limit and distort."),
+    (r"true peak .* over", "The loudest moments go over the safe limit."),
+    (r"clicks or dropouts", "I hear small clicks in the recording."),
+    (r"rumble", "There is low rumble under the music."),
+    (r"mono playback loses", "Part of the sound disappears on a single speaker."),
+    (r"low end .* is wide", "The bass spreads too wide. It could weaken on a club system."),
+    (r"resonance", "One note rings louder than the rest."),
+    (r"already limited hard", "The song is already squeezed hard."),
+    (r"little dynamic movement", "The loud and quiet parts sit very close together."),
+)
 
 # the job names the code already passes, in the words a judge reads; a job not here reads as its name with spaces
 OPERATIONS = {
@@ -48,17 +65,17 @@ OPERATIONS = {
 }
 # what each job asks a model, present tense, for the live view; a job not here reads as its operation words
 TASKS = {
-    "master_audit": "Write the mastering plan from the measurements", "master_settings": "Set every control, with a reason",
-    "critic": "Critic: approve or hold it", "plugin_face": "Read the plug-in's window", "segment": "Find the pieces in the photo",
+    "master_audit": "Decide what this song needs, from the measurements", "master_settings": "Set every control, and say why",
+    "critic": "Second opinion: approve or hold", "plugin_face": "Read the tool's window: is it licensed?", "segment": "Find the pieces in the photo",
     "dress-looks": "Build three looks from the pieces", "dress-pick": "Pick the look", "dress-backdrop": "Paint the paper of the look board",
     "selects-pick": "Pick the frames", "organize": "Organize the session", "taste": "Read the artist's taste",
-    "mix_pass": "Write the mix pass", "mix_hearing": "Say what the mix sounds like", "chain_design": "Design the channel from a description",
+    "mix_pass": "Decide how the parts of the song sit together", "mix_hearing": "Say how the song sounds", "chain_design": "Design the sound from a description",
     "take_feedback": "Listen to the take and give a note", "hours_check": "Check the hours", "call-relay": "Talk on the phone call",
-    "call": "Talk on the phone call", "transcribe": "Write down what was said", "listen": "Hear what was said", "studio-command": "Turn the spoken command into one Logic action",
+    "call": "Talk on the phone call", "transcribe": "Write down what was said", "listen": "Hear what was said", "studio-command": "Turn the spoken words into one action",
     "booth_line": "Answer in the booth", "export_computer_use": "Work the export dialog", "mail": "Read the mail", "mail-write": "Draft the email",
     "email-offer": "Read the email and find what to offer", "inbox-sort": "Sort the email", "whatsapp-reply": "Answer on WhatsApp",
     "whatsapp-brain": "Answer on WhatsApp", "whatsapp-photo": "Read the photo", "whatsapp-reaction": "React to the message", "proof-read": "Read the proof",
-    "sound_design": "Design the sound", "mix_signature": "Read the mix's signature", "mix_preferences": "Read the artist's preferences",
+    "sound_design": "Design the sound", "mix_signature": "Read the song's signature", "mix_preferences": "Read the artist's preferences",
 }
 TOOLS = {"logic": "Logic Pro", "whatsapp": "WhatsApp", "twilio": "the phone", "bounce": "Bounce", "mail": "Mail"}
 
@@ -73,6 +90,25 @@ def operation_words(job: str) -> str:
 
 def task_words(job: str) -> str:
     return TASKS.get(job, operation_words(job))
+
+
+def readable(text: str) -> str:
+    """The first sentence with no trade words in it, or nothing: a line a judge cannot follow stays off the big lines."""
+    for sentence in re.split(r"(?<=[.!?])\s+", (text or "").strip()):
+        if sentence and not JARGON.search(sentence):
+            return sentence
+    return ""
+
+
+def plain_findings(findings: list[str], most: int = 3) -> list[str]:
+    """The audit's findings a judge can follow, worst first as the audit lists them; each is a measured finding, reworded."""
+    out = []
+    for finding in findings:
+        for pattern, words in PLAIN_FINDINGS:
+            if re.search(pattern, finding) and words not in out:
+                out.append(words)
+                break
+    return out[:most]
 
 
 def tool_words(channel: str) -> str:
@@ -211,7 +247,7 @@ def step(task: str, *, tool: str = "Logic Pro", motif: str = "", done: str = "",
              call_id=call_id, latency_ms=int((time.monotonic() - began) * 1000))
         raise
     emit("tool_completed", source="marco", tool=tool, operation="step", status="ok", summary=result["summary"], call_id=call_id,
-         latency_ms=int((time.monotonic() - began) * 1000))
+         latency_ms=int((time.monotonic() - began) * 1000), metrics=result.get("metrics"))
 
 
 def mail_flag() -> Path:
@@ -262,10 +298,8 @@ def for_page(row: dict) -> dict | None:
         return line("stage", job=row.get("operation"))
     if kind in ("thought", "learned"):
         return line(kind, thought=row.get("thought"), detail=row.get("detail"))
-    if kind == "decision_made":
-        return line("thought", thought=row.get("thought") or row.get("summary"), detail=row.get("detail"))
-    if kind == "analysis_generated":
-        return None if row.get("source") == "meta" else line("thought", thought=row.get("thought") or row.get("summary"))
+    if kind in ("decision_made", "analysis_generated"):   # shown only when the run gave words a judge can follow
+        return line("thought", thought=row["thought"], detail=row.get("detail")) if row.get("thought") else None
     if kind == "verification_completed":
         if status == "ok":
             return line("thought", thought=row.get("thought") or row.get("summary")) if row.get("thought") or row.get("plain") else None

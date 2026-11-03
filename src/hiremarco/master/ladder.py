@@ -110,10 +110,10 @@ def climb(*, start_gain_db: float, set_gain: Callable[[float], float], print_bar
         # a bar the verifier broke has already said so on the stream; one only the ears broke says so here
         events.emit("verification_completed", source="marco", operation="the loudness ladder",
                     status="ok" if step.passed or not verdict.passed else "failed",
-                    summary=f"Limiter gain {gain:+.1f} dB: {level} LUFS, " + ("clean" if step.passed else "not clean"),
+                    summary="Louder, and still clean." if step.passed else "One step too far.",
                     detail="" if step.passed else reasons[0],
-                    thought=f"Up a step: {level} LUFS, still clean." if step.passed else f"Too far at {level} LUFS. Back one step.",
-                    plain="" if step.passed else "One step too far. Marco goes back to the last clean level.",
+                    thought="Louder, and it still sounds clean." if step.passed else "That went too far. Back one step.",
+                    plain="" if step.passed else "One step too far. Marco goes back one step.",
                     metrics=[("Limiter gain", f"{gain:+.1f}", "dB"), ("Loudness", str(level), "LUFS")])
         if not step.passed:
             if last_clean is not None:

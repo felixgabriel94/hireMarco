@@ -52,6 +52,8 @@ def test_the_path_is_sent_once_and_a_thought_carries_its_words():
     moved = events.for_page(row("stage", stage="Think", plain="Marco is thinking."))
     assert "stages" not in moved and moved["stage"] == "Think"
     assert events.for_page(row("decision_made", thought="I clear the mud.", summary="eq"))["thought"] == "I clear the mud."
+    assert events.for_page(row("decision_made", summary="corrective eq: Pro-Q 3")) is None
+    assert events.for_page(row("analysis_generated", summary="-18.0 LUFS")) is None
 
 
 def test_lines_fit_the_budgets_and_end_on_a_word(tmp_path):
@@ -108,7 +110,7 @@ def test_the_page_has_no_network_and_no_sample_and_its_assets_are_there():
 
 def test_the_critic_and_the_face_say_what_happened():
     assert critic.verdict_line("HOLD: not on the list") == ("refused", "Held. not on the list")
-    assert critic.verdict_line("APPROVE: fine") == ("ok", "Approved. fine")
+    assert critic.verdict_line("APPROVE: fine") == ("ok", "Approved.")
     assert face._face_line(json.dumps({"plugin": "AMEK", "licensed": False, "notice": "Activation Required"})) == "AMEK: Activation Required"
 
 
@@ -129,3 +131,37 @@ def test_muse_image_reaches_the_stream(tmp_path, monkeypatch):
     assert [r["kind"] for r in rows][-2:] == ["model_call_started", "model_call_completed"]
     assert rows[-1]["model"] == "muse-image-1.0" and rows[-1]["call_id"] == rows[-2]["call_id"]
     assert rows[-2]["task"] == "Paint the paper of the look board"
+
+
+SOURCES = ("master/job.py", "master/ladder.py", "mix/verify.py", "critic.py", "studio/face.py")
+
+
+def screen_lines() -> list[str]:
+    """Every fixed sentence these files put on the big lines of the page, placeholders taken out."""
+    root = Path(events.__file__).parent
+    found = []
+    for name in SOURCES:
+        text = (root / name).read_text()
+        found += re.findall(r'''(?:\bplain=\(?|events\.stage\("\w+", |events\.step\(|\bthought=|events\.thought\(|\bsummary=)f?"([^"]+)"''', text)
+    return [re.sub(r"\{[^}]*\}", "X", line) for line in found]
+
+
+def test_the_big_lines_are_in_everyday_words():
+    lines = screen_lines() + list(events.TASKS.values()) + [words for _, words in events.PLAIN_FINDINGS]
+    assert len(lines) > 40
+    bad = [line for line in lines if events.JARGON.search(line)]
+    assert not bad, bad
+
+
+def test_a_now_line_fits_its_budget():
+    root = Path(events.__file__).parent
+    text = (root / "master/job.py").read_text()
+    for line in re.findall(r'''(?:\bplain=|events\.stage\("\w+", )f?"([^"]+)"''', text):
+        assert len(re.sub(r"\{[^}]*\}", "a name", line)) <= events.PLAIN_CHARS, line
+
+
+def test_a_model_line_with_trade_words_stays_off_the_screen():
+    assert events.readable("Lifted to -10 LUFS. It sounds clearer now.") == "It sounds clearer now."
+    assert events.readable("Gain at 3 dB on the limiter.") == ""
+    assert events.plain_findings(["low end below 120 Hz is wide (correlation 0.59)", "114 clicks or dropouts", "77 s of silence at the tail"]) == [
+        "The bass spreads too wide. It could weaken on a club system.", "I hear small clicks in the recording."]

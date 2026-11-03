@@ -57,7 +57,7 @@ def _face_line(text: str) -> str:
     data = json.loads(text)
     name = str(data.get("plugin", "")).strip() or "The plug-in"
     if data.get("licensed"):
-        return f"{name} reads licensed."
+        return f"{name} is licensed."
     return f"{name}: {str(data.get('notice', '')).strip() or 'a license notice'}"
 
 
