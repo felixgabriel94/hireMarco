@@ -18,19 +18,22 @@ from pathlib import Path
 from hiremarco.whatsapp.memory import recall, when
 from hiremarco.whatsapp.reactions import MODEL_PICKS
 
-ACTIONS = ("reply", "start", "retry", "rename", "cancel", "master")
+ACTIONS = ("reply", "start", "retry", "rename", "cancel", "master", "call")
+CALL_FIELDS = ("who", "number", "purpose", "ask", "if_unavailable", "voicemail")
 SCHEMA = {
     "type": "object",
     "properties": {
         "action": {"type": "string", "enum": list(ACTIONS)},
         "title": {"type": "string"},
         "reply": {"type": "string"},
+        "call": {"type": "object", "properties": {f: {"type": "string"} for f in CALL_FIELDS},
+                 "required": list(CALL_FIELDS), "additionalProperties": False},
         "reaction": {"type": "string", "enum": ["", *MODEL_PICKS]},
         "quote": {"type": "string", "description": "the ref of one message in his_earlier_messages, else empty"},
         "remember": {"type": "array", "items": {"type": "string"}},
         "forget": {"type": "array", "items": {"type": "string"}},
     },
-    "required": ["action", "title", "reply", "reaction", "quote", "remember", "forget"],
+    "required": ["action", "title", "reply", "call", "reaction", "quote", "remember", "forget"],
     "additionalProperties": False,
 }
 RULES = """You are answering Felix on WhatsApp. Each message you get carries the time, who Felix is (about_felix), \
@@ -49,9 +52,24 @@ to the beat's file name without its extension.
 - master: he asks for the song to be mixed down, mastered, bounced, exported or sent to mix ("send it to mix", \
 "master it", "bounce it", "print it"). The open session is printed as it stands and as a master, and both WAVs are \
 texted to him; it takes minutes. Put any direction he gives about the sound in title ("louder", "warmer", "like X").
+- call: phone someone for him (a person or a place). Choose it only when you have all of it from him: who, their \
+full phone number as he sent it in this conversation, what to ask or arrange, and what to do if they can't or \
+it can't be settled. Fill call: who (their name), number (the digits with the country code, +1 for a US number), \
+purpose (finishes the sentence "I'm calling to ___ for Felix.", such as "ask if you're free for dinner Saturday at \
+8pm"), ask (what to ask or arrange, with every detail he gave), if_unavailable (what to do if they can't), \
+voicemail (a short message to leave, or empty). If anything is missing, the action is reply and you ask for all \
+of it in one message ("Sure. What's Lucie's number, and if Saturday doesn't work, should I ask when she's free?"). \
+Never pull a number from memory: he sends it here. Your text for call is one short line that you're calling now; \
+the code dials and texts him how it went.
 - reply: everything else: a question, a status, chat, or when you are not sure what he wants.
 
-Choose start, retry, rename, cancel or master only when his words, read with the conversation, clearly ask for it. A short \
+What you can do (what_you_can_do, read from his rules a moment ago) is the whole list; anything not on it you \
+cannot do from this chat yet. Be straight about it. When he asks for something you cannot do, say so plainly in \
+your first answer and offer the closest thing on the list; never offer something off the list. When he pushes \
+back on what you can or cannot do, check the list again and stay with it: never agree just to please him, and \
+never change your answer back and forth. If the list says you can, do it.
+
+Choose start, retry, rename, cancel, master or call only when his words, read with the conversation, clearly ask for it. A short \
 reaction ("no", "wait", "what?", "try again") is never a song title. When an instruction is unclear, ask one short \
 question with reply. For a status, answer from studio, never from memory.
 
@@ -60,10 +78,12 @@ You are his COO: never mention anything under the hood. No names of tools, model
 happened and what you will do or need from him.
 
 The text: one or two short sentences, in English unless he asks for another language. The text claims only what \
-your action does: with reply, nothing changes, so never say you renamed, dropped, started or retried anything. Never \
+your action does: with reply, nothing changes, so never say you renamed, dropped, started or retried anything. \
+A reply never promises or reports a send: no "I'll text her", "sending it now", "it's going out", "I sent it", \
+"calling now". The only thing that happens after a reply is that he reads it. Never \
 say something is done or ready unless studio shows it. After start or retry, say you're on it; the booth texts him when the session is \
 ready. If the last setup failed, tell him why in plain words and what you need from him, if anything. Leave title \
-empty unless the action is start, retry or rename.
+empty unless the action is start, retry or rename. Leave every field of call empty unless the action is call.
 
 Reactions. You never type an emoji in the text. You can react to his message with one of these names, or leave reaction \
 empty; most messages get none: noted (FYI, nothing to do, no reply needed), deal (he thanked you or agreed to a plan), \
@@ -94,6 +114,7 @@ class Decision:
     forget: list[str] = field(default_factory=list)
     reaction: str = ""  # one of MODEL_PICKS by name, or none
     quote: str = ""     # the ref of the earlier message of his this text asks about, or none
+    call: dict[str, str] = field(default_factory=dict)  # who, number, purpose, ask, if_unavailable, voicemail
 
 
 def studio(inbox: Path, running: Callable[[], bool]) -> dict:
@@ -131,11 +152,38 @@ def about_felix() -> str:
     return "Felix is a singer and producer in Miami."
 
 
-def context(conn, inbox: Path, running: Callable[[], bool], said: str) -> dict:
-    """Everything the brain reads beside the conversation: who he is, what he told you, the studio now."""
+def abilities(rules_path: Path | None = None, today=None) -> dict:
+    """What Marco can and cannot do from this chat, read from the live send switches (Owner 2026-11-03, after he
+    told Felix calls were not live, then that they were, then promised a text he had no way to send)."""
+    from datetime import date
+
+    from hiremarco import rules
+
+    today = today or date.today()
+    on = {(s.tool, s.destination) for s in rules.switches(rules_path) if s.until >= today}
+    can = ["set up a Logic session with the beat he sent, try a failed setup again, name the song, or drop the "
+           "waiting beat (start, retry, rename, cancel)",
+           "mix down, master and bounce the open session and text him both WAVs (master)",
+           "remember what he tells you, and forget what he asks you to"]
+    if ("calls", "named") in on:
+        can.append("phone a person or a place for him and text him how it went (call), once he has sent their full "
+                   "number here and said what to ask and what to do if they can't")
+    cannot = ["text, WhatsApp or iMessage anyone but Felix: you write only to him",
+              "phone anyone whose number he has not sent in this conversation" if ("calls", "named") in on
+              else "phone anyone",
+              "send an email from here: an email goes only when he asks for it by name and says send to the "
+              "draft he is shown",
+              "put anything on his calendar, buy anything, or pay anyone"]
+    return {"can": can, "cannot_yet": cannot}
+
+
+def context(conn, inbox: Path, running: Callable[[], bool], said: str, rules_path: Path | None = None) -> dict:
+    """Everything the brain reads beside the conversation: who he is, what he told you, the studio now, and what
+    he can ask of you from here."""
     from hiremarco.whatsapp.facts import block
 
-    return {"about_felix": about_felix(), "facts": block(conn, said), "studio": studio(inbox, running)}
+    return {"about_felix": about_felix(), "facts": block(conn, said), "studio": studio(inbox, running),
+            "what_you_can_do": abilities(rules_path)}
 
 
 def history(conn, limit: int = 40) -> list[dict]:
@@ -166,7 +214,9 @@ def decide(marco, said: str, state: dict, turns: list[dict], *, instructions: st
     silent = data.get("action") == "reply" and reaction  # only a plain reply can be the reaction alone
     if data.get("action") not in ACTIONS or not (str(data.get("reply", "")).strip() or silent):
         raise ValueError(f"the brain answered outside the schema: {str(data)[:80]}")
+    call = data.get("call") if isinstance(data.get("call"), dict) else {}
     return Decision(data["action"], str(data.get("title") or "").strip(), str(data.get("reply", "")).strip(),
                     [str(f).strip() for f in data.get("remember") or [] if str(f).strip()][:3],
                     [str(f).strip() for f in data.get("forget") or [] if str(f).strip()][:3], reaction,
-                    str(data.get("quote") or "").strip())
+                    str(data.get("quote") or "").strip(),
+                    {f: " ".join(str(call.get(f) or "").split()) for f in CALL_FIELDS} if data["action"] == "call" else {})

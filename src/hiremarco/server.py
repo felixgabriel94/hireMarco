@@ -211,8 +211,137 @@ def start_master(wa: WhatsApp, sender: str, direction: str, run=None, start=None
     return "mastering started"
 
 
+# A reply changes nothing, so a reply that promises or reports a send is untrue (live 2026-11-03: "Sending it now",
+# twice, to a text he had no way to send). A conditional offer ("want me to?") is not a promise.
+PROMISED_SEND = re.compile(
+    r"\b(?:i'?ll|i will|i'?m going to|let me)\s+(?:text|message|whatsapp|imessage|dm)\b(?!\s+you\b)"
+    r"|\bsending (?:it|that|this|the (?:text|message))?\s*now\b"
+    r"|\b(?:it'?s|it is) (?:going out|on its way)\b"
+    r"|\bi(?:'ve| have)? (?:just )?(?:texted|messaged) (?:her|him|them)\b"
+    r"|\bget (?:that|the) (?:text|message) out\b"
+    r"|\b(?:calling|dialing) (?:her|him|them|now)\b", re.I)
+NO_SEND = ("I can't send that from here, so nothing went out.", "Nothing went out. I can't send that from here yet.",
+           "Still nothing sent: that isn't something I can do from here yet.")
+CALL_ASK_WINDOW_S = 30 * 60  # his words in the last half hour are "that request" for the named-call switch
+
+
+def promises_send(text: str) -> bool:
+    return bool(PROMISED_SEND.search(text or ""))
+
+
+def no_send_line(conn, now=None) -> str:
+    """The plain line in place of a promised send, a different one each time within the gate's ten minutes, so a
+    second "did you send it?" is answered instead of held as a repeat."""
+    from datetime import datetime, timedelta, timezone
+
+    from hiremarco.whatsapp.memory import recall
+
+    since = (now or datetime.now(timezone.utc)) - timedelta(minutes=10)
+    said = sum(1 for ts, who, text in recall(conn, 20) if who == "marco" and text in NO_SEND and ts >= since)
+    return NO_SEND[said % len(NO_SEND)]
+
+
+def his_recent_words(conn, now=None) -> str:
+    """What he wrote in the last half hour, his own words, for the gate's named-call check."""
+    from datetime import datetime, timedelta, timezone
+
+    from hiremarco.whatsapp.memory import recall
+
+    since = (now or datetime.now(timezone.utc)) - timedelta(seconds=CALL_ASK_WINDOW_S)
+    return "\n".join(text for ts, who, text in recall(conn, 40) if who == "felix" and ts >= since)
+
+
+def call_result(who: str, data: dict) -> str:
+    """How his call went, in one or two lines: what was settled and the next step, never a goodbye quote."""
+    from hiremarco.calls import brief as briefs
+
+    if data.get("status") != "done":
+        return f"The call to {who} didn't go through. Want me to try again later?"
+    turns = data.get("transcript") or []
+    tools = {tc.get("tool_name") or tc.get("name") for t in turns for tc in t.get("tool_calls") or []}
+    if "voicemail_detection" in tools:
+        return f"{who} didn't pick up, so I left a voicemail."
+    if not any(t.get("role") == "user" and str(t.get("message") or "").strip() for t in turns):
+        return f"{who} didn't pick up. Want me to try again later?"
+    collected = (data.get("analysis") or {}).get("data_collection_results") or {}
+    value = lambda key: briefs.unspell(str((collected.get(key) or {}).get("value") or "").strip().rstrip("."))  # noqa: E731
+    agreed, step = value("agreed"), value("next_step")
+    text = (f"I reached {who}, but nothing was settled." if not agreed or agreed.lower().startswith("nothing")
+            else f"{who}: {agreed}.")
+    if step:
+        text += f" Next: {step}."
+    return re.sub(r"\+?\d[\d ()-]{7,}\d", lambda m: "..." + re.sub(r"\D", "", m.group())[-4:], text)
+
+
+def call_for_him(call: dict, sender: str, message_id: str, wa: WhatsApp, *, calls=None, start=None,
+                 now=None) -> tuple[str, str]:
+    """The brain's call: dial only with his full number in his own recent words and a complete brief, the phone on
+    his message just before the dial and off again if it does not start, then his result texted when the call ends
+    (Owner 2026-11-03: "Can u call Lucie..." was answered with calls not being live). Returns the text to send now
+    and the log line."""
+    from hiremarco.calls import CallError, Calls, offers
+    from hiremarco.calls import brief as briefs
+    from hiremarco.critic import Critic
+    from hiremarco.joblog import JobLog, JobRow
+
+    who = call.get("who") or "them"
+    digits = re.sub(r"\D", "", call.get("number") or "")
+    said = his_recent_words(wa.conn, now)
+    heard = re.sub(r"\D", "", said)
+    if not digits or digits not in heard:
+        if len(digits) == 11 and digits.startswith("1") and digits[1:] in heard:
+            return (f"Send me {who}'s number with the country code, like +1 305 555 0100, and I'll call.",
+                    f"call to {who}: his number came without the country code")
+        return f"What's {who}'s number? Send it here and I'll call.", f"call to {who}: no number of his in this conversation"
+    given = {"ask": call.get("ask", ""), "if_unavailable": call.get("if_unavailable", "")}
+    if call.get("voicemail"):
+        given["voicemail"] = call["voicemail"]
+    try:
+        if not call.get("purpose"):
+            raise briefs.BriefIncomplete("generic", ["ask"])
+        briefs.build("generic", {k: v for k, v in given.items() if k != "voicemail"})
+    except briefs.BriefIncomplete as gap:
+        wants = {"ask": "what should I ask or arrange", "if_unavailable": "what should I do if they can't",
+                 "name": "what name should I give", "email": "what email should I give", "callback": "what number "
+                 "should they call back"}
+        asks = [wants.get(k, briefs.LABELS.get(k, k)) for k in gap.missing]
+        return (f"Before I call {who}: {', and '.join(asks)}?",
+                f"call to {who}: asked for {', '.join(gap.missing)} before dialing")
+    calls = calls or Calls()
+    phone_on = reactions.react(wa, sender, message_id, reactions.CALLING)  # just before the dial, on his ask
+    try:
+        placed = calls.place("+" + digits, call["purpose"], f"for Felix, calling {who}", critic=Critic(),
+                             brief=given, kind="generic", owner_request=said,
+                             idempotency_key=f"brain-call:{message_id}")
+    except Exception as held:
+        if phone_on:
+            reactions.take_off(wa, sender, message_id)
+        if not isinstance(held, (gate.Refused, CallError)):
+            raise
+        return (f"I couldn't get the call to {who} going just now. Want me to try again?",
+                f"call to {who}: held: {getattr(held, 'reason', held)}")
+
+    def report() -> None:
+        try:
+            data = offers.wait_for_result(lambda: calls._json("GET", f"/convai/conversations/{placed['conversation_id']}"))
+            calls.transcript(placed["conversation_id"])  # saved with its cost, like `marco call transcript`
+            text = call_result(who, data)
+            wa.send_text(sender, text, idempotency_key=f"call-result:{message_id}", quote=message_id)
+            if not text.startswith(("The call to", f"{who} didn't pick up")):
+                reactions.react(wa, sender, message_id, reactions.RESULT)
+        except Exception as exc:  # the result is owed: he hears it could not be read, the log says why
+            JobLog().append(JobRow(job="call-result", ok=False, note=type(exc).__name__))
+            wa.send_text(sender, f"The call to {who} ended, but I couldn't read how it went. Want me to call again?",
+                         idempotency_key=f"call-result:{message_id}")
+
+    # "Calling" lands before the result can, however fast the call ends
+    wa.send_text(sender, f"Calling {who} now. I'll tell you how it goes.", idempotency_key=f"brain:{message_id}")
+    (start or (lambda f: threading.Thread(target=f, daemon=True).start()))(report)
+    return "", f"calling {who}, conversation {placed['conversation_id']}"
+
+
 def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None, booth=ensure_booth,
-        earlier: dict | None = None) -> str:
+        earlier: dict | None = None, calls=None, start=None) -> str:
     """The brain's choice carried out, then its text sent; when the studio says the choice cannot be done, the text
     says what is true instead of what the brain hoped."""
     from hiremarco.studio.beat_in import INBOX, cancel_pending, name_received, pending, rename_pending, \
@@ -252,10 +381,15 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
         did = start_master(wa, sender, decision.title or "")
         if not did.startswith("mastering"):
             text = "I can't print it right now: " + did + "."
+    elif decision.action == "call":
+        text, did = call_for_him(decision.call, sender, message_id, wa, calls=calls, start=start)
+    elif promises_send(text):  # a reply sends nothing: a line that says it does is not sent (live 2026-11-03)
+        text, did = no_send_line(wa.conn), "a reply that promised a send, replaced"
     kept = [f for f in decision.remember if keep(wa.conn, f)]
     gone = [g for f in decision.forget for g in forget(wa.conn, f)]
     working = decision.action in ("start", "retry") and did.startswith(("session started", "retrying"))
-    emoji = reactions.ON_IT if working else reactions.MODEL_PICKS.get(decision.reaction)
+    emoji = reactions.ON_IT if working else (None if decision.action == "call"  # the phone is the call's own
+                                             else reactions.MODEL_PICKS.get(decision.reaction))
     if text:
         if emoji:
             reactions.react(wa, sender, message_id, emoji)
@@ -871,12 +1005,18 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
             try:
                 marco = marco or Marco()
                 earlier = earlier_words(wa.conn, message.id)
-                state = {**context(wa.conn, inbox or _inbox(), running, said),
+                state = {**context(wa.conn, inbox or _inbox(), running, said, getattr(wa, "rules_path", None)),
                          "his_earlier_messages": [{"ref": ref, "says": said_then} for ref, (_, said_then) in earlier.items()]}
                 pointed = quoted_words(wa.conn, message.quoted) if message.quoted else None
                 if pointed:
                     state["he_is_replying_to"] = {"from": pointed[0], "says": pointed[1]}
                 decision = decide(marco, said, state, turns, instructions=ENGLISH, photo=photo)
+                if decision.action == "reply" and promises_send(decision.reply):  # once more, told why
+                    trace.add("brain promised a send on a reply; asked again")
+                    decision = decide(marco, said, state, turns, photo=photo, instructions=f"{ENGLISH}\n\n"
+                                      "Your last answer promised or reported a send with action reply, which sends "
+                                      "nothing. Answer again: either pick the action that does it, or say plainly "
+                                      "what you cannot do.")
             except gate.Refused:
                 raise
             except Exception as exc:  # the brain is unreachable or answered off-schema: the fixed patterns answer
