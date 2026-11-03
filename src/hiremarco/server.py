@@ -401,6 +401,36 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
     return f"brain: {decision.action}; {did}{memory}"
 
 
+_MONITOR_SEEN: dict[str, str] = {}
+
+
+def monitor_words(said: str, sender: str, message_id: str, wa: WhatsApp, *, hand=None) -> str | None:
+    """The Owner's word on the speakers (Owner 2026-11-03: "lower it", "turn it up", "set it to -50", "stop"), done
+    with no model in the loop and off Marco Live: the level fades, never jumps, under the apartment's cap, and he
+    reads back where it ended. None for any other words."""
+    from hiremarco import events
+    from hiremarco.studio import monitor
+
+    hand = hand or monitor.hand()
+    request = monitor.words(said, fading=hand.fading)
+    if request is None:
+        return None
+    if message_id in _MONITOR_SEEN:
+        return f"monitor: {_MONITOR_SEEN[message_id]} (already handled)"
+    if len(_MONITOR_SEEN) > 200:
+        _MONITOR_SEEN.clear()
+    remember(wa.conn, "felix", said)
+
+    def reply(text: str) -> None:
+        with events.aside():
+            wa.send_text(sender, text, idempotency_key=f"monitor:{message_id}")
+
+    with events.aside():
+        did = hand.answer(request, reply)
+    _MONITOR_SEEN[message_id] = did
+    return f"monitor: {did}"
+
+
 def email_words(said: str, sender: str, message_id: str, wa: WhatsApp, quoted: str = "") -> str | None:
     """His words about his email; None for anything else. A failure here tells him nothing went out."""
     from hiremarco.calls import offers
@@ -896,6 +926,10 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
     trace = Trace(f"heard: {heard[:60]}")
     try:
         wa.mark_read(message.id, typing=True)
+        if message.kind == "text" and message.text and not message.quoted:
+            moved = monitor_words(message.text, message.sender, message.id, wa)
+            if moved is not None:
+                return trace.done(moved)
         turns = history(wa.conn)  # the conversation before this message
         beat = save_beat(message, wa, inbox)
         if beat is not None:

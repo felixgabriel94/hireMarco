@@ -164,7 +164,8 @@ def abilities(rules_path: Path | None = None, today=None) -> dict:
     can = ["set up a Logic session with the beat he sent, try a failed setup again, name the song, or drop the "
            "waiting beat (start, retry, rename, cancel)",
            "mix down, master and bounce the open session and text him both WAVs (master)",
-           "remember what he tells you, and forget what he asks you to"]
+           "remember what he tells you, and forget what he asks you to",
+           "move his studio speakers when he says exactly \"lower it\", \"turn it up\", \"turn it down a lot\" or \"set it to -50\" as the whole message (handled before you see it: a slow fade, never above -40); when he asks about the speakers in other words, tell him to say one of those"]
     if ("calls", "named") in on:
         can.append("phone a person or a place for him and text him how it went (call), once he has sent their full "
                    "number here and said what to ask and what to do if they can't")

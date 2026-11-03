@@ -37,6 +37,7 @@
     uv run marco voicenote send FILE     send a prepared voice note to the Owner on Return
     uv run marco film devices            the audio devices and their channel counts
     uv run marco film record             the booth on one clock until Ctrl+C, in 15-minute segments
+    uv run marco monitor [level|up|down|set DB|mute|unmute]   the Apollo's speakers: read, or a slow fade under -40
     uv run marco dress PHOTO --say "..." Dress me from a photo on this Mac: what SAM sees and the board to the
                                          Owner's WhatsApp, his pick there (--dry-run: the pictures only, nothing sent)
     uv run marco dress --backdrop        Muse Image paints the board's paper once (0.01 USD), kept in the state dir
@@ -1126,6 +1127,39 @@ def cmd_chain(args) -> int:
     return 0
 
 
+def cmd_monitor(args) -> int:
+    """The Apollo's monitor output: read it, fade it a step or to a level under the cap, mute or unmute it."""
+    from hiremarco.studio import monitor
+    from hiremarco.studio.console import Console, ConsoleError
+
+    console = Console()
+    try:
+        if args.action == "level":
+            print(f"MONITOR {monitor.level(console):.1f} dB{'  (muted)' if monitor.muted(console) else ''}")
+            return 0
+        if args.action in ("mute", "unmute"):
+            hand = monitor.Hand(console)
+            if args.action == "mute":
+                print("muted" if hand.mute() else "already muted, left alone")
+            else:
+                console.set(monitor.path(console.device), monitor.MUTE, False)
+                print("unmuted")
+            return 0
+        at = monitor.level(console)
+        target = {"up": at + monitor.STEP_DB, "down": at - monitor.STEP_DB}.get(args.action)
+        if args.action == "set":
+            target = float(args.words[0])
+        if target > monitor.CAP_DB:
+            print(f"{target:.1f} is above the cap of {monitor.CAP_DB:.0f} dB; going to the cap")
+        print(f"fading {at:.1f} to {monitor.clamp(target):.1f} dB at {monitor.RATE_DB_S:.0f} dB/s", flush=True)
+        done = monitor.fade(console, target)
+        print(f"{done.reason}: {done.ended:.1f} dB")
+        return 0 if done.reason == "arrived" else 1
+    except (ConsoleError, OSError, IndexError, ValueError) as stopped:
+        print(f"stopped: {stopped}")
+        return 1
+
+
 def cmd_console(args) -> int:
     """UAD Console on one input: list its slots, load or unload a plug-in, set a control, point Auto-Tune at a key."""
     from hiremarco.studio.console import Console, ConsoleError
@@ -1945,6 +1979,11 @@ def main(argv: list[str] | None = None) -> int:
     ch.add_argument("action", choices=["list", "read", "sound", "back"])
     ch.add_argument("words", nargs="*")
     ch.set_defaults(func=cmd_chain)
+
+    mo = sub.add_parser("monitor", help="the Apollo's speakers: level | up | down | set DB | mute | unmute")
+    mo.add_argument("action", choices=["level", "up", "down", "set", "mute", "unmute"])
+    mo.add_argument("words", nargs="*")
+    mo.set_defaults(func=cmd_monitor)
 
     co = sub.add_parser("console", help="UAD Console: slots, params, load, unload, set NAME VALUE, tune KEY SCALE")
     co.add_argument("action", choices=["slots", "params", "load", "unload", "set", "tune"])

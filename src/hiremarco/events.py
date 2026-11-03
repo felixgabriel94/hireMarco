@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 import uuid
 from collections.abc import Iterator
@@ -174,6 +175,25 @@ def _metrics(metrics) -> list[dict]:
     return out
 
 
+_ASIDE = threading.local()
+
+
+@contextmanager
+def aside() -> Iterator[None]:
+    """Room business that is not Marco's work (the speakers' level on the Owner's word, a crew command on set):
+    nothing emitted inside the block reaches the stream, so Marco Live never shows it (Owner 2026-11-03)."""
+    before = getattr(_ASIDE, "on", False)
+    _ASIDE.on = True
+    try:
+        yield
+    finally:
+        _ASIDE.on = before
+
+
+def in_aside() -> bool:
+    return bool(getattr(_ASIDE, "on", False))
+
+
 def emit(kind: str, *, source: str, model: str = "", operation: str = "", status: str = "ok", summary: str = "",
          detail: str = "", metrics=None, latency_ms: int | None = None, confidence: float | None = None,
          tool: str = "", request_id: str = "", attempt: int | None = None, call_id: str = "", tokens: dict | None = None,
@@ -225,6 +245,8 @@ def emit(kind: str, *, source: str, model: str = "", operation: str = "", status
         row["tokens"] = {k: int(v) for k, v in tokens.items() if k in ("prompt", "completion", "cached")}
     if cost_usd is not None:
         row["cost_usd"] = round(float(cost_usd), 6)
+    if in_aside():
+        return row   # built, not written: the room's business stays off the screen
     target = at or path()
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
