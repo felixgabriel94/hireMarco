@@ -165,3 +165,46 @@ def test_a_model_line_with_trade_words_stays_off_the_screen():
     assert events.readable("Gain at 3 dB on the limiter.") == ""
     assert events.plain_findings(["low end below 120 Hz is wide (correlation 0.59)", "114 clicks or dropouts", "77 s of silence at the tail"]) == [
         "The bass spreads too wide. It could weaken on a club system.", "I hear small clicks in the recording."]
+
+
+def test_a_band_menu_is_offered_and_placement_is_a_closed_list():
+    from hiremarco.studio.plugins import PLACEMENTS, PluginState
+
+    state = PluginState("Pro-Q 3", params={"Band 1 Used": 1.0, "Band 1 Gain": 30000.0}, ranges={"Band 1 Used": (0.0, 1.0), "Band 1 Gain": (0.0, 60000.0)},
+                        fixed={"Band 1 Stereo Placement": "Stereo", "Band 1 Shape": "Bell", "Band 1 Speakers": "All"})
+    view = state.for_model()
+    assert view["menus"] == {"Band 1 Stereo Placement": "Stereo", "Band 1 Shape": "Bell"} and "Band 1 Stereo Placement" not in view["fixed"]
+    assert "Band 1 Stereo Placement" not in state.changeable() and "Side" in PLACEMENTS
+
+
+def test_the_audition_only_takes_what_the_audit_named_and_shapes_the_slice():
+    import numpy as np
+
+    from hiremarco.master import audition
+
+    class Base:
+        low_mono = 0.59
+
+    class Quiet:
+        low_mono = 0.95
+
+    class R:
+        hz, note = 260.7, "C4"
+
+    class Audit:
+        base, resonances = Base, [R]
+
+    class Clean:
+        base, resonances = Quiet, []
+
+    assert audition.targets(Clean) == []
+    found = audition.targets(Audit)
+    assert found[0].placement == "Side" and found[0].below == 120.0 and found[1].hz == 260.7
+    rate = 48000
+    t = np.arange(rate) / rate
+    low, high = np.sin(2 * np.pi * 60 * t), np.sin(2 * np.pi * 5000 * t)
+    stereo = np.column_stack([low + high, -low + high])   # the 60 Hz lives only in the sides
+    part = audition.slice_of(stereo, rate, found[0])
+    assert abs(float(np.sqrt(np.mean(part ** 2))) - float(np.sqrt(np.mean(low ** 2)))) < 0.02   # the sides below 120: the 60 Hz, no 5 kHz
+    bell = audition.slice_of(stereo, rate, audition.Target("5 kHz", hz=5000.0))
+    assert abs(float(np.sqrt(np.mean(bell ** 2))) - float(np.sqrt(np.mean(high ** 2)))) < 0.02

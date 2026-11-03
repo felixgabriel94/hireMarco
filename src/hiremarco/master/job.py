@@ -419,7 +419,8 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
         client=None, critic=None, deliver: Callable[[Path, str], str] | None = None, log: Callable[[str], None] = print,
         sleep=time.sleep, mark_plugin: Callable[[str, str, str], None] | None = mark_in_ledger,
         look_at_face: Callable[[], object] | None = None,
-        listen: Callable[..., dict | None] | None = None, bench: bool = False, ladder: bool = False) -> Result:
+        listen: Callable[..., dict | None] | None = None, bench: bool = False, ladder: bool = False,
+        audition: Callable[..., list] | None = None) -> Result:
     result = Result()
     bounces = Path(job.bounces).expanduser()
     bounces.mkdir(parents=True, exist_ok=True)
@@ -429,7 +430,7 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
         return _run(job, result, bounces, room, strip=strip, bouncer=bouncer, channel=channel, locators=locators,
                     toggle_cycle=toggle_cycle, select_track=select_track, client=client, critic=critic, deliver=deliver,
                     log=log, sleep=sleep, mark_plugin=mark_plugin, look_at_face=look_at_face, listen=listen, bench=bench,
-                    ladder=ladder)
+                    ladder=ladder, audition=audition)
     finally:
         release_lock(lock)
 
@@ -484,7 +485,7 @@ def release_lock(path: Path | None) -> None:
 
 
 def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, bouncer, channel, locators, toggle_cycle,
-         select_track, client, critic, deliver, log, sleep, mark_plugin, look_at_face, listen, bench, ladder=False) -> Result:
+         select_track, client, critic, deliver, log, sleep, mark_plugin, look_at_face, listen, bench, ladder=False, audition=None) -> Result:
 
     # 1. the mix as it stands: Marco's own inserts bypassed, the artist's untouched
     log("1. the mix print")
@@ -725,16 +726,30 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
 
     # 5. the settings, read and set through the Inspector's output strip
     log("5. the settings")
+    direction = job.direction
+    if audition is not None:
+        # the part of the sound a move would touch, on its own (Owner 2026-11-02; Pro-Q's solo, done from the file so a
+        # solo can never reach a print): only what the audit named, and the note goes to the settings
+        events.stage("Build", "Marco listens to just the part he might change.")
+        try:
+            heard = audition(result.mix, result.audit_mix, job.check_range, client=client)
+        except Exception as exc:   # noqa: BLE001
+            log(f"   the audition did not run ({type(exc).__name__}: {str(exc)[-100:]}); the settings go on the measurements")
+            heard = []
+        for note in heard:
+            log(f"   heard alone: {note.what}: {note.note}")
+        if heard:
+            direction = " ".join(filter(None, [direction, "Auditioned on their own, each part of the sound a move would touch: "
+                                               + " ".join(f"{n.what} ({n.level_db} dB against the whole): {n.note}" for n in heard)]))
     events.stage("Build", "Marco is setting every control, and writing down why.")
     select_track()
     chain = channel.read(fresh=True)
-    direction = job.direction
     for round_no in range(1, MAX_ROUNDS + 1):
         result.rounds = round_no
         settings = planning.settings_for(chain, result.audit_mix, deltas, result.plan, direction=direction,
                                          client=client, hearing=result.hearing)
         for c in settings.changes:
-            log(f"   slot {c['slot']} {c['parameter']} = {c['value']:g} {c['unit']}: {c['why']}")
+            log(f"   slot {c['slot']} {c['parameter']} = {c.get('choice') or format(c['value'], 'g') + ' ' + c['unit']}: {c['why']}")
         try:
             channel.apply_changes(settings.changes, chain=chain)
         except Exception as exc:
@@ -768,10 +783,10 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
 
         # 6. the master print, read back
         log(f"6. the master print (round {round_no})")
-        events.stage("Print", f"Marco is saving the final version, attempt {round_no}.")
+        events.stage("Print", "Marco is saving the final version." if round_no == 1 else "Marco is saving the corrected version.")
         name = bouncing.free_name(bounces, bouncing.print_name(job.song, "master" if round_no == 1 else f"master v{round_no}",
                                                                job.today))
-        with events.step(f"Save the final version, attempt {round_no}", motif="rec") as line:
+        with events.step("Save the final version" if round_no == 1 else "Save the corrected version", motif="rec") as line:
             master = bouncer.print(bouncing.MASTER, bounces, name)
             line["summary"] = "Saved."
             line["metrics"] = [("Length", f"{master.seconds:.0f}", "s")]

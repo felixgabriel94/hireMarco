@@ -75,7 +75,7 @@ TASKS = {
     "booth_line": "Answer in the booth", "export_computer_use": "Work the export dialog", "mail": "Read the mail", "mail-write": "Draft the email",
     "email-offer": "Read the email and find what to offer", "inbox-sort": "Sort the email", "whatsapp-reply": "Answer on WhatsApp",
     "whatsapp-brain": "Answer on WhatsApp", "whatsapp-photo": "Read the photo", "whatsapp-reaction": "React to the message", "proof-read": "Read the proof",
-    "sound_design": "Design the sound", "mix_signature": "Read the song's signature", "mix_preferences": "Read the artist's preferences",
+    "sound_design": "Design the sound", "band_audition": "Listen to just this part of the sound", "mix_signature": "Read the song's signature", "mix_preferences": "Read the artist's preferences",
 }
 TOOLS = {"logic": "Logic Pro", "whatsapp": "WhatsApp", "twilio": "the phone", "bounce": "Bounce", "mail": "Mail"}
 

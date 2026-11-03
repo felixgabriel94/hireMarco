@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 
 from hiremarco import gate
 from hiremarco.meta.client import MuseSpark
-from hiremarco.studio.plugins import PluginError, PluginState, parse, shown_lands, shown_target
+from hiremarco.studio.plugins import MENU, PLACEMENTS, PluginError, PluginState, parse, shown_lands, shown_target
 from hiremarco.studio.presets import SCRIPTS
 
 MODEL = "muse-wonder-1.0"
@@ -62,12 +62,13 @@ SCHEMA = {
                     "slot": {"type": "integer"},
                     "parameter": {"type": "string", "description": "the control's name exactly as listed under "
                                                                     "parameters, with nothing before it"},
-                    "value": {"type": "number"},
-                    "unit": {"type": "string", "description": "'%' or the control's unit from in_units"},
+                    "value": {"type": "number", "description": "0 for a menu"},
+                    "unit": {"type": "string", "description": "'%' or the control's unit from in_units; empty for a menu"},
+                    "choice": {"type": "string", "description": "for a control under menus only: the option, such as Side for a Stereo Placement or Low Cut for a Shape; empty otherwise"},
                     "why": {"type": "string", "description": "the technical reason, one sentence, with the number on "
                                                              "this track it answers to and the effect expected on the print"},
                 },
-                "required": ["slot", "parameter", "value", "unit", "why"],
+                "required": ["slot", "parameter", "value", "unit", "choice", "why"],
                 "additionalProperties": False,
             },
         },
@@ -299,6 +300,15 @@ class Channel:
         for c in changes[:max_changes]:
             number, value, unit = int(c["slot"]), float(c["value"]), str(c.get("unit", "%"))
             slot = by_number.get(number)
+            choice = str(c.get("choice") or "").strip()
+            if choice:
+                # a band's menu, set by its word and read back; an option outside the placements is refused by name
+                param = str(c["parameter"])
+                if slot is not None and MENU.match(param) and param in slot.state.fixed \
+                        and (not param.endswith("Stereo Placement") or choice in PLACEMENTS):
+                    self.reasons[(number, param)] = str(c.get("why", "")).strip()
+                    per_slot.setdefault(number, {})[param] = f"~{choice}"
+                continue
             name = control_named(str(c["parameter"]), slot.state.changeable()) if slot is not None else None
             if name is None and by_number.get(number + 1) is not None:
                 # the brain counted slots from zero (live 2026-11-02, run 26: "slot 0 Gain" for slot 1): the next
@@ -321,7 +331,8 @@ class Channel:
             per_slot.setdefault(number, {})[name] = slot.state.raw(name, percent)
         if not per_slot:
             raise PluginError("no usable change came back")
-        self.undo = {n: {k: by_number[n].state.params[k] for k in vals} for n, vals in per_slot.items()}
+        self.undo = {n: {k: by_number[n].state.params[k] if k in by_number[n].state.params else f"~{by_number[n].state.fixed[k]}"
+                         for k in vals} for n, vals in per_slot.items()}
         results = self._apply(per_slot)
         self._keep_undo()
         return results

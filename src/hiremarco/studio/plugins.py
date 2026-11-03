@@ -72,6 +72,12 @@ PROTECTED = re.compile(r"bypass|midi|solo|audition|side ?chain|sidechain|invert|
                        r"gain scale|\bstereo\b", re.IGNORECASE)
 
 
+# A band's menus: read as words, set by choosing the word. Pro-Q 3's stereo placement, shape and slope (Owner 2026-11-02);
+# a pan or a solo stays out of reach (PROTECTED).
+MENU = re.compile(r"^Band \d+ (Stereo Placement|Shape|Slope)$")
+PLACEMENTS = ("Left", "Right", "Stereo", "Mid", "Side")
+
+
 @dataclass
 class PluginState:
     plugin: str
@@ -119,10 +125,13 @@ class PluginState:
         # but does not read through twenty idle ones: Pro-Q 3 goes from about 230 controls to about 60.
         idle = {n[: -len(" Used")] for n in movable if n.endswith(" Used") and self.params[n] <= self.ranges[n][0]}
         movable = [n for n in movable if n.endswith(" Used") or not any(n.startswith(p + " ") for p in idle)]
-        context = dict(self.fixed)
+        context = {n: v for n, v in self.fixed.items() if not MENU.match(n)}
         context.update({n: f"{v:g}" for n, v in self.params.items() if n not in movable
                         and not any(n.startswith(p + " ") for p in idle)})
         view = {"plugin": self.plugin, "parameters": {n: self.percent(n) for n in movable}, "fixed": context}
+        menus = {n: v for n, v in self.fixed.items() if MENU.match(n) and not any(n.startswith(p + " ") for p in idle)}
+        if menus:
+            view["menus"] = menus
         profile = self.profile()
         if profile is not None:
             from hiremarco.mix.profiles import for_model as profile_view
@@ -188,6 +197,8 @@ def shown_target(value: float, unit: str) -> str:
 
 def shown_lands(target: str, state: "PluginState", name: str) -> bool:
     """Whether the read-back shows the target within 1 percent (or 0.06 in the unit) of it."""
+    if target.startswith("~"):   # a menu: the word it now shows
+        return state.fixed.get(name) == target[1:]
     want_value, want_unit = target[1:].split(" ", 1)
     got = state.units_of(name)
     if got is None:

@@ -63,6 +63,7 @@ PRO_Q3 = Profile(
         "External side chain per band: 'Band N External Side Chain' on makes that band's dynamics follow the "
         "side-chain input (set in Logic's plugin header) instead of the track itself.",
         "Frequency in Hz (10 Hz to 30 kHz, log), Gain and Dynamic Range in dB (+-30), Q from 0.025 to 40.",
+        "Stereo placement per band: 'Band N Stereo Placement' is a menu (Left, Right, Stereo, Mid, Side), Stereo unless a measured problem lives in one place.",
         "Collision display and spectrum grab are in Pro-Q's own window, not controls; Marco's ears measure "
         "collisions instead.",
     ],

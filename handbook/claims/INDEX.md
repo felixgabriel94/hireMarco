@@ -20,3 +20,5 @@ One line per claim; the file is the record.
 - R-AUD-0018: Pro-G: threshold, ratio and range of a gate or expander; the styles, with Vocal for breaths and bleed; side-chain filters (primary, proven)
 - R-AUD-0019: Auto-Tune Realtime X: key and scale set the target notes; Retune Speed in ms, Flex-Tune, Humanize and Detune (primary, proven)
 - R-AUD-0020: Waves JJP Vocals: a type per voice, sensitivity set on the loudest section, a main section of dynamics and EQ with center faders as aux returns (primary, proven)
+- R-AUD-0021: Each Pro-Q 3 band has its own stereo placement: left, right, stereo, mid or side (primary, proven)
+- R-AUD-0022: A Pro-Q 3 band's solo plays the part of the spectrum that band affects (primary, proven)

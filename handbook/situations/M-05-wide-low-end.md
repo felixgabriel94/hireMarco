@@ -2,7 +2,7 @@ id: S-MASTER-05
 role: width
 job: mastering
 triggers: ["finding: low end below 120 Hz is wide", "finding: mono playback loses"]
-claims: [R-AUD-0015, R-AUD-0005]
+claims: [R-AUD-0015, R-AUD-0005, R-AUD-0021]
 
 # A wide low end, or a mix that loses in mono
 
@@ -25,7 +25,7 @@ it is already mono (correlation fine under 120 Hz): then it is a feature.
 A mono loss that comes from one part is a mix move (a polarity or a stereo
 effect on one take).
 
-**The move.** Ozone 11 Imager, low band width toward mono (a negative
+**The move.** A Pro-Q 3 band on Side (R-AUD-0021), a low shelf or a low cut under 120 Hz, scaled to the correlation; or Ozone 11 Imager, low band width toward mono (a negative
 width on the band under 120 Hz, scaled to the correlation: 0.59 takes most
 of the way to mono, 0.75 a gentle step), nothing changed above; or the
 Manley Variable Mu in mid/side with the side compressed only when the

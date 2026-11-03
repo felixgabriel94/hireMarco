@@ -1,4 +1,4 @@
-# FabFilter Pro-Q 3 (version 3.23 installed; claims R-AUD-0006, R-AUD-0007)
+# FabFilter Pro-Q 3 (version 3.23 installed; claims R-AUD-0006, R-AUD-0007, R-AUD-0021, R-AUD-0022)
 
 The equalizer Marco reaches for first, in mixing and in mastering. Everything
 below comes from the help installed with the plug-in on this Mac, read
@@ -35,6 +35,18 @@ hat too loud on its hits, a note that rings only when it is struck. A static
 band is still the first choice when the problem is always there. Not
 available in Linear Phase mode at the two highest resolutions.
 
+## Stereo placement (R-AUD-0021)
+
+Each band works on both channels by default, and can act on the left, the right, the mid or the side alone. Stereo stays
+unless the audit names a problem that lives in one place: a wide low end is a band on Side, a harsh vocal in the center
+is a band on Mid. A band is placed for a need, not to use the feature.
+
+## The solo, and how Marco auditions (R-AUD-0022)
+
+Solo plays the part of the spectrum a band affects, not the band's effect. Marco auditions what the audit named from the
+mix file (`master.audition`), with the band's frequency and width and on its channel, and a model that listens says
+what is in it; the Solo control stays out of his hands, so a solo can never reach a print.
+
 ## The controls as Logic lists them (observed 2026-11-02)
 
 Per band N (1 to 24): `Band N Used`, `Band N Enabled`, `Band N Frequency`
@@ -43,9 +55,10 @@ Per band N (1 to 24): `Band N Used`, `Band N Enabled`, `Band N Frequency`
 bandwidth; higher is narrower), `Band N Dynamic Range` (dB, -30 to +30;
 negative compresses), `Band N Dynamics Enabled`, `Band N Threshold`, `Band N
 External Side Chain`, `Band N Solo`, and a second, older name set (`Band N
-Freq`, `Range`, `Attack`, `Release`, `SC Mode`, `SC Source`). The shape and
-the slope are not in Logic's control list for this version: they are set in
-the plug-in's own window or by a saved preset, and a new band is a Bell.
+Freq`, `Range`, `Attack`, `Release`, `SC Mode`, `SC Source`). `Band N Stereo
+Placement`, `Band N Shape` and `Band N Slope` are menus in Logic's Controls
+view, read as a word and set by choosing it (corrected 2026-11-02: an earlier
+reading here said shape and slope were not listed).
 Global: Processing Mode (Zero Latency, Natural Phase, Linear Phase), Output
 Gain, Output Pan, Auto Gain, Gain Scale.
 

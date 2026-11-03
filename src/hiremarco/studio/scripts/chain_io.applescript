@@ -351,7 +351,7 @@ end setShown
 
 on wantedValue(a)
 	-- "=2.5 dB" asks for the control's own shown unit; anything else is the slider's raw value
-	if a starts with "=" then return a
+	if a starts with "=" or a starts with "~" then return a
 	return a as real
 end wantedValue
 
@@ -378,7 +378,14 @@ on report(w, wanted, slotName)
 					if label ends with ":" then set label to text 1 thru -2 of label
 					if label is (item 1 of pair) then
 						set want to item 2 of pair
-						if (class of want) is text then
+						if (class of want) is text and want starts with "~" then
+							-- a menu (a band's stereo placement, shape or slope): open it and choose the word
+							set pop to pop up button 1 of UI element 1 of row i of t
+							click pop
+							delay 0.3
+							click menu item (text 2 thru -1 of want) of menu 1 of pop
+							delay 0.2
+						else if (class of want) is text then
 							set spec to text 2 thru -1 of want
 							my setShown(t, i, my numberOf(spec), my unitOf(spec))
 						else
