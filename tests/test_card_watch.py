@@ -70,3 +70,19 @@ def test_screen_recording_mirrored_once_and_kept(world, tmp_path, monkeypatch):
     assert len(copies) == 1 and copies[0].read_bytes() == rec.read_bytes()
     assert rec.exists()  # local copy kept
     assert card_watch.mirror_screen_recordings(footage, staging) == []
+
+
+def test_copied_recording_is_not_read_again(world, tmp_path, monkeypatch):
+    footage, card = world
+    staging = tmp_path / "staging2"
+    staging.mkdir()
+    rec = staging / "Screen Recording big.mov"
+    rec.write_bytes(os.urandom(10_000))
+    old = rec.stat().st_mtime - 60
+    os.utime(rec, (old, old))
+    assert len(card_watch.mirror_screen_recordings(footage, staging)) == 1
+    calls = []
+    real = offload.sha256
+    monkeypatch.setattr(offload, "sha256", lambda p: calls.append(p) or real(p))
+    assert card_watch.mirror_screen_recordings(footage, staging) == []
+    assert calls == []  # no hashing of a file already copied

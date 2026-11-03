@@ -136,12 +136,12 @@ def mirror_screen_recordings(footage: Path, staging: Path = STAGING) -> list[str
     now = time.time()
     STATE.mkdir(parents=True, exist_ok=True)
     seen = STATE / "screen-mirrored.jsonl"
-    done = set()
+    done = set()  # (path, size, mtime) of files already copied: skipped without reading them again
     if seen.exists():
         for ln in seen.read_text().splitlines():
             try:
                 row = json.loads(ln)
-                done.add((row["src"], row["sha256"]))
+                done.add((row["src"], row["bytes"], row.get("mtime")))
             except (ValueError, KeyError):
                 continue
     for p in sorted(staging.iterdir()):
@@ -150,9 +150,9 @@ def mirror_screen_recordings(footage: Path, staging: Path = STAGING) -> list[str
         st = p.stat()
         if now - st.st_mtime < SETTLE_S:
             continue
-        want = offload.sha256(p)
-        if (str(p), want) in done:
+        if (str(p), st.st_size, st.st_mtime) in done:
             continue
+        want = offload.sha256(p)
         shot = dt.datetime.fromtimestamp(st.st_mtime).astimezone().strftime("%Y-%m-%d")
         dest_dir = footage / shot / "screen" / "manual"
         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -169,7 +169,8 @@ def mirror_screen_recordings(footage: Path, staging: Path = STAGING) -> list[str
             tmp.rename(target)
         with open(seen, "a") as f:
             f.write(json.dumps({"at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
-                                "src": str(p), "dst": str(target), "sha256": want, "bytes": st.st_size}) + "\n")
+                                "src": str(p), "dst": str(target), "sha256": want, "bytes": st.st_size,
+                                "mtime": st.st_mtime}) + "\n")
         out.append(f"Screen recording {p.name} copied to the LaCie and verified ({st.st_size / 1e6:.0f} MB)")
     return out
 
