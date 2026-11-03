@@ -78,9 +78,13 @@ def run_live(song: str | None = None, end_bar: int | None = None, *, purpose: st
         wa, owner = WhatsApp(), config.require("OWNER_WHATSAPP")
 
         def deliver(path: Path, caption: str) -> str:
-            wa.send_document(owner, path.read_bytes(), path.name, caption, mime="audio/wav",
-                             idempotency_key=f"master:{path.name}")
-            return f"sent {path.name} to the Owner"
+            # WhatsApp takes no WAV (refused by type, 2026-11-03), so the file goes by link: a page of ours on Marco's
+            # own server, over the tunnel, good for a day, with the numbers in the text and a button that opens it
+            from hiremarco.master import share
+
+            url = share.link(share.offer(path, title=song, note=caption))
+            wa.send_link(owner, f"{path.stem}. {caption}", url, "Open the master", idempotency_key=f"master:{path.name}")
+            return f"sent a link to {path.name} to the Owner: {url}"
     else:
         def deliver(path: Path, caption: str) -> str:
             return f"{path} ({caption})"

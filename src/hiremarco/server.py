@@ -1179,6 +1179,7 @@ def awake_while(handler, hold=None):
 def build_app(*, reply: bool = True):
     from starlette.routing import Route
 
+    from hiremarco.master import share
     from hiremarco.relay import make_relay
 
     return make_app(
@@ -1189,5 +1190,6 @@ def build_app(*, reply: bool = True):
         conn_factory=gate.connect,
         extra_routes=[Route("/llm/v1/chat/completions", make_relay(), methods=["POST"]),
                       Route("/internal/offer", make_offer_route(), methods=["POST"]),
-                      Route("/internal/booth", make_booth_route(), methods=["POST"])],
+                      Route("/internal/booth", make_booth_route(), methods=["POST"]),
+                      *share.routes()],   # a master to the phone by link: WhatsApp takes no WAV (Owner 2026-11-03)
     )
