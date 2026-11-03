@@ -530,6 +530,28 @@ def load_events(path: Path, local_tz: ZoneInfo) -> list[tuple[float, str, str]]:
     return sorted(out)
 
 
+def load_slates(shoot: Path, tz: ZoneInfo, log) -> list[tuple[float, str, str]]:
+    """Roll / Action / Cut from the recorder's slate log (crew talk, kept off the live trace)."""
+    out = []
+    for f in sorted(shoot.rglob("slate.jsonl")) + sorted(shoot.rglob("crew.jsonl")):
+        n = 0
+        for line in f.read_text(errors="replace").splitlines():
+            try:
+                e = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(e, dict):
+                continue
+            kind = str(e.get("kind") or e.get("cmd") or "").strip().lower()
+            ts = e.get("at") or e.get("ts")
+            t = parse_time_tag(str(ts), tz, assume_local=True) if ts else None
+            if kind and t is not None:
+                out.append((t, kind.capitalize(), "slate"))
+                n += 1
+        log(f"  {f}: {n} slate marks")
+    return out
+
+
 # ---------------------------------------------------------------- transcripts (optional)
 
 
@@ -942,6 +964,7 @@ def main(argv=None) -> int:
                 log(f"  {c.device}/{c.path.name}: camera clock far from the rest; kept out of timelines")
     log(f"time of day taken from: {', '.join(truth) if (diffs or shift == 0.0 and truth and 'Mac clock' in truth[0]) else anchor + ' (no network-clock device synced)'}; shift {shift:+.3f}s")
     events = load_events(args.events, tz) if args.events and args.events.exists() else []
+    events = sorted(events + load_slates(shoot, tz, log))
     if args.fps:
         fps = Fraction(args.fps)
     else:
