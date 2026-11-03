@@ -28,6 +28,8 @@ from hiremarco.joblog import JobLog, JobRow
 from hiremarco.meta.client import BASE_URL
 from hiremarco.meta.pricing import audio_cost_usd
 
+from hiremarco import events  # noqa: E402
+
 MODEL = "muse-voice-transcribe-1.0"
 REALTIME_URL = "wss://api.meta.ai/v1/asr/realtime"
 RATE = 24000
@@ -83,6 +85,9 @@ def transcribe(audio: np.ndarray, rate: int, *, diarize: bool = True, keywords: 
     if languages:  # accepted by the batch endpoint (checked 2026-10-30); its effect on names is not yet measured
         request["languageBias"] = languages
     started = time.monotonic()
+    call_id, request_id = events.new_call_id(), events.next_request_id()
+    events.emit("model_call_started", source="meta", model=MODEL, operation="listening", status="running", summary="listening",
+                task=events.task_words("transcribe"), request_id=request_id, call_id=call_id)
     with httpx.Client(base_url=BASE_URL, timeout=120, transport=transport) as http:
         response = http.post("/asr/transcribe", headers={"Authorization": f"Bearer {config.require('MODEL_API_KEY')}",
                                                           "Accept": "application/json"},
@@ -91,12 +96,18 @@ def transcribe(audio: np.ndarray, rate: int, *, diarize: bool = True, keywords: 
     audio_ms = int(len(pcm) / RATE * 1000)
     if response.status_code >= 400:
         _log(joblog, "transcribe", audio_ms, started, False, f"http {response.status_code}")
+        events.emit("model_call_failed", source="meta", model=MODEL, operation="listening", status="failed",
+                    summary=f"HTTP {response.status_code} from the Meta Model API", latency_ms=int((time.monotonic() - started) * 1000),
+                    request_id=request_id, call_id=call_id)
         raise RuntimeError(f"Voice Transcribe returned HTTP {response.status_code}")
     data = response.json()
     _log(joblog, "transcribe", int(data.get("audioDurationMs", audio_ms)), started, True)
     turns = [Turn(t["startMs"], t["endMs"], t["transcript"].strip(), t.get("speaker", "")) for t in data.get("turns") or []]
     if not turns and data.get("transcript"):
         turns = [Turn(0, audio_ms, data["transcript"].strip())]
+    events.emit("model_call_completed", source="meta", model=MODEL, operation="listening", status="ok",
+                summary=f"Wrote down {len(turns)} turn{'s' if len(turns) != 1 else ''}.", latency_ms=int((time.monotonic() - started) * 1000),
+                request_id=request_id, call_id=call_id)
     return turns
 
 
@@ -154,7 +165,13 @@ class Listener:
                     event = json.loads(raw)
                     kind = event.get("type")
                     if kind == "speechComplete" and event.get("transcript", "").strip():
-                        yield event["transcript"].strip()
+                        heard = event["transcript"].strip()
+                        heard_call = events.new_call_id()   # the stream runs for hours; each sentence is its own line on screen
+                        events.emit("model_call_started", source="meta", model=MODEL, operation="listening", status="running",
+                                    summary="listening", task=events.task_words("listen"), call_id=heard_call)
+                        events.emit("model_call_completed", source="meta", model=MODEL, operation="listening", status="ok",
+                                    summary=f"\u201c{heard}\u201d", call_id=heard_call)
+                        yield heard
                     elif self.on_partial is not None and isinstance(event.get("transcript"), str) \
                             and kind != "error":
                         self.on_partial(event["transcript"])  # partialMode CUMULATIVE: the sentence so far

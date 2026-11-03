@@ -12,6 +12,7 @@ optional httpx transport so tests run without the network.
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -75,7 +76,10 @@ class MuseSpark:
         tools: list[dict[str, Any]] | None = None,
         tool_choice: Any | None = None,
         reasoning_effort: str | None = None,
+        summarize: Callable[[str], str | tuple[str, str]] | None = None,
     ) -> Reply:
+        """``summarize`` turns the reply into the line the live view shows (or a status and that line) when the first
+        words of a JSON reply would not read; what it raises never touches the call."""
         model = model or self.model
         body: dict[str, Any] = {"model": model, "messages": messages}
         if max_completion_tokens is not None:
@@ -94,7 +98,8 @@ class MuseSpark:
         call_id, request_id = events.new_call_id(), events.next_request_id()
         operation = events.operation_words(job)
         events.emit("model_call_started", source="meta", model=model, operation=operation, status="running",
-                    summary=f"{operation}, {len(messages)} message{'s' if len(messages) != 1 else ''} in", request_id=request_id, call_id=call_id)
+                    summary=f"{operation}, {len(messages)} message{'s' if len(messages) != 1 else ''} in", task=events.task_words(job),
+                    request_id=request_id, call_id=call_id)
         started = time.monotonic()
         try:
             response = self._client.post("/chat/completions", json=body)
@@ -137,9 +142,15 @@ class MuseSpark:
             cached_tokens=cached_tokens, cost_usd=reply.cost_usd, duration_ms=duration_ms, ok=True,
         ))
         cut_short = reply.finish_reason == "length" and not reply.text.strip()
+        shown_status, shown = ("failed", "ran out of room before it answered") if cut_short else ("ok", events.reply_summary(reply.text))
+        if summarize is not None and not cut_short:
+            try:
+                said = summarize(reply.text)
+                shown_status, shown = said if isinstance(said, tuple) else ("ok", said)
+            except Exception:   # noqa: BLE001  (the trace never stops the work)
+                pass
         events.emit("model_call_completed", source="meta", model=reply.model or model, operation=operation,
-                    status="failed" if cut_short else "ok",
-                    summary="ran out of room before it answered" if cut_short else events.reply_summary(reply.text),
+                    status=shown_status, summary=shown,
                     latency_ms=duration_ms, request_id=request_id, call_id=call_id,
                     tokens={"prompt": prompt_tokens, "completion": completion_tokens, "cached": cached_tokens},
                     cost_usd=reply.cost_usd)

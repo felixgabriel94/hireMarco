@@ -118,7 +118,7 @@ def segment_masks(image: bytes, phrase: str, *, mime: str = "image/jpeg", min_co
 
     call_id, request_id = events.new_call_id(), events.next_request_id()
     events.emit("model_call_started", source="meta", model=MODEL, operation=events.operation_words("segment"),
-                status="running", summary=f"looking for {phrase}", request_id=request_id, call_id=call_id)
+                status="running", summary=f"looking for {phrase}", task=f"Find {phrase}", request_id=request_id, call_id=call_id)
     started = time.monotonic()
     try:
         with httpx.Client(base_url=BASE_URL, timeout=timeout, transport=transport,

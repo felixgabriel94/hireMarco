@@ -77,9 +77,10 @@ AUDIT_SCHEMA = {
             "role": {"type": "string"}, "plugin": {"type": "string"},
             "measured": {"type": "string", "description": "the number on this track the decision rests on, as the audit gives it"},
             "why": {"type": "string", "description": "the principle and the move, one sentence"},
+            "plain": {"type": "string", "description": "the same decision for someone who knows nothing about audio: first person, one short sentence, at most 12 words, no units and no plug-in names"},
             "expected": {"type": "string", "description": "what the print should measure differently with it in"},
             "exception": {"type": "string", "description": "what about this track would make the rule not apply, and why it applies"}},
-            "required": ["role", "plugin", "measured", "why", "expected", "exception"], "additionalProperties": False}},
+            "required": ["role", "plugin", "measured", "why", "plain", "expected", "exception"], "additionalProperties": False}},
         "target_lufs": {"type": "number"},
         "ceiling_dbtp": {"type": "number"},
         "audit": {"type": "string"},
@@ -146,6 +147,18 @@ def audit_for_model(audit: Audit, deltas: Deltas | None, hearing: dict | None = 
     return data
 
 
+def _audit_line(text: str) -> str:
+    return f"{len(json.loads(text).get('roles') or [])} jobs chosen, each with its reason."
+
+
+def _settings_line(text: str) -> str:
+    said = str(json.loads(text).get("said", "")).strip()
+    return said.split(". ")[0].rstrip(".") + "." if said else f"{len(json.loads(text).get('changes') or [])} controls set."
+
+
+SUMMARIES = {"master_audit": _audit_line, "master_settings": _settings_line}
+
+
 def _ask(client: MuseSpark, instructions: str, payload: dict, *, job: str, schema: dict, tokens: int = TOKENS,
          retried: bool = False) -> dict:
     prompt = json.dumps(payload)
@@ -153,7 +166,7 @@ def _ask(client: MuseSpark, instructions: str, payload: dict, *, job: str, schem
     for attempt in range(len(RETRY_WAITS) + 1):
         try:
             reply = client.ask(prompt, developer=instructions, job=job, model=MODEL, max_completion_tokens=tokens,
-                               reasoning_effort=EFFORT,
+                               reasoning_effort=EFFORT, summarize=SUMMARIES.get(job),
                                response_format={"type": "json_schema", "json_schema": {"name": job, "schema": schema,
                                                                                        "strict": True}})
             break
@@ -262,7 +275,7 @@ def roles_for(audit: Audit, deltas: Deltas | None, room: set[str], *, purpose: s
                 plugin = roles_.fill(role, room, stock_only=True) or ""
                 if not plugin:
                     continue
-            kept.append({"role": role, "plugin": plugin, "why": str(row.get("why", "")).strip(),
+            kept.append({"role": role, "plugin": plugin, "why": str(row.get("why", "")).strip(), "plain": str(row.get("plain", "")).strip(),
                          "measured": str(row.get("measured", "")).strip(), "expected": str(row.get("expected", "")).strip(),
                          "exception": str(row.get("exception", "")).strip()})
     kept.sort(key=lambda r: roles_.ORDER.index(r["role"]))

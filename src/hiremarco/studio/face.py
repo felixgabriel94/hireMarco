@@ -53,6 +53,14 @@ class Face:
     plugin: str
 
 
+def _face_line(text: str) -> str:
+    data = json.loads(text)
+    name = str(data.get("plugin", "")).strip() or "The plug-in"
+    if data.get("licensed"):
+        return f"{name} reads licensed."
+    return f"{name}: {str(data.get('notice', '')).strip() or 'a license notice'}"
+
+
 def capture_window(name: str = "Stereo Out") -> bytes:
     """The frontmost Logic window of that name, as PNG bytes: a plug-in window on the Stereo Out is named after
     the strip (live 2026-11-02)."""
@@ -78,6 +86,7 @@ def read_face(png: bytes, *, client: MuseSpark | None = None, tokens: int = 2000
             ]},
         ],
         job="plugin_face", model=MODEL, max_completion_tokens=tokens,   # 600 ran out before the JSON (live 2026-11-02)
+        summarize=_face_line,
         response_format={"type": "json_schema", "json_schema": {"name": "face", "schema": SCHEMA, "strict": True}},
         **({"reasoning_effort": effort} if effort else {}),
     )

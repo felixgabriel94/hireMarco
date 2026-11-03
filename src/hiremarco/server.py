@@ -18,7 +18,7 @@ import time
 from datetime import date
 from pathlib import Path
 
-from hiremarco import config, gate
+from hiremarco import config, gate, stream
 from hiremarco.livelog import Trace
 from hiremarco.marco import Marco
 from hiremarco.style import DAYS_RULE, NAME_RULE, TIME_RULE, days_span

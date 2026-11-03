@@ -17,7 +17,7 @@ from typing import Any
 
 import httpx
 
-from hiremarco import config, gate
+from hiremarco import config, events, gate
 from hiremarco.style import plain, written
 from hiremarco.whatsapp.memory import note_sent, remember
 
@@ -188,6 +188,7 @@ class WhatsApp:
                                  idempotency_key=idempotency_key, capability="send_message", critic=critic, now=now)
         remember(self.conn, "marco", body)
         note_sent(self.conn, sent, body)
+        events.emit("message_sent", source="marco", status="ok", via="WhatsApp", text=body)
         return sent
 
     def send_link(self, to: str, body: str, url: str, label: str, *, idempotency_key: str, critic=None,

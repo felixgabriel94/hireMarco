@@ -26,7 +26,7 @@ from zoneinfo import ZoneInfo
 
 import httpx
 
-from hiremarco import config, gate
+from hiremarco import config, events, gate
 from hiremarco.joblog import JobLog, JobRow
 from hiremarco.offer import (HEADER_OFFER, HEADER_SIGNATURE, HEADER_TIME, READ_JOB, Place, Reading, offer_line,
                              read_email, sign)
@@ -129,6 +129,10 @@ def read_new(mail, client, conn, places: list[Place], *, now: datetime, joblog: 
             if not dry_run:
                 _note(conn, message_id, "skip", "answered", "", now)
             continue
+        if not dry_run and events.show_mail() and not skip_body(item.sender, getattr(item, "name", ""), getattr(item, "subject", "")):
+            # the screen shows who and what, never the body, and only while the Owner has it on for a shot
+            events.emit("email_received", source="marco", status="ok", via="Gmail", sender=getattr(item, "name", "") or "an email",
+                        subject=getattr(item, "subject", ""))
         try:
             reading = read_email(item, client, places, today=local)
         except gate.Refused as refused:

@@ -15,7 +15,7 @@ import time
 
 import httpx
 
-from hiremarco import config, gate
+from hiremarco import config, events, gate
 from hiremarco.joblog import JobLog, JobRow
 from hiremarco.meta.client import BASE_URL
 from hiremarco.meta.pricing import PRICES_PER_IMAGE
@@ -37,6 +37,9 @@ def generate(prompt: str, *, size: str = "1536x1024", job: str = "image", joblog
     gate.check_model_call(TENANT, model=MODEL, system="", prompt=prompt, joblog=joblog)
     body = {"model": MODEL, "prompt": prompt, "n": 1, "size": size, "output_format": "png",
             "reasoning_strength": "low", "response_format": "b64_json"}
+    call_id, request_id = events.new_call_id(), events.next_request_id()
+    events.emit("model_call_started", source="meta", model=MODEL, operation=events.operation_words(job), status="running",
+                summary="painting", task=events.task_words(job), request_id=request_id, call_id=call_id)
     started = time.monotonic()
     try:
         with httpx.Client(base_url=BASE_URL, timeout=timeout, transport=transport,
@@ -44,6 +47,8 @@ def generate(prompt: str, *, size: str = "1536x1024", job: str = "image", joblog
             response = http.post("/images/generations", json=body)
     except httpx.HTTPError as exc:
         joblog.append(JobRow(job=job, model=MODEL, ok=False, note=f"transport: {type(exc).__name__}"))
+        events.emit("model_call_failed", source="meta", model=MODEL, operation=events.operation_words(job), status="failed",
+                    summary=f"no reply: {type(exc).__name__}", request_id=request_id, call_id=call_id)
         raise MuseImageError(f"request failed: {type(exc).__name__}") from exc
     duration_ms = int((time.monotonic() - started) * 1000)
     if response.status_code >= 400:
@@ -54,12 +59,20 @@ def generate(prompt: str, *, size: str = "1536x1024", job: str = "image", joblog
             pass
         joblog.append(JobRow(job=job, model=MODEL, ok=False, duration_ms=duration_ms,
                              note=f"http {response.status_code}" + (f" {code}" if code else "")))
+        events.emit("model_call_failed", source="meta", model=MODEL, operation=events.operation_words(job), status="failed",
+                    summary=f"HTTP {response.status_code} from the Meta Model API", latency_ms=duration_ms,
+                    request_id=request_id, call_id=call_id)
         raise MuseImageError(f"Meta Model API returned HTTP {response.status_code}" + (f" ({code})" if code else ""))
     items = (response.json() or {}).get("data") or []
     encoded = items[0].get("b64_json") if items else None
     if not encoded:
         joblog.append(JobRow(job=job, model=MODEL, ok=False, duration_ms=duration_ms, note="no image in the answer"))
+        events.emit("model_call_failed", source="meta", model=MODEL, operation=events.operation_words(job), status="failed",
+                    summary="the answer held no image", latency_ms=duration_ms, request_id=request_id, call_id=call_id)
         raise MuseImageError("the answer held no image")
     joblog.append(JobRow(job=job, model=MODEL, cost_usd=PRICES_PER_IMAGE[MODEL] * len(items),
                          duration_ms=duration_ms, ok=True, note=f"{len(items)} image"))
+    events.emit("model_call_completed", source="meta", model=MODEL, operation=events.operation_words(job), status="ok",
+                summary=f"{len(items)} image painted.", latency_ms=duration_ms, request_id=request_id, call_id=call_id,
+                cost_usd=PRICES_PER_IMAGE[MODEL] * len(items))
     return base64.b64decode(encoded)

@@ -16,6 +16,7 @@ import re
 import time
 import uuid
 from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,11 +25,16 @@ from hiremarco import config, stream
 NAME = "events.jsonl"
 COUNTER = "events.request"
 KINDS = ("model_call_started", "model_call_completed", "model_call_failed", "analysis_generated", "decision_made",
-         "tool_invoked", "tool_completed", "verification_started", "verification_completed", "note")
+         "tool_invoked", "tool_completed", "tool_skipped", "verification_started", "verification_completed", "note",
+         "job_started", "job_ended", "stage", "thought", "learned", "message_sent", "email_received")
 STATUSES = ("running", "ok", "failed", "retry", "low_confidence", "refused")
 SUMMARY_CHARS = 80
 DETAIL_CHARS = 120
 METRICS_MAX = 4
+PLAIN_CHARS = 90      # the design's budget for the Now sentence (trace/FEED-RULES.md)
+LINE_CHARS = 120      # task, thought, a text, the design's hard limit
+SUBJECT_CHARS = 40
+MAIL_FLAG = "trace.mail"
 
 # the job names the code already passes, in the words a judge reads; a job not here reads as its name with spaces
 OPERATIONS = {
@@ -40,6 +46,20 @@ OPERATIONS = {
     "call": "the call", "transcribe": "listening", "command": "a spoken command", "export_computer_use": "the export dialog",
     "mail": "reading the mail", "email-offer": "an offer from the mail", "dress": "dress me",
 }
+# what each job asks a model, present tense, for the live view; a job not here reads as its operation words
+TASKS = {
+    "master_audit": "Write the mastering plan from the measurements", "master_settings": "Set every control, with a reason",
+    "critic": "Critic: approve or hold it", "plugin_face": "Read the plug-in's window", "segment": "Find the pieces in the photo",
+    "dress-looks": "Build three looks from the pieces", "dress-pick": "Pick the look", "dress-backdrop": "Paint the paper of the look board",
+    "selects-pick": "Pick the frames", "organize": "Organize the session", "taste": "Read the artist's taste",
+    "mix_pass": "Write the mix pass", "mix_hearing": "Say what the mix sounds like", "chain_design": "Design the channel from a description",
+    "take_feedback": "Listen to the take and give a note", "hours_check": "Check the hours", "call-relay": "Talk on the phone call",
+    "call": "Talk on the phone call", "transcribe": "Write down what was said", "listen": "Hear what was said", "studio-command": "Turn the spoken command into one Logic action",
+    "booth_line": "Answer in the booth", "export_computer_use": "Work the export dialog", "mail": "Read the mail", "mail-write": "Draft the email",
+    "email-offer": "Read the email and find what to offer", "inbox-sort": "Sort the email", "whatsapp-reply": "Answer on WhatsApp",
+    "whatsapp-brain": "Answer on WhatsApp", "whatsapp-photo": "Read the photo", "whatsapp-reaction": "React to the message", "proof-read": "Read the proof",
+    "sound_design": "Design the sound", "mix_signature": "Read the mix's signature", "mix_preferences": "Read the artist's preferences",
+}
 TOOLS = {"logic": "Logic Pro", "whatsapp": "WhatsApp", "twilio": "the phone", "bounce": "Bounce", "mail": "Mail"}
 
 
@@ -49,6 +69,10 @@ def path() -> Path:
 
 def operation_words(job: str) -> str:
     return OPERATIONS.get(job, job.replace("_", " ").replace("-", " "))
+
+
+def task_words(job: str) -> str:
+    return TASKS.get(job, operation_words(job))
 
 
 def tool_words(channel: str) -> str:
@@ -76,6 +100,20 @@ def next_request_id(at: Path | None = None) -> str:
     return f"{count:05d}"
 
 
+def _cut(text: str, limit: int) -> str:
+    """Within the limit, on a sentence or a word when there is one, so a line on screen never ends in half a word."""
+    text = stream.clean(text).strip()
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    for mark in (". ", "; "):
+        end = head.rfind(mark)
+        if end >= limit // 2:
+            return head[:end + 1].rstrip(";") if mark == ". " else head[:end] + "."
+    space = head.rfind(" ")
+    return head[:space] if space >= limit // 2 else head
+
+
 def _metrics(metrics) -> list[dict]:
     out = []
     for m in (metrics or [])[:METRICS_MAX]:
@@ -90,7 +128,9 @@ def _metrics(metrics) -> list[dict]:
 def emit(kind: str, *, source: str, model: str = "", operation: str = "", status: str = "ok", summary: str = "",
          detail: str = "", metrics=None, latency_ms: int | None = None, confidence: float | None = None,
          tool: str = "", request_id: str = "", attempt: int | None = None, call_id: str = "", tokens: dict | None = None,
-         cost_usd: float | None = None, at: Path | None = None) -> dict:
+         cost_usd: float | None = None, plain: str = "", stage: str = "", stages: list[str] | None = None, task: str = "",
+         thought: str = "", motif: str = "", via: str = "", text: str = "", sender: str = "", subject: str = "",
+         pid: int | None = None, at: Path | None = None) -> dict:
     """One line of the stream, written now; returns the row."""
     if kind not in KINDS:
         raise ValueError(f"not an event kind: {kind}")
@@ -98,9 +138,23 @@ def emit(kind: str, *, source: str, model: str = "", operation: str = "", status
         raise ValueError(f"not a status: {status}")
     row = {"ts": datetime.now(timezone.utc).astimezone().isoformat(timespec="milliseconds"), "kind": kind,
            "source": "meta" if source == "meta" else "marco", "model": model, "operation": stream.clean(operation)[:48],
-           "status": status, "summary": stream.clean(summary)[:SUMMARY_CHARS]}
+           "status": status, "summary": _cut(summary, SUMMARY_CHARS)}
     if detail:
-        row["detail"] = stream.clean(detail)[:DETAIL_CHARS]
+        row["detail"] = _cut(detail, DETAIL_CHARS)
+    for name, value, limit in (("plain", plain, PLAIN_CHARS), ("task", task, LINE_CHARS), ("thought", thought, LINE_CHARS),
+                               ("text", text, LINE_CHARS), ("sender", sender, SUMMARY_CHARS), ("subject", subject, SUBJECT_CHARS)):
+        if value:
+            row[name] = _cut(value, limit)
+    if stage:
+        row["stage"] = stage
+    if stages:
+        row["stages"] = list(stages)
+    if motif:
+        row["motif"] = motif
+    if via:
+        row["via"] = via
+    if pid is not None:
+        row["pid"] = int(pid)
     if metrics:
         row["metrics"] = _metrics(metrics)
     if latency_ms is not None:
@@ -131,6 +185,97 @@ def emit(kind: str, *, source: str, model: str = "", operation: str = "", status
 
 def new_call_id() -> str:
     return uuid.uuid4().hex[:12]
+
+
+def stage(name: str, plain: str, **fields) -> dict:
+    """The path moves and the big sentence says why; the design goes stale when a stage flips without one."""
+    return emit("stage", source="marco", status="ok", stage=name, plain=plain, **fields)
+
+
+def thought(words: str, *, detail: str = "", motif: str = "", learned: bool = False) -> dict:
+    """Marco thinking: only words the run really produced (a finding, a model's reason), never written for the screen."""
+    return emit("learned" if learned else "thought", source="marco", status="ok", thought=words, detail=detail, motif=motif)
+
+
+@contextmanager
+def step(task: str, *, tool: str = "Logic Pro", motif: str = "", done: str = "", plain: str = "") -> Iterator[dict]:
+    """A long step with no model in it (a print, a measurement): on the screen with a running clock, so Marco at work
+    never reads as idle. ``result["summary"]`` set inside the block is what the line says when it ends."""
+    call_id, began, result = new_call_id(), time.monotonic(), {"summary": done or task}
+    emit("tool_invoked", source="marco", tool=tool, operation="step", status="running", summary=task, task=task,
+         motif=motif, plain=plain, call_id=call_id)
+    try:
+        yield result
+    except Exception as exc:
+        emit("tool_completed", source="marco", tool=tool, operation="step", status="failed", summary=f"{task}: {type(exc).__name__}",
+             call_id=call_id, latency_ms=int((time.monotonic() - began) * 1000))
+        raise
+    emit("tool_completed", source="marco", tool=tool, operation="step", status="ok", summary=result["summary"], call_id=call_id,
+         latency_ms=int((time.monotonic() - began) * 1000))
+
+
+def mail_flag() -> Path:
+    return Path(config.STATE_DIR) / MAIL_FLAG
+
+
+def show_mail() -> bool:
+    """An email's sender and subject reach the screen only when the Owner turned it on for a shot (marco trace mail on)."""
+    return mail_flag().exists()
+
+
+PAGE_STATUS = {"ok": "ok", "running": "running", "failed": "error", "retry": "error", "refused": "held", "low_confidence": "held"}
+
+
+def _page_metrics(row: dict) -> dict | None:
+    out = {}
+    for m in row.get("metrics") or []:
+        out[m["label"]] = f"{m['value']} {m['unit']}".strip()
+    return out or None
+
+
+def for_page(row: dict) -> dict | None:
+    """One runtime row in the live page's words (trace/FEED-RULES.md), or None for a row the page has no place for;
+    nothing here adds a fact the row does not hold."""
+    kind, status = row.get("kind", ""), row.get("status", "ok")
+    out = {k: row[k] for k in ("ts", "plain", "stage", "stages", "motif", "pid") if row.get(k)}
+
+    def line(type_: str, **fields) -> dict:
+        return {**out, "type": type_, **{k: v for k, v in fields.items() if v not in (None, "")}}
+
+    if kind in ("model_call_started", "model_call_completed", "model_call_failed") or (kind in ("tool_invoked", "tool_completed") and row.get("call_id")):
+        name = row.get("model") or row.get("tool") or ""
+        if not row.get("call_id"):   # a retry announced apart from the call that failed
+            return line("thought", thought=row.get("summary"))
+        if status == "running":
+            return line("call_start", call_id=row["call_id"], model=name, task=row.get("task") or row.get("operation"),
+                        status="running", request_id=row.get("request_id"), attempt=row.get("attempt"))
+        return line("call_end", call_id=row["call_id"], model=name, status=PAGE_STATUS.get(status, "ok"), summary=row.get("summary"),
+                    detail=row.get("detail"), latency_ms=row.get("latency_ms"), request_id=row.get("request_id"),
+                    metrics=_page_metrics(row))
+    if kind in ("tool_invoked", "tool_completed"):
+        if status == "refused":
+            return line("held", status="held", summary=row.get("summary"), detail=row.get("detail"))
+        return line("tool_failed", status="error", summary=row.get("summary"), detail=row.get("detail")) if status == "failed" else None
+    if kind == "tool_skipped":
+        return line("tool_skipped", summary=row.get("summary"), detail=row.get("detail"))
+    if kind in ("job_started", "stage"):
+        return line("stage", job=row.get("operation"))
+    if kind in ("thought", "learned"):
+        return line(kind, thought=row.get("thought"), detail=row.get("detail"))
+    if kind == "decision_made":
+        return line("thought", thought=row.get("thought") or row.get("summary"), detail=row.get("detail"))
+    if kind == "analysis_generated":
+        return None if row.get("source") == "meta" else line("thought", thought=row.get("thought") or row.get("summary"))
+    if kind == "verification_completed":
+        if status == "ok":
+            return line("thought", thought=row.get("thought") or row.get("summary")) if row.get("thought") or row.get("plain") else None
+        return line("self_catch", summary=row.get("summary"), detail=row.get("detail"))
+    if kind == "message_sent":
+        return line("message_sent", direction="out", via=row.get("via"), text=row.get("text"))
+    if kind == "email_received":
+        return line("email_received", direction="in", via=row.get("via") or "Gmail", **{"from": row.get("sender")},
+                    subject=row.get("subject"), text=row.get("text"))
+    return out if out.get("plain") or out.get("stage") else None
 
 
 def reply_summary(text: str) -> str:

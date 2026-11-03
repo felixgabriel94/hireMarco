@@ -94,6 +94,7 @@ below grows as the build does; `git log` carries the dates.
 | Nov 2 | `stream`, `logwindow` | Marco's running log: one plain line per step, all day, the model id first, then the step, then the seconds, nothing private; `marco log --window` floats the last eight lines over Logic in a fixed dark panel that never takes the front, the window the film watches |
 | Nov 2 | `handbook/`, `master.handbook` | The handbook: mixing and mastering as two intentions; sourced claims in the ecosystem Library's entry shape quoting the standards and the manuals installed on this Mac with the date read; situations with triggers, thresholds, moves in real units and verification; profiles for Pro-Q 3, Pro-L 2, soothe2 and the Manley Variable Mu; the plan reads only the situations this track's findings pick and cites their IDs |
 | Nov 2 | `mix.key`, `mix.takes`, `mix.audit` | Every frequency named by its note against the song's key (read from the chroma, with a confidence); a long-term resonance read second by second, so a bin that holds two notes of the part is named as the part and not cut between; per-take peaks told apart as "stays" (a static narrow cut) and "comes and goes" (a dynamic band that moves only when the note rings); `marco takes FILE` |
+| Nov 3 | `events`, `tracewindow`, `trace/`, `scripts/build_live_page.py` | Marco Live: the Owner's design wired to a structured event stream from the runtime. Every model call, including Muse Image and Voice Transcribe, every catch and every long step lands as an event at the moment it happens; the page shows only those events, spaced so they can be read, and says REPLAY when it is a recording |
 
 Planned, in order: the studio (voice
 commands in Logic, three plugin knobs, take notes, the ready-to-mix export,
@@ -107,6 +108,7 @@ These existed before the event; everything in the table above was built during i
 **Ours, from before the event**
 
 - The hireMarco name, logo and brand
+- Inter Tight and JetBrains Mono, from Google Fonts under the SIL Open Font License, and the Gmail icon, on the live view
 - Marco's personality files, kept private and read at runtime from a folder
   outside this repository; never published
 - The design of the gate, from the private hireMarco product: its entry

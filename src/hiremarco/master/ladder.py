@@ -19,6 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from hiremarco import events
 from hiremarco.mix.verify import Verdict
 
 STEP_DB = 1.0
@@ -106,6 +107,14 @@ def climb(*, start_gain_db: float, set_gain: Callable[[float], float], print_bar
         step = Step(gain, level, not reasons, reasons, str(path))
         ladder.steps.append(step)
         log("   " + ladder.lines()[-1])
+        # a bar the verifier broke has already said so on the stream; one only the ears broke says so here
+        events.emit("verification_completed", source="marco", operation="the loudness ladder",
+                    status="ok" if step.passed or not verdict.passed else "failed",
+                    summary=f"Limiter gain {gain:+.1f} dB: {level} LUFS, " + ("clean" if step.passed else "not clean"),
+                    detail="" if step.passed else reasons[0],
+                    thought=f"Up a step: {level} LUFS, still clean." if step.passed else f"Too far at {level} LUFS. Back one step.",
+                    plain="" if step.passed else "One step too far. Marco goes back to the last clean level.",
+                    metrics=[("Limiter gain", f"{gain:+.1f}", "dB"), ("Loudness", str(level), "LUFS")])
         if not step.passed:
             if last_clean is not None:
                 set_gain(last_clean.gain_db)

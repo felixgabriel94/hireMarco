@@ -1201,11 +1201,22 @@ def cmd_takes(args) -> int:
 
 
 def cmd_trace(args) -> int:
-    """The live trace: ``marco trace`` opens it on the TV; ``replay FILE`` plays a recorded stream; ``detail on|off``."""
+    """Marco Live: ``marco trace`` opens it on the TV; ``replay FILE`` plays a recorded stream; ``detail on|off``;
+    ``mail on|off`` lets an email's sender and subject reach the screen for a shot (off by default)."""
     from pathlib import Path
 
-    from hiremarco import tracewindow
+    from hiremarco import events, tracewindow
 
+    if args.action == "mail":
+        flag = events.mail_flag()
+        if args.words and args.words[0] == "on":
+            flag.parent.mkdir(parents=True, exist_ok=True)
+            flag.write_text("on")
+            print("emails reach the screen: sender and subject, never the body")
+        else:
+            flag.unlink(missing_ok=True)
+            print("emails stay off the screen")
+        return 0
     if args.action == "detail":
         flag = tracewindow.detail_flag()
         if args.words and args.words[0] == "on":
@@ -1220,7 +1231,7 @@ def cmd_trace(args) -> int:
     if args.action == "replay" and replay is None:
         print("marco trace replay FILE")
         return 2
-    tracewindow.show(screen=args.screen, fill=args.fill, unit=args.unit, replay=replay, speed=args.speed)
+    tracewindow.show(screen=args.screen, fill=args.fill, unit=args.unit, layout=args.layout, replay=replay, speed=args.speed)
     return 0
 
 
@@ -1953,12 +1964,13 @@ def main(argv: list[str] | None = None) -> int:
     tk.add_argument("--above", type=float, default=5.0, help="dB over its octave a line must stand, per window (5)")
     tk.set_defaults(func=cmd_takes)
 
-    tr = sub.add_parser("trace", help="the live model trace: show (default) | replay FILE | detail on|off")
-    tr.add_argument("action", nargs="?", choices=["show", "replay", "detail"], default="show")
+    tr = sub.add_parser("trace", help="Marco Live: show (default) | replay FILE | detail on|off | mail on|off")
+    tr.add_argument("action", nargs="?", choices=["show", "replay", "detail", "mail"], default="show")
     tr.add_argument("words", nargs="*")
     tr.add_argument("--screen", type=int, default=2, help="which display: 2 is the TV, 1 the Mac's own")
-    tr.add_argument("--fill", type=float, default=0.92, help="share of the display the window takes (0.92); drag and resize it after")
-    tr.add_argument("--unit", type=float, help="type scale: 1.0 on a 1920-point display; smaller shrinks everything")
+    tr.add_argument("--fill", type=float, default=0.96, help="share of the display's width the window takes (0.96); drag and resize it after")
+    tr.add_argument("--layout", choices=["banner", "full"], default="banner", help="banner: 1920 by 312 along the bottom; full: 1920 by 1080")
+    tr.add_argument("--unit", type=float, help="a fixed scale for the page (1.0 is native pixels); by default it fits its window")
     tr.add_argument("--speed", type=float, default=1.0, help="replay speed (1.0 is true timing)")
     tr.set_defaults(func=cmd_trace)
 

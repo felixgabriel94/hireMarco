@@ -38,6 +38,12 @@ def parse(text: str) -> tuple[bool, str]:
     return False, "the critic's answer was unreadable"
 
 
+def verdict_line(text: str) -> tuple[str, str]:
+    """The critic's verdict for the live view: a hold reads as held."""
+    approved, reason = parse(text)
+    return ("ok", f"Approved. {reason}") if approved else ("refused", f"Held. {reason}")
+
+
 class Critic:
     def __init__(self, client: MuseSpark | None = None, rules_path: Path | None = None, model: str = CRITIC_MODEL,
                  effort: str = "low", tokens: int = 600, timeout: float = 60.0):
@@ -56,7 +62,7 @@ class Critic:
         # Muse Wonder reasons before it answers: at 40 tokens (live 2026-10-31) 38 went to reasoning, the answer was
         # empty and the first call was held as unreadable. Room for both, and still a hold on anything unreadable.
         reply = client.ask(description, developer=system, job="critic", model=self.model,
-                           max_completion_tokens=self.tokens, reasoning_effort=self.effort)
+                           max_completion_tokens=self.tokens, reasoning_effort=self.effort, summarize=verdict_line)
         if not reply.text.strip() and reply.finish_reason == "length":
             return False, "the critic ran out of room before answering"
         return parse(reply.text)
