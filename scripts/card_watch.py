@@ -218,7 +218,8 @@ def main(argv=None) -> int:
     if args.once:
         sweep(args.footage, args.dry_run, args.edit, extra, not args.no_cards)
         return 0
-    print(f"watching /Volumes for camera cards, copying into {args.footage}", flush=True)
+    what = "screen recordings" if args.no_cards else "camera cards and screen recordings"
+    print(f"watching for {what}, copying into {args.footage}", flush=True)
     while True:
         if not args.footage.exists():
             print("LaCie went away; waiting", flush=True)
