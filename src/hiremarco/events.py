@@ -63,6 +63,8 @@ OPERATIONS = {
     "feedback": "a producer's note on the take", "hours_check": "checking the hours", "call-relay": "the call",
     "call": "the call", "transcribe": "listening", "command": "a spoken command", "export_computer_use": "the export dialog",
     "mail": "reading the mail", "email-offer": "an offer from the mail", "dress": "dress me",
+    "bench_ear": "the ears on the test", "bench_verdict": "the verdict on the tool", "ladder_verdict": "the next step",
+    "check_ear": "the ears on the result", "check_verdict": "the verdict on the goal",
 }
 # what each job asks a model, present tense, for the live view; a job not here reads as its operation words
 TASKS = {
@@ -77,6 +79,9 @@ TASKS = {
     "email-offer": "Read the email and find what to offer", "inbox-sort": "Sort the email", "whatsapp-reply": "Answer on WhatsApp",
     "whatsapp-brain": "Answer on WhatsApp", "whatsapp-photo": "Read the photo", "whatsapp-reaction": "React to the message", "proof-read": "Read the proof",
     "sound_design": "Design the sound", "band_audition": "Listen to just this part of the sound", "mix_signature": "Read the song's signature", "mix_preferences": "Read the artist's preferences",
+    "bench_ear": "Hear the song with and without the tool", "bench_verdict": "Decide if the tool earns its place",
+    "ladder_verdict": "Decide whether to go one step louder", "check_ear": "Hear the finished song against the original",
+    "check_verdict": "Decide if the goal is met",
 }
 TOOLS = {"logic": "Logic Pro", "whatsapp": "WhatsApp", "twilio": "the phone", "bounce": "Bounce", "mail": "Mail"}
 

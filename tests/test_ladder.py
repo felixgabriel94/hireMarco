@@ -63,3 +63,21 @@ def test_the_ears_can_break_a_step():
     assert ladder.hearing_bars(mix, {"psychoacoustics": {"roughness_asper_mean": 0.50}}) == ["roughness rose +0.23 asper over the mix's bars"]
     assert ladder.hearing_bars(mix, {"zimtohrli": {"mos_mix_vs_reference": 3.1}}) == ["likeness to the mix 3.10 of 5, under the 3.5 floor"]
     assert ladder.hearing_bars(mix, {"error": "no stack"}) == [] and ladder.hearing_bars(None, None) == []
+
+
+def test_the_brain_can_stop_the_ladder_short_of_the_floors_but_not_pass_them():
+    lim, said = Limiter(), []
+    asked = []
+
+    def ask_next(step):
+        asked.append(step.gain_db)
+        return (step.gain_db < 3.5, "3.5 dB sits 1 dB under the pumping floor; the next step buys nothing the song needs")
+
+    out = ladder.climb(start_gain_db=2.5, set_gain=lim.set_gain, print_bars=lim.print_bars, compare=lim.compare,
+                       lufs_of=lim.lufs_of, ask_next=ask_next, log=said.append)
+    assert [(s.gain_db, s.passed) for s in out.steps] == [(2.5, True), (3.5, True)] and asked == [2.5, 3.5]
+    assert out.ceiling_gain_db == 3.5 and out.stopped_by.startswith("3.5 dB sits") and out.as_dict()["stopped_by"] == out.stopped_by
+    # a brain that says louder past a floor changes nothing: the meters refuse the step as before
+    out = ladder.climb(start_gain_db=2.5, set_gain=lim.set_gain, print_bars=lim.print_bars, compare=lim.compare,
+                       lufs_of=lim.lufs_of, ask_next=lambda s: (True, "louder"), log=said.append)
+    assert out.ceiling_gain_db == 4.5 and out.gave_first.startswith("the master pumps") and out.stopped_by == ""

@@ -482,3 +482,60 @@ def test_past_the_budget_the_tests_are_skipped_and_the_screen_says_so(tmp_path, 
     assert ("bypass", True) not in strip.log and result.master is not None
     skipped = [r for r in _events(tmp_path) if r["kind"] == "tool_skipped"]
     assert skipped and skipped[0]["summary"] == "No time left for the tests." and any("out of time for the tests" in l for l in lines)
+
+
+class FakeJudge:
+    """The ears and the brain as the test scripts them: one answer per tool, and one for the finished song."""
+
+    def __init__(self, verdicts, heard="none", check=("done", "It hits the mark.")):
+        self.verdicts, self.heard, self.check, self.asked = verdicts, heard, check, []
+
+    def hear(self, a, b, *, job, what):
+        self.asked.append((job, what))
+        return {"hears": "scripted", "note": "I hear it.", "difference": self.heard}
+
+    def decide(self, job, choices, *, rule, numbers, heard=None):
+        self.asked.append((job, numbers.get("tool")))
+        from hiremarco.master.judge import Call
+
+        if job == "check_verdict":
+            return Call(self.check[0], "why", self.check[1])
+        decision, plain = self.verdicts[numbers["tool"]]
+        return Call(decision, "why", plain)
+
+
+def _judged_run(tmp_path, monkeypatch, judge):
+    from hiremarco import config
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+    monkeypatch.setattr(jobs, "Judge", lambda client: judge)
+    strip = FakeStrip()
+    # prints: mix, chain check, bench full, bench without Gain (6 dB lower), bench without Pro-L 2 (the same), the master
+    bouncer, channel = FakeBouncer(tmp_path, [-30.0, -20.0, -20.0, -26.0, -20.0, -12.0]), FakeChannel()
+    plan = MasterPlan([{"role": "gain", "plugin": "Gain", "why": "8 dB"}, {"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}],
+                      -12.0, -1.0, "ok", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings([], ""))
+    lines = []
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+                      toggle_cycle=lambda: None, select_track=lambda: None, room={"Gain", "Pro-L 2"}, log=lines.append,
+                      bench=True, client=object())
+    return result, lines, strip
+
+
+def test_the_brain_judges_each_tool_inside_the_rule_and_the_record_says_who_decided(tmp_path, monkeypatch):
+    # Gain measures 6 dB and the brain removes it anyway (it hurts); Pro-L 2 measures nothing, the ears hear nothing,
+    # the brain says keep, and the playbook overrules: knowledge bounds, wisdom judges inside (Owner 2026-11-03)
+    judge = FakeJudge({"Gain": ("remove", "I take it off. It pushes too hard."), "Pro-L 2": ("keep", "I keep it.")})
+    result, lines, strip = _judged_run(tmp_path, monkeypatch, judge)
+    assert [(b["name"], b["measured"], b["earned"]) for b in result.bench] == [("Gain", True, False), ("Pro-L 2", False, False)]
+    assert ("remove", "Gain") in strip.log and ("remove", "Pro-L 2") in strip.log
+    assert any("the playbook overrules the brain on Pro-L 2" in l for l in lines)
+    assert [a[0] for a in judge.asked] == ["bench_ear", "bench_verdict", "bench_ear", "bench_verdict", "check_ear", "check_verdict"]
+    assert result.judged == [{"round": 1, "heard": {"hears": "scripted", "note": "I hear it.", "difference": "none"}, "decision": "done", "why": "why"}]
+    rows = _events(tmp_path)
+    tested = [r for r in rows if r["kind"] == "tool_completed" and r.get("word") == "tested"][1:]   # after the short test through the tools
+    assert tested[0]["summary"] == "I take it off." and tested[1]["summary"] == "I keep it."   # the first plain sentence
+    checked = [r for r in rows if r["kind"] == "tool_completed" and r.get("word") == "checked"]
+    assert checked[-1]["summary"] == "It hits the mark." and json.loads(result.record.read_text())["judged"] == result.judged

@@ -44,6 +44,7 @@ class Ladder:
     ceiling_gain_db: float | None = None
     ceiling_lufs: float | None = None
     gave_first: str = ""
+    stopped_by: str = ""   # the brain's reason for not taking the next step while the floors still held
 
     def lines(self) -> list[str]:
         out = []
@@ -57,7 +58,7 @@ class Ladder:
 
     def as_dict(self) -> dict:
         return {"steps": [s.__dict__ for s in self.steps], "ceiling_gain_db": self.ceiling_gain_db,
-                "ceiling_lufs": self.ceiling_lufs, "gave_first": self.gave_first}
+                "ceiling_lufs": self.ceiling_lufs, "gave_first": self.gave_first, "stopped_by": self.stopped_by}
 
 
 def hearing_bars(mix_hearing: dict | None, step_hearing: dict | None) -> list[str]:
@@ -83,8 +84,11 @@ def climb(*, start_gain_db: float, set_gain: Callable[[float], float], print_bar
           compare: Callable[[Path], Verdict], lufs_of: Callable[[Path], float],
           hear: Callable[[Path], dict | None] | None = None, mix_hearing: dict | None = None,
           step_db: float = STEP_DB, max_steps: int = MAX_STEPS, cap_lufs: float = CAP_LUFS,
+          ask_next: Callable[[Step], tuple[bool, str]] | None = None,
           log: Callable[[str], None] = lambda s: None) -> Ladder:
-    """Up one dB at a time until a bar breaks or the cap is reached; the limiter left at the last clean step."""
+    """Up one dB at a time until a bar breaks or the cap is reached; the limiter left at the last clean step.
+    ``ask_next`` is the brain's say after a clean step (go on, or stop here with why): it can stop the ladder short
+    of the floors, never carry it past them."""
     ladder = Ladder()
     gain = start_gain_db
     last_clean: Step | None = None
@@ -125,6 +129,16 @@ def climb(*, start_gain_db: float, set_gain: Callable[[float], float], print_bar
         if level is not None and level >= cap_lufs:
             log(f"   {level:.1f} LUFS reaches the {cap_lufs:g} LUFS cap; the ladder stops here")
             break
+        if ask_next is not None and k < max_steps:
+            try:
+                go_on, why = ask_next(step)
+            except Exception as exc:   # noqa: BLE001
+                log(f"   the brain sat this step out ({type(exc).__name__}: {str(exc)[-100:]}); the meters decide")
+                continue
+            if not go_on:
+                ladder.stopped_by = why
+                log(f"   the brain stops the ladder here: {why}")
+                break
     if last_clean is not None:
         ladder.ceiling_gain_db, ladder.ceiling_lufs = last_clean.gain_db, last_clean.lufs
     return ladder

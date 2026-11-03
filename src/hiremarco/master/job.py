@@ -29,6 +29,7 @@ from pathlib import Path
 from hiremarco import events
 from hiremarco.master import plan as planning
 from hiremarco.master import roles
+from hiremarco.master.judge import BENCH_RULE, CHECK_RULE, LADDER_RULE, Judge
 from hiremarco.master.rules import PURPOSES
 from hiremarco.mix import audit as auditing
 from hiremarco.mix import listen as listening
@@ -80,6 +81,7 @@ class Result:
     verdict: object | None = None                   # the master against the mix (mix.verify.Verdict)
     bench: list[dict] = field(default_factory=list)      # each insert with and without, measured; what earned its place
     ladder: dict | None = None                            # the loudness ladder on the loudest bars: steps, ceiling, what gave
+    judged: list[dict] = field(default_factory=list)      # the ears and the brain on each finished print, against the goal
 
     @property
     def caption(self) -> str:
@@ -205,11 +207,12 @@ EARN_TILT = 0.1          # or the tilt this much, dB per octave
 
 
 def run_bench(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycle, job: Job, log,
-              ledger: list[dict]) -> list[dict]:
+              ledger: list[dict], judge=None) -> list[dict]:
     """Every one of Marco's inserts on the output printed with and without over the check range, after the
     settings: the full chain once, then each insert bypassed in turn. The difference its absence makes (level,
-    crest, tilt, the widest band move) is the reason it stays; one that moves nothing is taken off and the record
-    says so. Returns one row per insert."""
+    crest, tilt, the widest band move) is the measured reason; with a ``judge`` (master.judge), the ears hear both
+    prints and the brain gives the verdict inside the playbook's limits (Owner 2026-11-03: knowledge and wisdom).
+    One that earns nothing is taken off and the record says so. Returns one row per insert."""
     folder = Path(job.bounces).expanduser() / "checks"
     folder.mkdir(parents=True, exist_ok=True)
     marcos = {row["name"] for row in ledger}
@@ -229,7 +232,8 @@ def run_bench(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycl
     locators(*bars)
     ensure_range(bouncer, bars[1], toggle_cycle, log)
     try:
-        full = measure(short_print("bench full chain"))
+        full_path = short_print("bench full chain")
+        full = measure(full_path)
         on_bench = [i for i in strip.read().inserts if i.marcos and i.name in marcos and not i.bypassed]
         seen: dict[str, int] = {}
         for ins in on_bench:
@@ -241,18 +245,35 @@ def run_bench(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycl
             try:
                 # the verdict is the test's own line, not a second thought under it (Owner 2026-11-03: one line per task)
                 with events.step(f"Try the song without {label}", motif="rec", word="tested") as line:
-                    without = measure(short_print(f"bench without {ins.name}"))
+                    without_path = short_print(f"bench without {ins.name}")
+                    without = measure(without_path)
                     band_moves = {k: round(full["bands"][k] - without["bands"][k], 1) for k in full["bands"]
                                   if not math.isnan(full["bands"][k]) and not math.isnan(without["bands"][k])}
                     widest = max(band_moves.items(), key=lambda kv: abs(kv[1])) if band_moves else ("", 0.0)
                     effect = {"level_db": round(full["lufs"] - without["lufs"], 1), "crest_db": round(full["crest"] - without["crest"], 1),
                               "tilt_db_per_octave": round(full["tilt"] - without["tilt"], 2), "widest_band": widest[0], "band_db": widest[1]}
-                    earned = bool(abs(effect["level_db"]) >= EARN_DB or abs(effect["crest_db"]) >= EARN_DB
-                                  or abs(effect["tilt_db_per_octave"]) >= EARN_TILT or abs(effect["band_db"]) >= EARN_DB)
-                    line["summary"] = f"{label} stays. It makes a real difference." if earned else f"Without {label}, nothing changes."
+                    measured = bool(abs(effect["level_db"]) >= EARN_DB or abs(effect["crest_db"]) >= EARN_DB
+                                    or abs(effect["tilt_db_per_octave"]) >= EARN_TILT or abs(effect["band_db"]) >= EARN_DB)
+                    earned, heard, call = measured, {}, None
+                    if judge is not None:
+                        # the ears on both prints, then the brain inside the rule; the rule's floor still holds
+                        try:
+                            heard = judge.hear(full_path, without_path, job="bench_ear", what=(f"with {ins.name}", f"without {ins.name}"))
+                            call = judge.decide("bench_verdict", ("keep", "remove"), rule=BENCH_RULE,
+                                                numbers={"tool": ins.name, "without_it": effect, "earn_db": EARN_DB, "earn_tilt": EARN_TILT,
+                                                         "measured": measured}, heard=heard)
+                            earned = call.decision == "keep"
+                            if earned and not measured and heard.get("difference") in ("none", "unknown"):
+                                earned = False
+                                log(f"   the playbook overrules the brain on {ins.name}: nothing measured and nothing heard")
+                        except Exception as exc:   # noqa: BLE001
+                            log(f"   the judge sat {ins.name} out ({type(exc).__name__}: {str(exc)[-100:]}); the meters decide")
+                    line["summary"] = (events.readable(call.plain) if call is not None else "") or \
+                        (f"{label} stays. It makes a real difference." if earned else f"Without {label}, nothing changes.")
             finally:
                 strip.bypass(False, rows=[ins.y])
-            rows.append({"name": ins.name, "y": round(ins.y), "earned": earned, **effect})
+            rows.append({"name": ins.name, "y": round(ins.y), "earned": earned, "measured": measured, **effect,
+                         "heard": heard.get("hears", ""), "verdict": call.why if call is not None else ""})
             if earned:
                 log(f"   {ins.name} earns its place: without it level {-effect['level_db']:+.1f} dB, crest "
                     f"{-effect['crest_db']:+.1f} dB, tilt {-effect['tilt_db_per_octave']:+.2f}, {widest[0]} {-widest[1]:+.1f} dB")
@@ -343,7 +364,7 @@ def emit_analysis(audit, hearing) -> None:
 
 
 def climb_ladder(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycle, channel, job: Job, result: Result,
-                 listen, log) -> dict | None:
+                 listen, log, judge=None) -> dict | None:
     """The limiter's gain up one dB at a time on the loudest bars until a clean bar breaks (master.ladder)."""
     from hiremarco.master import ladder as ladders
 
@@ -399,9 +420,20 @@ def climb_ladder(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_c
             hear = lambda path: listen(path, bars_path)   # noqa: E731
         except Exception as exc:   # noqa: BLE001
             log(f"   the ears sit this ladder out ({type(exc).__name__})")
+    ask_next = None
+    if judge is not None:
+        def ask_next(step) -> tuple[bool, str]:
+            # the brain's say after a clean step, inside the rule: it can stop short of the floors, not pass them
+            call = judge.decide("ladder_verdict", ("louder", "stop"), rule=LADDER_RULE,
+                                numbers={"limiter_gain_db": step.gain_db, "lufs_on_loudest_bars": step.lufs, "cap_lufs": ladders.CAP_LUFS,
+                                         "target_lufs": result.plan.target_lufs, "floors": "peak-to-loudness 8 dB, no new pumping, "
+                                         "the mono fold and width unchanged, roughness and likeness within the ears' lines",
+                                         "this_step": "clean"})
+            return call.decision == "louder", call.why
+
     try:
         out = ladders.climb(start_gain_db=start, set_gain=set_gain, print_bars=print_bars, compare=compare, lufs_of=lufs_of,
-                            hear=hear, mix_hearing=mix_hearing, log=log)
+                            hear=hear, mix_hearing=mix_hearing, ask_next=ask_next, log=log)
     finally:
         locators(1, job.end_bar)
         ensure_range(bouncer, job.end_bar, toggle_cycle, log)
@@ -502,6 +534,9 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
     # 1. the mix as it stands: Marco's own inserts bypassed, the artist's untouched
     log("1. the mix print")
     began = time.monotonic()
+    # knowledge and wisdom (Owner 2026-11-03): with a client, the ears and the brain sit on every test, the ladder and
+    # the final check; without one (the suite's fakes), the meters decide alone as before
+    judge = Judge(client) if client is not None else None
 
     def out_of_time(what: str) -> bool:
         """Past the budget, a test or a pass is skipped and the screen says so; the goal is a finished song, not a long night."""
@@ -806,7 +841,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             # changes nothing comes off (Owner 2026-11-02: every decision earns its place with a measured reason)
             log("5b. the bench")
             events.stage("Test", "Every tool must earn its place. Marco tests each one.")
-            result.bench = run_bench(strip, bouncer, locators, toggle_cycle, job, log, marcos_inserts(job.song))
+            result.bench = run_bench(strip, bouncer, locators, toggle_cycle, job, log, marcos_inserts(job.song), judge=judge)
             if any(not row["earned"] for row in result.bench):
                 chain = channel.read(fresh=True)
 
@@ -815,7 +850,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             log("5c. the loudness ladder")
             events.stage("Test", "Marco turns it up, one step at a time, until it suffers.")
             try:
-                result.ladder = climb_ladder(strip, bouncer, locators, toggle_cycle, channel, job, result, listen, log)
+                result.ladder = climb_ladder(strip, bouncer, locators, toggle_cycle, channel, job, result, listen, log, judge=judge)
             except Exception as exc:   # noqa: BLE001
                 log(f"   the ladder could not run ({type(exc).__name__}: {str(exc)[-120:]}); the plan's level stands")
 
@@ -842,6 +877,22 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
         if listen is not None:
             with events.step("Listen to what came out", tool="Marco's ears", motif="wave", word="checked"):
                 result.hearing_master = listen(master.path)
+        if judge is not None:
+            # the ears on the original and the result at matched level, then the brain against the goal; the numbers
+            # below still decide whether a second pass runs, so the brain's word is the verdict a judge reads
+            with events.step("Judge the finished song against the goal", tool="Marco's ears", motif="vu", word="checked") as line:
+                try:
+                    heard = judge.hear(result.mix, master.path, job="check_ear", what=("the original", "the finished version"))
+                    call = judge.decide("check_verdict", ("done", "not yet"), rule=CHECK_RULE,
+                                        numbers={"target_lufs": result.plan.target_lufs, "ceiling_dbtp": result.plan.ceiling_dbtp,
+                                                 "tolerance_lu": LUFS_TOLERANCE, "master_lufs": am.base.lufs, "true_peak_dbtp": am.base.true_peak_db,
+                                                 "loudness_range_lu": am.loudness_range, "mix_lufs": result.audit_mix.base.lufs},
+                                        heard=heard)
+                    result.judged.append({"round": round_no, "heard": heard, "decision": call.decision, "why": call.why})
+                    line["summary"] = events.readable(call.plain) or ("Done." if call.decision == "done" else "Not yet.")
+                except Exception as exc:   # noqa: BLE001
+                    log(f"   the judge sat the check out ({type(exc).__name__}: {str(exc)[-100:]}); the meters decide")
+                    line["summary"] = "The meters decide."
             for line in listening.highlights(result.hearing_master):
                 log(f"   {line}")
         log(f"   {master.path.name}: {am.base.lufs} LUFS, {am.base.true_peak_db} dBTP, range {am.loudness_range} LU")
@@ -888,7 +939,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
         "deltas": deltas.as_dict() if deltas else None, "references": [r.base.name for r in refs],
         "hearing": result.hearing, "hearing_master": result.hearing_master,
         "manifest": result.manifest, "verdict": (result.verdict.__dict__ if result.verdict is not None else None),
-        "bench": result.bench, "ladder": result.ladder,
+        "bench": result.bench, "ladder": result.ladder, "judged": result.judged,
     }, indent=1, default=str))
     if deliver is not None and result.master is not None and not result.stopped:
         log("7. the delivery")
