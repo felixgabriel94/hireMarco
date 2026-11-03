@@ -175,10 +175,99 @@ def mirror_screen_recordings(footage: Path, staging: Path = STAGING) -> list[str
     return out
 
 
+def capture_dir() -> Path:
+    """Where Marco's talkback keeps every line it spoke (same rule as hiremarco.voice.talkback.capture_dir)."""
+    try:
+        from hiremarco import config  # available when run with uv --project ~/Code/hiremarco
+        raw = config.get("HIREMARCO_CAPTURE")
+        state = config.STATE_DIR
+    except Exception:
+        raw = os.environ.get("HIREMARCO_CAPTURE")
+        state = Path(os.environ.get("HIREMARCO_STATE", Path.home() / ".local" / "state" / "hiremarco"))
+    return Path(raw) if raw else state / "capture"
+
+
+def mirror_talkback(footage: Path, capture: Path | None = None) -> list[str]:
+    """Copy each line Marco spoke (capture/*_marco.wav, *_guide.wav) into <day>/audio/talkback, verified.
+
+    A line is copied once its talkback.jsonl row exists, i.e. after it finished playing. The day's own
+    talkback.jsonl (only that day's rows) is written beside the copies, so the editor places every line at
+    the exact Mac-clock time it played. Originals stay where they are.
+    """
+    capture = capture or capture_dir()
+    manifest = capture / "talkback.jsonl"
+    if not manifest.exists():
+        return []
+    try:
+        if capture.resolve().is_relative_to(footage.resolve()):
+            return []  # already on the LaCie
+    except OSError:
+        return []
+    rows_by_day: dict[str, list[str]] = {}
+    for ln in manifest.read_text(errors="replace").splitlines():
+        try:
+            row = json.loads(ln)
+        except ValueError:
+            continue
+        name = str(row.get("file") or "")
+        if not name.endswith(".wav") or len(name) < 10:
+            continue
+        rows_by_day.setdefault(name[:10], []).append(ln)
+    STATE.mkdir(parents=True, exist_ok=True)
+    seen = STATE / "talkback-mirrored.jsonl"
+    done = set()
+    if seen.exists():
+        for ln in seen.read_text().splitlines():
+            try:
+                r = json.loads(ln)
+                done.add((r["src"], r["bytes"], r.get("mtime")))
+            except (ValueError, KeyError):
+                continue
+    copied, bad = 0, 0
+    for day, rows in sorted(rows_by_day.items()):
+        dest = footage / day / "audio" / "talkback"
+        for ln in rows:
+            name = json.loads(ln)["file"]
+            src = capture / name
+            if not src.exists():
+                continue
+            st = src.stat()
+            if (str(src), st.st_size, st.st_mtime) in done:
+                continue
+            dest.mkdir(parents=True, exist_ok=True)
+            want = offload.sha256(src)
+            target = dest / name
+            if not (target.exists() and offload.sha256(target) == want):
+                tmp = target.with_name(target.name + ".part")
+                shutil.copy2(src, tmp)
+                if offload.sha256(tmp) != want:
+                    tmp.unlink(missing_ok=True)
+                    bad += 1
+                    continue
+                tmp.rename(target)
+            with open(seen, "a") as f:
+                f.write(json.dumps({"src": str(src), "dst": str(target), "sha256": want, "bytes": st.st_size,
+                                    "mtime": st.st_mtime}) + "\n")
+            copied += 1
+        if dest.exists():
+            text = "\n".join(rows) + "\n"
+            mf = dest / "talkback.jsonl"
+            if not mf.exists() or mf.read_text() != text:
+                tmp = mf.with_name("talkback.jsonl.part")
+                tmp.write_text(text)
+                tmp.rename(mf)
+    out = []
+    if copied:
+        out.append(f"{copied} talkback line(s) from Marco copied to the LaCie and verified")
+    if bad:
+        out.append(f"{bad} talkback line(s) did NOT verify on the LaCie; originals kept, will retry")
+    return out
+
+
 def sweep(footage: Path, dry_run: bool = False, edit: Path | None = None, extra: list[str] | None = None,
           cards: bool = True) -> list[str]:
     out = []
-    for verdict in mirror_screen_recordings(footage):
+    for verdict in mirror_screen_recordings(footage) + mirror_talkback(footage):
         log_line(footage, verdict)
         print(verdict, flush=True)
         out.append(verdict)

@@ -86,3 +86,25 @@ def test_copied_recording_is_not_read_again(world, tmp_path, monkeypatch):
     monkeypatch.setattr(offload, "sha256", lambda p: calls.append(p) or real(p))
     assert card_watch.mirror_screen_recordings(footage, staging) == []
     assert calls == []  # no hashing of a file already copied
+
+
+def test_talkback_lines_mirrored_with_their_manifest(world, tmp_path):
+    import json as _json
+    footage, card = world
+    cap = tmp_path / "capture"
+    cap.mkdir()
+    (cap / "2026-11-03T13-05-01.123_marco.wav").write_bytes(os.urandom(4000))
+    (cap / "2026-11-03T13-06-00.000_marco.wav").write_bytes(os.urandom(4000))  # still playing: no row yet
+    (cap / "2026-11-02T10-00-00.000_marco.wav").write_bytes(os.urandom(4000))
+    rows = [{"played_at": "2026-11-03T13:05:01.200-05:00", "file": "2026-11-03T13-05-01.123_marco.wav", "text": "Talk to me."},
+            {"played_at": "2026-11-02T10:00:00.100-05:00", "file": "2026-11-02T10-00-00.000_marco.wav", "text": "Yeah?"}]
+    (cap / "talkback.jsonl").write_text("".join(_json.dumps(r) + "\n" for r in rows))
+    out = card_watch.mirror_talkback(footage, cap)
+    assert out == ["2 talkback line(s) from Marco copied to the LaCie and verified"]
+    d3 = footage / "2026-11-03" / "audio" / "talkback"
+    assert (d3 / "2026-11-03T13-05-01.123_marco.wav").read_bytes() == (cap / "2026-11-03T13-05-01.123_marco.wav").read_bytes()
+    assert not (d3 / "2026-11-03T13-06-00.000_marco.wav").exists()
+    m = [_json.loads(x) for x in (d3 / "talkback.jsonl").read_text().splitlines()]
+    assert [r["file"] for r in m] == ["2026-11-03T13-05-01.123_marco.wav"]
+    assert (footage / "2026-11-02" / "audio" / "talkback" / "2026-11-02T10-00-00.000_marco.wav").exists()
+    assert card_watch.mirror_talkback(footage, cap) == []
