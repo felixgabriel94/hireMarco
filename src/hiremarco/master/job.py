@@ -82,6 +82,7 @@ class Result:
     bench: list[dict] = field(default_factory=list)      # each insert with and without, measured; what earned its place
     ladder: dict | None = None                            # the loudness ladder on the loudest bars: steps, ceiling, what gave
     judged: list[dict] = field(default_factory=list)      # the ears and the brain on each finished print, against the goal
+    meter: dict | None = None                             # the meter on screen against Marco's ears on the same stretch
 
     @property
     def caption(self) -> str:
@@ -363,6 +364,68 @@ def emit_analysis(audit, hearing) -> None:
         pass
 
 
+PAYOFF_SECONDS = 40.0    # the finished song plays this long through the meter on screen; the file's same stretch is the check
+METER_AGREE_LU = 0.5     # the meter and the file within this much of each other count as one reading
+
+
+def play_through_meter(strip: StereoOut, master: Path, result: Result, payoff, client, log) -> dict | None:
+    """The chain's meter opened, the song played from the top through it, its window read by the eyes, and the same
+    stretch of the file measured by the ears (Owner 2026-11-03: the audience sees the marks hit). ``payoff(name, row,
+    seconds)`` does the Logic side and returns the meter window's picture; None when there is no meter to play through."""
+    from hiremarco.studio import face as faces
+
+    meter_name = result.plan.chain.get("meter") if result.plan else None
+    if not meter_name:
+        log("   no meter in the plan to play through; no payoff on screen")
+        return None
+    events.stage("Check", "Marco plays the finished song through the meter so you can see the marks.")
+    with events.step("Play the finished song through the meter", motif="vu", word="checked") as line:
+        # the prints never carry a meter (the audit reads the file); for the payoff it goes on now, after the master is
+        # printed, and comes off after, so the next run finds no stray on the strip
+        before = strip.read()
+        was_there = {(i.name, round(i.y)) for i in before.inserts}
+        row = next((i for i in before.inserts if same_plugin(meter_name, i.name) and not i.bypassed), None)
+        added = False
+        if row is None:
+            after = strip.insert(meter_name)
+            row = next((i for i in after.inserts if same_plugin(meter_name, i.name) and (i.name, round(i.y)) not in was_there), None)
+            added = row is not None
+            if row is None:
+                log(f"   {meter_name} did not land on the output; no payoff on screen")
+                line["summary"] = "The meter could not be opened."
+                return None
+        try:
+            try:
+                png = payoff(row.name, row.y, PAYOFF_SECONDS)
+                read = faces.read_meter(png, client=client)
+            except Exception as exc:   # noqa: BLE001
+                log(f"   the meter could not be read ({type(exc).__name__}: {str(exc)[-100:]})")
+                line["summary"] = "The meter could not be read."
+                return None
+            audio, rate = sf.read(str(master), dtype="float32", always_2d=True, frames=int(PAYOFF_SECONDS * rate_of(master)))
+            stretch = auditing.audit_audio(audio, rate, master.stem)
+            meter_lufs, file_lufs = read.get("integrated_lufs"), float(stretch.base.lufs)
+            agree = bool(meter_lufs is not None and abs(meter_lufs - file_lufs) <= METER_AGREE_LU)
+            out = {"plugin": read.get("plugin", ""), "meter_lufs": meter_lufs, "meter_peak": read.get("true_peak_dbtp"),
+                   "meter_range": read.get("range_lu"), "file_lufs": file_lufs, "file_peak": stretch.base.true_peak_db,
+                   "seconds": PAYOFF_SECONDS, "agree": agree}
+            log(f"   the meter reads {meter_lufs} LUFS, {out['meter_peak']} dBTP; the file's first {PAYOFF_SECONDS:.0f} s measure "
+                f"{file_lufs} LUFS, {out['file_peak']} dBTP: {'agree' if agree else 'DISAGREE'}")
+            line["summary"] = "The meter and the ears agree." if agree else "The meter and the ears disagree."
+            line["metrics"] = [("Meter", str(meter_lufs), "LUFS"), ("Ears", str(file_lufs), "LUFS")]
+            return out
+        finally:
+            if added:
+                try:
+                    strip.remove(row.name, row.y)
+                except Exception as exc:   # noqa: BLE001
+                    log(f"   could not take {row.name} back off ({type(exc).__name__}); it stays on the output, bypassed is not possible here")
+
+
+def rate_of(path: Path) -> int:
+    return int(sf.info(str(path)).samplerate)
+
+
 def climb_ladder(strip: StereoOut, bouncer: bouncing.Bouncer, locators, toggle_cycle, channel, job: Job, result: Result,
                  listen, log, judge=None) -> dict | None:
     """The limiter's gain up one dB at a time on the loudest bars until a clean bar breaks (master.ladder)."""
@@ -459,7 +522,7 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
         sleep=time.sleep, mark_plugin: Callable[[str, str, str], None] | None = mark_in_ledger,
         look_at_face: Callable[[], object] | None = None,
         listen: Callable[..., dict | None] | None = None, bench: bool = False, ladder: bool = False,
-        audition: Callable[..., list] | None = None) -> Result:
+        audition: Callable[..., list] | None = None, payoff: Callable[[str, float, float], bytes] | None = None) -> Result:
     result = Result()
     bounces = Path(job.bounces).expanduser()
     bounces.mkdir(parents=True, exist_ok=True)
@@ -469,7 +532,7 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
         return _run(job, result, bounces, room, strip=strip, bouncer=bouncer, channel=channel, locators=locators,
                     toggle_cycle=toggle_cycle, select_track=select_track, client=client, critic=critic, deliver=deliver,
                     log=log, sleep=sleep, mark_plugin=mark_plugin, look_at_face=look_at_face, listen=listen, bench=bench,
-                    ladder=ladder, audition=audition)
+                    ladder=ladder, audition=audition, payoff=payoff)
     except Exception as exc:
         # the page says the job stopped, not the last thing it was doing, and the beat stops with it
         events.emit("job_ended", source="marco", status="failed", summary=f"{type(exc).__name__}: {str(exc)[-100:]}",
@@ -529,7 +592,8 @@ def release_lock(path: Path | None) -> None:
 
 
 def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, bouncer, channel, locators, toggle_cycle,
-         select_track, client, critic, deliver, log, sleep, mark_plugin, look_at_face, listen, bench, ladder=False, audition=None) -> Result:
+         select_track, client, critic, deliver, log, sleep, mark_plugin, look_at_face, listen, bench, ladder=False, audition=None,
+         payoff=None) -> Result:
 
     # 1. the mix as it stands: Marco's own inserts bypassed, the artist's untouched
     log("1. the mix print")
@@ -893,6 +957,20 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
                 except Exception as exc:   # noqa: BLE001
                     log(f"   the judge sat the check out ({type(exc).__name__}: {str(exc)[-100:]}); the meters decide")
                     line["summary"] = "The meters decide."
+        if payoff is not None and client is not None:
+            # the payoff on screen (Owner 2026-11-03): the finished song plays through the chain's meter, the meter's own
+            # figures are read off its window, and they are set beside Marco's measurement of the same stretch of the
+            # file; agreement is the proof a viewer can see, not a claim
+            result.meter = play_through_meter(strip, master.path, result, payoff, client, log)
+            if result.meter is not None:
+                events.emit("decision_made", source="marco", operation="the meter", status="ok" if result.meter["agree"] else "low_confidence",
+                            summary="The meter and the ears agree." if result.meter["agree"] else "The meter and the ears disagree.",
+                            thought="The meter on screen says what I measured. The marks are hit." if result.meter["agree"]
+                            else "The meter on screen does not say what I measured. I say so rather than hide it.",
+                            detail=f"meter {result.meter['meter_lufs']} LUFS against the file's {result.meter['file_lufs']} LUFS over the first "
+                                   f"{result.meter['seconds']:.0f} s",
+                            metrics=[("Meter", str(result.meter["meter_lufs"]), "LUFS"), ("Ears", str(result.meter["file_lufs"]), "LUFS"),
+                                     ("True peak", str(result.meter["meter_peak"]), "dBTP")])
             for line in listening.highlights(result.hearing_master):
                 log(f"   {line}")
         log(f"   {master.path.name}: {am.base.lufs} LUFS, {am.base.true_peak_db} dBTP, range {am.loudness_range} LU")
@@ -939,7 +1017,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
         "deltas": deltas.as_dict() if deltas else None, "references": [r.base.name for r in refs],
         "hearing": result.hearing, "hearing_master": result.hearing_master,
         "manifest": result.manifest, "verdict": (result.verdict.__dict__ if result.verdict is not None else None),
-        "bench": result.bench, "ladder": result.ladder, "judged": result.judged,
+        "bench": result.bench, "ladder": result.ladder, "judged": result.judged, "meter": result.meter,
     }, indent=1, default=str))
     if deliver is not None and result.master is not None and not result.stopped:
         log("7. the delivery")

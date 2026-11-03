@@ -539,3 +539,57 @@ def test_the_brain_judges_each_tool_inside_the_rule_and_the_record_says_who_deci
     assert tested[0]["summary"] == "I take it off." and tested[1]["summary"] == "I keep it."   # the first plain sentence
     checked = [r for r in rows if r["kind"] == "tool_completed" and r.get("word") == "checked"]
     assert checked[-1]["summary"] == "It hits the mark." and json.loads(result.record.read_text())["judged"] == result.judged
+
+
+def test_the_finished_song_plays_through_the_meter_and_the_meter_is_set_beside_the_ears(tmp_path, monkeypatch):
+    # Owner 2026-11-03: the audience sees the marks hit; the proof is the meter on screen agreeing with the file
+    from hiremarco.studio import face as faces
+
+    played = []
+    monkeypatch.setattr(faces, "read_meter", lambda png, client=None: played.append(png) or
+                        {"integrated_lufs": -12.1, "true_peak_dbtp": -1.0, "range_lu": 5.0, "plugin": "Loudness Meter"})
+    judge = FakeJudge({"Gain": ("keep", "I keep it."), "Pro-L 2": ("keep", "I keep it.")}, heard="helps")
+    from hiremarco import config
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+    monkeypatch.setattr(jobs, "Judge", lambda client: judge)
+    strip, channel = FakeStrip(), FakeChannel()
+    bouncer = FakeBouncer(tmp_path, [-30.0, -20.0, -12.0])
+    plan = MasterPlan([{"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}, {"role": "meter", "plugin": "Loudness Meter", "why": "the marks"}],
+                      -12.0, -1.0, "ok", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings([], ""))
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+                      toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2", "Loudness Meter"}, log=lambda s: None,
+                      client=object(), payoff=lambda name, row, seconds: played.append((name, seconds)) or b"png")
+    assert played[0] == ("Loudness Meter", jobs.PAYOFF_SECONDS) and played[1] == b"png"
+    assert result.meter["agree"] is True and result.meter["meter_lufs"] == -12.1 and abs(result.meter["file_lufs"] - -12.0) <= 1.5
+    rows = _events(tmp_path)
+    assert any(r.get("plain", "").startswith("Marco plays the finished song through the meter") for r in rows)
+    shown = next(r for r in rows if r["kind"] == "decision_made" and r.get("operation") == "the meter")
+    assert shown["summary"] == "The meter and the ears agree." and [m["label"] for m in shown["metrics"]] == ["Meter", "Ears", "True peak"]
+    assert json.loads(result.record.read_text())["meter"]["plugin"] == "Loudness Meter"
+
+
+def test_a_meter_that_cannot_be_read_says_so_and_the_master_still_ships(tmp_path, monkeypatch):
+    from hiremarco.studio import face as faces
+
+    monkeypatch.setattr(faces, "read_meter", lambda png, client=None: (_ for _ in ()).throw(ValueError("unreadable")))
+    judge = FakeJudge({}, heard="helps")
+    from hiremarco import config
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+    monkeypatch.setattr(jobs, "Judge", lambda client: judge)
+    strip, channel = FakeStrip(), FakeChannel()
+    bouncer = FakeBouncer(tmp_path, [-30.0, -20.0, -12.0])
+    plan = MasterPlan([{"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}, {"role": "meter", "plugin": "Loudness Meter", "why": "the marks"}],
+                      -12.0, -1.0, "ok", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings([], ""))
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+                      toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2", "Loudness Meter"}, log=lambda s: None,
+                      client=object(), payoff=lambda name, row, seconds: b"png")
+    assert result.meter is None and result.master is not None and not result.stopped
+    assert any(r["kind"] == "tool_completed" and r.get("summary") == "The meter could not be read." for r in _events(tmp_path))

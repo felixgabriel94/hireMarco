@@ -157,3 +157,58 @@ def look(name: str = "Stereo Out", *, client: MuseSpark | None = None,
                 log(f"   the face of {name} could not be read: {type(exc).__name__}: {str(exc)[-120:]}")
             return None
     return None
+
+
+METER_INSTRUCTIONS = (
+    "This is a screenshot of a loudness meter plug-in window inside Logic Pro, after the song played through it. Read "
+    "the numbers it shows: the integrated loudness in LUFS (the long-term or programme figure, sometimes labelled I or "
+    "Integrated), the true peak in dBTP (the maximum, sometimes labelled TP, Peak or True Peak), and the loudness range in "
+    "LU (LRA or Range). Read only what is printed; a figure the window does not show is null. Do not compute anything."
+)
+METER_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "integrated_lufs": {"type": ["number", "null"]},
+        "true_peak_dbtp": {"type": ["number", "null"]},
+        "range_lu": {"type": ["number", "null"]},
+        "plugin": {"type": "string", "description": "the meter's name as printed on its window, else empty"},
+    },
+    "required": ["integrated_lufs", "true_peak_dbtp", "range_lu", "plugin"],
+    "additionalProperties": False,
+}
+
+
+def _meter_line(text: str) -> str:
+    data = json.loads(text)
+    lufs, peak = data.get("integrated_lufs"), data.get("true_peak_dbtp")
+    if lufs is None and peak is None:
+        return "The meter shows no reading yet."
+    return "Read the meter."
+
+
+def read_meter(png: bytes, *, client: MuseSpark | None = None, tokens: int = 2000) -> dict:
+    """The meter's own figures, read off its window (Owner 2026-11-03: the payoff is the meter on screen agreeing with
+    Marco's ears). Returns integrated_lufs, true_peak_dbtp, range_lu (each a number or None) and the meter's name."""
+    prompt = "What does the loudness meter read?"
+    gate.check_model_call(TENANT, model=MODEL, system=METER_INSTRUCTIONS, prompt=prompt,
+                          joblog=client.joblog if client else None)
+    client = client or MuseSpark()
+    reply = client.chat(
+        [
+            {"role": "developer", "content": METER_INSTRUCTIONS},
+            {"role": "user", "content": [
+                {"type": "text", "text": prompt},
+                {"type": "image_url", "image_url": {"url": data_url(png, "image/png")}},
+            ]},
+        ],
+        job="meter_read", model=MODEL, max_completion_tokens=tokens, summarize=_meter_line,
+        response_format={"type": "json_schema", "json_schema": {"name": "meter", "schema": METER_SCHEMA, "strict": True}},
+    )
+    try:
+        data = json.loads(reply.text)
+        out = {k: (None if data.get(k) is None else float(data[k])) for k in ("integrated_lufs", "true_peak_dbtp", "range_lu")}
+        out["plugin"] = str(data.get("plugin", "")).strip()[:80]
+        return out
+    except (ValueError, KeyError, TypeError) as exc:
+        keep(png, reply.text, "meter unreadable")
+        raise ValueError(f"the meter reading came back unreadable ({reply.finish_reason or 'no finish reason'})") from exc

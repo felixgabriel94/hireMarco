@@ -83,6 +83,32 @@ def run_live(song: str | None = None, end_bar: int | None = None, *, purpose: st
         def deliver(path: Path, caption: str) -> str:
             return f"{path} ({caption})"
 
+    def payoff(name: str, row: float, seconds: float) -> bytes:
+        """The chain's meter opened on screen, the song played from the top through it for ``seconds``, the meter's
+        window captured, then stopped (Owner 2026-11-03: the audience sees the marks hit). Return is Go to Beginning
+        and Space is Play/Stop, Logic's own defaults; the transport is a gated Logic action like Cycle."""
+        from hiremarco.studio.face import capture_window
+
+        def press(key: str, what: str) -> None:
+            def run() -> str:
+                subprocess.run(["osascript", "-e", 'tell application "Logic Pro" to activate'], check=False, timeout=10)
+                time.sleep(0.3)
+                front_is_logic()
+                press_keys(_script(Press(key, ())))
+                return what
+            gate.execute_effect(conn, run, tenant_id="owner", idempotency_key=f"logic:{time.time_ns()}",
+                                capability="transport", channel="logic", target="*", message=what, department="studio")
+
+        strip.open_insert(name, row)
+        press("code:36", "go to the beginning")
+        press(" ", "play")
+        try:
+            time.sleep(seconds)
+            return capture_window(strip.name)
+        finally:
+            press(" ", "stop")
+            strip.close_windows()
+
     def select_track() -> None:
         # the tall Mixer window sits over the track headers (live 2026-11-02: the click landed on the Mixer and
         # selected nothing), so the Tracks window comes to the front first
@@ -128,4 +154,4 @@ def run_live(song: str | None = None, end_bar: int | None = None, *, purpose: st
                     locators=live_arranger(conn).locators, toggle_cycle=toggle_cycle, select_track=select_track,
                     look_at_face=lambda: look_at_face(strip.name, log=log), listen=listening.listen, audition=auditioning.run, bench=True, ladder=True,
                     critic=Critic(effort="max", tokens=4000, timeout=600.0),
-                    deliver=deliver, log=log)
+                    deliver=deliver, payoff=payoff, log=log)
