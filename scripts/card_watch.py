@@ -123,7 +123,7 @@ STAGING = Path.home() / "Movies" / "screen-manual-staging"
 SETTLE_S = 10.0  # a recording counts as finished once its size has not changed for this long
 
 
-def mirror_screen_recordings(footage: Path, staging: Path = STAGING) -> list[str]:
+def mirror_screen_recordings(footage: Path, staging: Path | None = None) -> list[str]:
     """Copy each finished Cmd+Shift+5 recording from the local staging folder to today's screen/manual on the LaCie.
 
     macOS cannot save a screen recording straight to the LaCie (screencaptureui has no access to removable
@@ -131,6 +131,7 @@ def mirror_screen_recordings(footage: Path, staging: Path = STAGING) -> list[str
     file is KEPT: deletes are the Owner's hand. A file still growing is left for the next look.
     """
     out = []
+    staging = staging or STAGING
     if not staging.exists():
         return out
     now = time.time()

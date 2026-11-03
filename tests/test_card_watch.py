@@ -15,6 +15,9 @@ def world(tmp_path, monkeypatch):
     state = tmp_path / "state"
     monkeypatch.setattr(card_watch, "STATE", state / "cards")
     monkeypatch.setattr(card_watch, "notify", lambda *a, **k: None)
+    # never touch the real staging folder or Marco's real capture folder
+    monkeypatch.setattr(card_watch, "STAGING", tmp_path / "no-staging")
+    monkeypatch.setattr(card_watch, "capture_dir", lambda: tmp_path / "no-capture")
     footage = tmp_path / "13-footage"
     footage.mkdir()
     card = tmp_path / "Volumes" / "UNTITLED"
