@@ -208,3 +208,15 @@ def test_the_audition_only_takes_what_the_audit_named_and_shapes_the_slice():
     assert abs(float(np.sqrt(np.mean(part ** 2))) - float(np.sqrt(np.mean(low ** 2)))) < 0.02   # the sides below 120: the 60 Hz, no 5 kHz
     bell = audition.slice_of(stereo, rate, audition.Target("5 kHz", hz=5000.0))
     assert abs(float(np.sqrt(np.mean(bell ** 2))) - float(np.sqrt(np.mean(high ** 2)))) < 0.02
+
+
+def test_talk_in_the_room_stays_off_the_screen_during_a_job_and_a_stopped_job_says_so():
+    pacer = tracewindow.Pacer()
+    pacer.add([row("job_started", pid=os.getpid(), stage="Listen", plain="x")])
+    pacer.add([row("model_call_completed", source="meta", model=events.VOICE_MODEL, summary="Wow.", call_id="v")])
+    assert len(pacer.waiting) == 1
+    pacer.add([row("job_ended", status="failed", summary="RuntimeError: x", plain="Marco stopped here.")])
+    assert pacer.waiting[-1]["type"] == "self_catch" and pacer.waiting[-1]["plain"] == "Marco stopped here."
+    pacer.add([row("model_call_completed", source="meta", model=events.VOICE_MODEL, summary="Solo it.", call_id="w")])
+    assert pacer.waiting[-1]["call_id"] == "w"
+    assert events.for_page(row("job_ended", status="ok", summary="Done")) is None

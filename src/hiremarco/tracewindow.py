@@ -59,6 +59,8 @@ class Pacer:
                 self.pid = row.get("pid")
             elif row.get("kind") == "job_ended":
                 self.pid = None
+            elif self.pid and row.get("model") == events.VOICE_MODEL and alive(self.pid):
+                continue   # talk in the room is not part of a job on the screen; the booth's own shots run with no job
             event = events.for_page(row)
             if event is not None:
                 self.waiting.append(event)

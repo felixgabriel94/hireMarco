@@ -35,6 +35,7 @@ PLAIN_CHARS = 90      # the design's budget for the Now sentence (trace/FEED-RUL
 LINE_CHARS = 120      # task, thought, a text, the design's hard limit
 SUBJECT_CHARS = 40
 MAIL_FLAG = "trace.mail"
+VOICE_MODEL = "muse-voice-transcribe-1.0"
 # Words a judge who has never been in a studio would not follow (Owner, 2026-11-02: nobody gets lost). The sentence on
 # the screen says it in everyday words; the trade's words and numbers stay in the proof and the raw events.
 JARGON = re.compile(r"\b(lufs|lu|dbtp|db|hz|khz|crest|limiter|compressors?|plug-?ins?|chain|mix|mixes|master|mastering|print|prints|printed|printing|"
@@ -294,6 +295,10 @@ def for_page(row: dict) -> dict | None:
         return line("tool_failed", status="error", summary=row.get("summary"), detail=row.get("detail")) if status == "failed" else None
     if kind == "tool_skipped":
         return line("tool_skipped", summary=row.get("summary"), detail=row.get("detail"))
+    if kind == "job_ended":
+        if status == "ok" or not row.get("plain"):
+            return None
+        return line("self_catch", summary=row.get("summary"), detail=row.get("detail"))
     if kind in ("job_started", "stage"):
         return line("stage", job=row.get("operation"))
     if kind in ("thought", "learned"):

@@ -32,7 +32,7 @@ from hiremarco.studio.chain import Chain
 MODEL = "muse-wonder-1.0"
 TENANT = "owner"
 EFFORT = "max"
-TOKENS = 16000
+TOKENS = 24000
 TOKENS_SETTINGS = 32000   # the settings reason through a whole chain in units: 16000 ran out live (run 16, 2026-11-02)
 THINK_TIMEOUT = 900.0   # seconds: at max effort the plan took over two minutes live (2026-11-02), the client's 60 s cut it
 RETRY_WAITS = (15.0, 45.0)   # a 503 from the API stopped a run live (2026-11-02); a server error or a timeout is tried again

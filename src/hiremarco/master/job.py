@@ -431,6 +431,11 @@ def run(job: Job, *, strip: StereoOut, bouncer: bouncing.Bouncer, channel: Chann
                     toggle_cycle=toggle_cycle, select_track=select_track, client=client, critic=critic, deliver=deliver,
                     log=log, sleep=sleep, mark_plugin=mark_plugin, look_at_face=look_at_face, listen=listen, bench=bench,
                     ladder=ladder, audition=audition)
+    except Exception as exc:
+        # the page says the job stopped, not the last thing it was doing, and the beat stops with it
+        events.emit("job_ended", source="marco", status="failed", summary=f"{type(exc).__name__}: {str(exc)[-100:]}",
+                    plain="Marco stopped here. Something went wrong, and he says so.")
+        raise
     finally:
         release_lock(lock)
 

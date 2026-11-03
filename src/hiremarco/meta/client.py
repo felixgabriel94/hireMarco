@@ -141,7 +141,7 @@ class MuseSpark:
             job=job, model=model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
             cached_tokens=cached_tokens, cost_usd=reply.cost_usd, duration_ms=duration_ms, ok=True,
         ))
-        cut_short = reply.finish_reason == "length" and not reply.text.strip()
+        cut_short = reply.finish_reason == "length"   # empty or cut mid-answer, there is no answer to show
         shown_status, shown = ("failed", "ran out of room before it answered") if cut_short else ("ok", events.reply_summary(reply.text))
         if summarize is not None and not cut_short:
             try:
