@@ -1,0 +1,881 @@
+#!/usr/bin/env python3
+"""Marco's assistant editor: line up a shoot for Final Cut Pro.
+
+Reads every media file under a shoot folder (one subfolder per device),
+places each clip on one clock, locks clips to the frame by audio, and writes
+an FCPXML file that Final Cut imports with File > Import > XML.
+
+Media is never copied, moved or changed. Outputs go to --out only.
+
+Usage:
+  uv run python scripts/assistant_editor.py SHOOT_DIR --out OUT_DIR [--anchor DEVICE]
+         [--events events.jsonl] [--search 300] [--tz America/New_York]
+         [--name "Day 1"] [--transcribe]
+
+Needs ffprobe and ffmpeg on PATH, and numpy.
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import datetime as dt
+import hashlib
+import json
+import math
+import os
+import re
+import shutil
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
+from fractions import Fraction
+from pathlib import Path
+from urllib.parse import quote
+from zoneinfo import ZoneInfo
+
+import numpy as np
+
+VIDEO_EXT = {".mov", ".mp4", ".m4v", ".mxf", ".mts", ".avi"}
+AUDIO_EXT = {".wav", ".bwf", ".aif", ".aiff", ".m4a", ".mp3", ".caf", ".flac"}
+SR = 8000  # analysis sample rate for sync
+CHUNK_S = 60.0  # seconds of a clip used for each sync probe
+MIN_Z = 9.0  # correlation peak z-score needed to trust a sync
+
+# ---------------------------------------------------------------- model
+
+
+@dataclass
+class Clip:
+    path: Path
+    device: str
+    duration: float
+    has_video: bool
+    has_audio: bool
+    fps: Fraction | None = None  # frames per second
+    width: int = 0
+    height: int = 0
+    audio_rate: int = 48000
+    audio_channels: int = 2
+    tc_seconds: float = 0.0  # media start time (embedded timecode) in seconds
+    tc_samples: int = 0  # broadcast WAV time reference, in samples
+    tc_string: str = ""
+    drop_frame: bool = False
+    camera: str = ""
+    raw_start: float | None = None  # epoch seconds from the device clock
+    raw_source: str = ""
+    start: float | None = None  # epoch seconds on the master clock
+    method: str = ""
+    z: float = 0.0
+    matched_to: str = ""
+    transcript: str = ""
+    asset_id: str = ""
+
+    @property
+    def name(self) -> str:
+        return self.path.stem
+
+    @property
+    def end(self) -> float:
+        return (self.start or 0.0) + self.duration
+
+
+# ---------------------------------------------------------------- probing
+
+
+def run(cmd: list[str]) -> str:
+    return subprocess.run(cmd, check=True, capture_output=True, text=True).stdout
+
+
+def parse_time_tag(value: str, local_tz: ZoneInfo, assume_local: bool = False) -> float | None:
+    v = value.strip()
+    if not v:
+        return None
+    v = v.replace("Z", "+00:00")
+    # 2026-11-03T10:04:05-0500 -> -05:00
+    m = re.match(r"^(.*[T ]\d\d:\d\d:\d\d(?:\.\d+)?)([+-]\d\d)(\d\d)$", v)
+    if m:
+        v = f"{m.group(1)}{m.group(2)}:{m.group(3)}"
+    try:
+        t = dt.datetime.fromisoformat(v)
+    except ValueError:
+        return None
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=local_tz if assume_local else dt.timezone.utc)
+    return t.timestamp()
+
+
+def tc_to_seconds(tc: str, fps: Fraction) -> tuple[float, bool]:
+    drop = ";" in tc
+    parts = re.split(r"[:;.]", tc)
+    if len(parts) != 4:
+        return 0.0, False
+    h, m, s, f = (int(p) for p in parts)
+    nominal = round(float(fps))
+    if drop and nominal in (30, 60):
+        d = 2 if nominal == 30 else 4
+        total_min = 60 * h + m
+        frames = (nominal * 3600 * h + nominal * 60 * m + nominal * s + f) - d * (total_min - total_min // 10)
+    else:
+        frames = (nominal * 3600 * h + nominal * 60 * m + nominal * s + f)
+    # frames play at the real rate (e.g. 30000/1001)
+    return float(Fraction(frames) / fps), drop
+
+
+def probe(path: Path, device: str, local_tz: ZoneInfo) -> Clip | None:
+    try:
+        info = json.loads(run([
+            "ffprobe", "-v", "error", "-print_format", "json",
+            "-show_format", "-show_streams", str(path)]))
+    except (subprocess.CalledProcessError, json.JSONDecodeError):
+        return None
+    streams = info.get("streams", [])
+    fmt = info.get("format", {})
+    ftags = {k.lower(): v for k, v in (fmt.get("tags") or {}).items()}
+    v = next((s for s in streams if s.get("codec_type") == "video"
+              and not (s.get("disposition") or {}).get("attached_pic")), None)
+    a = next((s for s in streams if s.get("codec_type") == "audio"), None)
+    if not v and not a:
+        return None
+    try:
+        duration = float(fmt.get("duration") or (v or a).get("duration"))
+    except (TypeError, ValueError):
+        return None
+    c = Clip(path=path, device=device, duration=duration,
+             has_video=v is not None, has_audio=a is not None)
+    if v:
+        rate = v.get("avg_frame_rate") or v.get("r_frame_rate") or "30/1"
+        try:
+            fr = Fraction(rate)
+        except (ValueError, ZeroDivisionError):
+            fr = Fraction(30)
+        if fr == 0:
+            fr = Fraction(v.get("r_frame_rate") or "30/1")
+        c.fps = snap_fps(fr)
+        c.width, c.height = int(v.get("width") or 0), int(v.get("height") or 0)
+    if a:
+        c.audio_rate = int(a.get("sample_rate") or 48000)
+        c.audio_channels = int(a.get("channels") or 2)
+    # timecode: stream tags (tmcd or video) or format tags
+    tc = ftags.get("timecode")
+    for s in streams:
+        st = {k.lower(): val for k, val in (s.get("tags") or {}).items()}
+        tc = tc or st.get("timecode")
+    if not v and ftags.get("time_reference", "").isdigit():
+        c.tc_samples = int(ftags["time_reference"])
+    if tc and c.fps:
+        c.tc_string = tc
+        c.tc_seconds, c.drop_frame = tc_to_seconds(tc, c.fps)
+    c.camera = " ".join(x for x in (
+        ftags.get("com.apple.quicktime.make") or ftags.get("make") or "",
+        ftags.get("com.apple.quicktime.model") or ftags.get("model") or "") if x).strip()
+    # capture time, most trusted first
+    qt = ftags.get("com.apple.quicktime.creationdate")
+    if qt:
+        c.raw_start, c.raw_source = parse_time_tag(qt, local_tz), "quicktime creationdate"
+    # broadcast WAV: ffmpeg reports origination date as "date" and origination time as "creation_time" (HH-MM-SS)
+    bdate = ftags.get("origination_date") or (ftags.get("date") if re.match(r"^\d{4}[-:]\d\d[-:]\d\d$", ftags.get("date", "")) else "")
+    if c.raw_start is None and bdate and not v:
+        d0 = dt.datetime.strptime(bdate.replace(":", "-"), "%Y-%m-%d").replace(tzinfo=local_tz)
+        btime = ftags.get("origination_time") or ftags.get("creation_time", "")
+        if c.tc_samples:
+            c.raw_start = d0.timestamp() + c.tc_samples / c.audio_rate
+            c.raw_source = "bwf time reference (local)"
+        elif re.match(r"^\d\d[-:]\d\d[-:]\d\d$", btime):
+            h, m, sec = (int(x) for x in re.split(r"[-:]", btime))
+            c.raw_start = d0.timestamp() + h * 3600 + m * 60 + sec
+            c.raw_source = "bwf origination (local)"
+    if c.raw_start is None and ftags.get("origination_date"):
+        od = ftags.get("origination_date", "").replace(":", "-")
+        ot = ftags.get("origination_time", "00:00:00").replace("-", ":")
+        c.raw_start = parse_time_tag(f"{od}T{ot}", local_tz, assume_local=True)
+        c.raw_source = "bwf origination (local)"
+    if c.raw_start is None and ftags.get("creation_time"):
+        c.raw_start, c.raw_source = parse_time_tag(ftags["creation_time"], local_tz), "creation_time"
+    if c.raw_start is None:
+        c.raw_start = path.stat().st_mtime - duration
+        c.raw_source = "file modified time minus length (weak)"
+    return c
+
+
+def snap_fps(fr: Fraction) -> Fraction:
+    known = [Fraction(24000, 1001), Fraction(24), Fraction(25), Fraction(30000, 1001),
+             Fraction(30), Fraction(50), Fraction(60000, 1001), Fraction(60),
+             Fraction(120000, 1001), Fraction(120)]
+    best = min(known, key=lambda k: abs(float(k) - float(fr)))
+    return best if abs(float(best) - float(fr)) < 0.05 else fr
+
+
+# ---------------------------------------------------------------- audio
+
+
+class AudioCache:
+    def __init__(self, root: Path):
+        self.root = root
+        self.memo: dict[Path, np.ndarray] = {}
+        root.mkdir(parents=True, exist_ok=True)
+
+    def prepped(self, clip: Clip) -> np.ndarray:
+        if clip.path not in self.memo:
+            x = prep(self.get(clip))
+            peak = np.abs(x).max() if len(x) else 0.0
+            self.memo[clip.path] = (x / peak if peak > 0 else x).astype(np.float32)
+        return self.memo[clip.path]
+
+    def get(self, clip: Clip) -> np.ndarray:
+        key = hashlib.sha1(f"{clip.path}|{clip.path.stat().st_size}|{clip.path.stat().st_mtime}".encode()).hexdigest()[:16]
+        f = self.root / f"{key}.f32"
+        if not f.exists():
+            tmp = f.with_suffix(".tmp")
+            with open(tmp, "wb") as out:
+                subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-i", str(clip.path),
+                                "-vn", "-ac", "1", "-ar", str(SR), "-f", "f32le", "-"],
+                               check=True, stdout=out)
+            tmp.rename(f)
+        return np.fromfile(f, dtype=np.float32)
+
+
+def prep(x: np.ndarray) -> np.ndarray:
+    x = x.astype(np.float64)
+    x = x - x.mean() if len(x) else x
+    # high-pass by first difference: room tone and hum matter less
+    return np.diff(x, prepend=x[:1]) if len(x) else x
+
+
+def gcc_phat(sig: np.ndarray, ref: np.ndarray) -> tuple[int, float]:
+    """Return (lag, z) where sig[n] ~ ref[n + lag], i.e. sig starts lag samples into ref."""
+    n = len(sig) + len(ref)
+    nfft = 1 << (n - 1).bit_length()
+    S = np.fft.rfft(sig, nfft)
+    R = np.fft.rfft(ref, nfft)
+    X = np.conj(S) * R
+    X /= np.abs(X) + 1e-12
+    cc = np.fft.irfft(X, nfft)
+    valid = cc[: max(1, len(ref) - len(sig) + 1)]  # sig fully inside ref
+    a = np.abs(valid)
+    i = int(np.argmax(a))
+    mask = np.ones(len(a), bool)
+    mask[max(0, i - SR // 50): i + SR // 50] = False  # ignore 40 ms around peak
+    rest = a[mask] if mask.any() else a
+    z = (a[i] - rest.mean()) / (rest.std() + 1e-12)
+    return i, float(z)
+
+
+# ---------------------------------------------------------------- sync
+
+
+def render_window(clips: list[Clip], cache: AudioCache, t0: float, t1: float) -> np.ndarray:
+    """Audio of the already placed clips between master times t0 and t1."""
+    n = int(round((t1 - t0) * SR))
+    out = np.zeros(n, np.float64)
+    for c in clips:
+        if not c.has_audio or c.start is None or c.end < t0 or c.start > t1:
+            continue
+        x = cache.prepped(c)
+        a = int(round((c.start - t0) * SR))
+        lo, hi = max(0, a), min(n, a + len(x))
+        if hi > lo:
+            out[lo:hi] += x[lo - a: hi - a]
+    return out
+
+
+def try_sync(clip: Clip, placed: list[Clip], cache: AudioCache, guess: float, search: float):
+    """Find clip start on the master clock near guess. Returns (start, z, matched) or None."""
+    x = cache.prepped(clip).astype(np.float64)
+    if len(x) < SR * 2 or np.abs(x).max() < 1e-6:
+        return None
+    best = None
+    dur = len(x) / SR
+    probes = [0.0] if dur <= CHUNK_S else [max(0.0, dur * f - CHUNK_S / 2) for f in (0.2, 0.5, 0.8)]
+    results = []
+    for p in probes:
+        seg = x[int(p * SR): int((p + CHUNK_S) * SR)]
+        if np.abs(seg).max() < 1e-6:
+            continue
+        t0 = guess + p - search
+        t1 = guess + p + len(seg) / SR + search
+        ref = render_window(placed, cache, t0, t1)
+        if np.abs(ref).max() < 1e-9:
+            continue
+        lag, z = gcc_phat(seg, ref)
+        start = t0 + lag / SR - p
+        results.append((start, z))
+        if best is None or z > best[1]:
+            best = (start, z)
+    if not best:
+        return None
+    agree = [r for r in results if abs(r[0] - best[0]) < 0.004 and r[1] > MIN_Z * 0.6]
+    z = best[1] + (2.0 * (len(agree) - 1))
+    near = [c.name for c in placed if c.start is not None and c.start < best[0] + clip.duration and c.end > best[0]]
+    return best[0], z, ", ".join(near[:3])
+
+
+def align(clips: list[Clip], anchor: str, cache: AudioCache, search: float, local_tz: ZoneInfo, log) -> dict[str, float]:
+    """Place every clip on the anchor device's clock. Returns device clock offsets."""
+    offsets: dict[str, float] = {anchor: 0.0}
+    for c in clips:
+        if c.device == anchor:
+            c.start, c.method, c.z = c.raw_start, "anchor clock", 0.0
+    placed = [c for c in clips if c.start is not None]
+    pending = [c for c in clips if c.start is None]
+    utc_shift = local_tz.utcoffset(dt.datetime.now()).total_seconds()
+    # pass 1: audio sync against anything already placed, longest clips first
+    progress = True
+    while progress and pending:
+        progress = False
+        for c in sorted(list(pending), key=lambda k: -k.duration):
+            if not c.has_audio:
+                continue
+            candidates = [offsets[c.device]] if c.device in offsets else [0.0, utc_shift, -utc_shift]
+            hit = None
+            for off in candidates:
+                r = try_sync(c, placed, cache, c.raw_start + off, search)
+                if r and r[1] >= MIN_Z:
+                    hit = r
+                    break
+            if hit:
+                c.start, c.z, c.matched_to = hit
+                c.method = "audio sync"
+                pending.remove(c)
+                placed.append(c)
+                devs = [k.start - k.raw_start for k in placed if k.device == c.device and k.method == "audio sync"]
+                offsets[c.device] = float(np.median(devs))
+                progress = True
+                log(f"  synced {c.device}/{c.path.name}  z={c.z:.1f}  clock offset {c.start - c.raw_start:+.3f}s")
+        if not progress and pending:
+            progress = wide_search(pending, placed, offsets, cache, log)
+    # pass 2: clips with no usable audio follow their device's clock offset
+    for c in pending:
+        if c.device in offsets:
+            c.start, c.method = c.raw_start + offsets[c.device], "device clock offset"
+        else:
+            c.start, c.method = c.raw_start, "own clock only (unsynced)"
+        log(f"  placed {c.device}/{c.path.name} by {c.method}")
+    return offsets
+
+
+def wide_search(pending: list[Clip], placed: list[Clip], offsets: dict[str, float], cache: AudioCache, log) -> bool:
+    """A device whose clock is far off: scan its longest clip across the whole placed span."""
+    span0 = min(c.start for c in placed if c.has_audio) if any(c.has_audio for c in placed) else None
+    if span0 is None:
+        return False
+    span1 = max(c.end for c in placed if c.has_audio)
+    win = 600.0
+    for dev in sorted({c.device for c in pending if c.device not in offsets}):
+        cands = sorted([c for c in pending if c.device == dev and c.has_audio], key=lambda k: -k.duration)
+        if not cands:
+            continue
+        c = cands[0]
+        log(f"  {dev}: clock far from the others, scanning the whole day for {c.path.name}")
+        best = None
+        t = span0 - c.duration
+        while t < span1:
+            r = try_sync(c, placed, cache, t + win, win)
+            if r and (best is None or r[1] > best[1]):
+                best = r
+            t += 2 * win - 30
+        if best and best[1] >= MIN_Z + 3:
+            c.start, c.z, c.matched_to = best
+            c.method = "audio sync"
+            offsets[dev] = c.start - c.raw_start
+            pending.remove(c)
+            placed.append(c)
+            log(f"  synced {dev}/{c.path.name} by full scan  z={c.z:.1f}  clock offset {offsets[dev]:+.3f}s")
+            return True
+    return False
+
+
+# ---------------------------------------------------------------- Marco's recording manifests
+
+
+def apply_manifests(clips: list[Clip], tz: ZoneInfo, log):
+    """screen.jsonl and film.jsonl (Mac clock, milliseconds) beat any file tag."""
+    by_name = {c.path.name: c for c in clips}
+    seen = set()
+    for c in clips:
+        for d in [c.path.parent, *c.path.parents][:4]:
+            for mf in ("screen.jsonl", "film.jsonl"):
+                f = d / mf
+                if f in seen or not f.exists():
+                    continue
+                seen.add(f)
+                n = 0
+                for line in f.read_text(errors="replace").splitlines():
+                    try:
+                        e = json.loads(line)
+                    except json.JSONDecodeError:
+                        continue
+                    name = Path(str(e.get("file") or e.get("path") or "")).name
+                    ts = next((e[k] for k in ("first_frame", "first_frame_at", "began", "start", "ts") if k in e), None)
+                    if name in by_name and ts:
+                        t = parse_time_tag(str(ts), tz, assume_local=True)
+                        if t is not None:
+                            by_name[name].raw_start, by_name[name].raw_source = t, f"{mf} (Mac clock, ms)"
+                            n += 1
+                log(f"  {f}: exact start for {n} files")
+
+
+# ---------------------------------------------------------------- markers from Marco's log
+
+
+def load_events(path: Path, local_tz: ZoneInfo) -> list[tuple[float, str, str]]:
+    out = []
+    for line in path.read_text(errors="replace").splitlines():
+        try:
+            e = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(e, dict):
+            continue
+        ts = next((e[k] for k in ("ts", "time", "timestamp", "at", "t", "when") if k in e), None)
+        if ts is None:
+            continue
+        if isinstance(ts, (int, float)):
+            t = float(ts) / (1000.0 if ts > 1e11 else 1.0)
+        else:
+            t = parse_time_tag(str(ts), local_tz, assume_local=True)
+        if t is None:
+            continue
+        label = next((str(e[k]) for k in ("event", "type", "kind", "step", "action", "name", "msg", "message", "text") if k in e), "event")
+        model = next((str(e[k]) for k in ("model", "model_id") if k in e), "")
+        detail = next((str(e[k]) for k in ("summary", "detail", "text", "msg", "message") if k in e and str(e[k]) != label), "")
+        out.append((t, label[:80], (f"{model} | " if model else "") + detail[:400]))
+    return sorted(out)
+
+
+# ---------------------------------------------------------------- transcripts (optional)
+
+
+WHISPER_MODELS = [
+    Path.home() / ".local/share/whisper-cpp/models/ggml-large-v3-turbo.bin",
+    Path.home() / "tools/whisper.cpp/models/ggml-large-v3.bin",
+]
+
+
+def transcribe(clip: Clip, out: Path, log) -> str:
+    """Local speech to text with whisper.cpp. Writes an .srt next to the outputs."""
+    exe = shutil.which("whisper-cli")
+    model = next((m for m in WHISPER_MODELS if m.exists()), None)
+    if not exe or not model:
+        log("  whisper-cli or model not found; skipping transcripts")
+        return ""
+    tdir = out / "transcripts"
+    tdir.mkdir(exist_ok=True)
+    stem = f"{clip.device}__{clip.path.stem}"
+    txt = tdir / f"{stem}.txt"
+    if txt.exists():
+        return txt.read_text().strip()
+    wav = tdir / f"{stem}.16k.wav"
+    subprocess.run(["ffmpeg", "-v", "error", "-nostdin", "-y", "-i", str(clip.path), "-vn", "-ac", "1",
+                    "-ar", "16000", "-c:a", "pcm_s16le", str(wav)], check=True)
+    try:
+        subprocess.run([exe, "-m", str(model), "-f", str(wav), "-l", "auto", "-otxt", "-osrt",
+                        "-of", str(tdir / stem), "-np"], check=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        log(f"  transcription failed for {clip.path.name}: {e.stderr[-300:] if e.stderr else e}")
+        return ""
+    finally:
+        wav.unlink(missing_ok=True)
+    text = " ".join(txt.read_text().split()) if txt.exists() else ""
+    log(f"  transcribed {clip.device}/{clip.path.name}: {text[:60]}")
+    return text
+
+
+# ---------------------------------------------------------------- FCPXML
+
+
+class Timebase:
+    def __init__(self, fps: Fraction):
+        self.fd = 1 / fps  # frame duration
+
+    def frames(self, seconds: float, how=round) -> int:
+        return int(how(seconds / float(self.fd)))
+
+    def t(self, seconds: float, how=round) -> str:
+        return rt(self.frames(seconds, how) * self.fd)
+
+
+def rt(x: Fraction) -> str:
+    x = Fraction(x)
+    if x.denominator == 1:
+        return f"{x.numerator}s"
+    return f"{x.numerator}/{x.denominator}s"
+
+
+def file_url(p: Path) -> str:
+    return "file://" + quote(str(p.resolve()))
+
+
+class Writer:
+    def __init__(self, clips: list[Clip], tb_fps: Fraction, local_tz: ZoneInfo):
+        self.clips = clips
+        self.tb = Timebase(tb_fps)
+        self.tz = local_tz
+        self.root = ET.Element("fcpxml", version="1.9")
+        self.res = ET.SubElement(self.root, "resources")
+        self.formats: dict[tuple, str] = {}
+        self.n = 0
+        self.timeline_fmt = self.format_for(tb_fps, *self.common_size())
+        for c in clips:
+            self.add_asset(c)
+
+    def nid(self, p: str) -> str:
+        self.n += 1
+        return f"{p}{self.n}"
+
+    def common_size(self) -> tuple[int, int]:
+        sizes = [(c.width, c.height) for c in self.clips if c.has_video and c.width]
+        return max(set(sizes), key=sizes.count) if sizes else (1920, 1080)
+
+    def format_for(self, fps: Fraction, w: int, h: int) -> str:
+        key = (fps, w, h)
+        if key not in self.formats:
+            fid = self.nid("r")
+            ET.SubElement(self.res, "format", id=fid, frameDuration=rt(1 / fps), width=str(w), height=str(h))
+            self.formats[key] = fid
+        return self.formats[key]
+
+    def asset_start(self, c: Clip) -> Fraction:
+        if c.has_video and c.fps:
+            return Timebase(c.fps).frames(c.tc_seconds) * (1 / c.fps)
+        return Fraction(c.tc_samples, c.audio_rate)
+
+    def asset_duration(self, c: Clip) -> Fraction:
+        if c.has_video and c.fps:
+            return Timebase(c.fps).frames(c.duration, math.floor) * (1 / c.fps)
+        return Fraction(int(c.duration * c.audio_rate), c.audio_rate)
+
+    def add_asset(self, c: Clip):
+        c.asset_id = self.nid("r")
+        attrs = dict(id=c.asset_id, name=c.name, start=rt(self.asset_start(c)), duration=rt(self.asset_duration(c)),
+                     hasVideo="1" if c.has_video else "0", hasAudio="1" if c.has_audio else "0")
+        if c.has_video and c.fps:
+            attrs["format"] = self.format_for(c.fps, c.width, c.height)
+            attrs["videoSources"] = "1"
+        if c.has_audio:
+            attrs.update(audioSources="1", audioChannels=str(c.audio_channels), audioRate=str(c.audio_rate))
+        a = ET.SubElement(self.res, "asset", **attrs)
+        ET.SubElement(a, "media-rep", kind="original-media", src=file_url(c.path))
+
+    def tod(self, epoch: float) -> float:
+        """Seconds since local midnight: timeline timecode reads as time of day."""
+        d = dt.datetime.fromtimestamp(epoch, self.tz)
+        return d.hour * 3600 + d.minute * 60 + d.second + d.microsecond / 1e6
+
+    def clip_el(self, parent, c: Clip, offset_s: float, lane: int | None, role: str, extra_kw: str | None = None,
+                note: str | None = None, max_dur: float | None = None):
+        dur = c.duration if max_dur is None else min(c.duration, max_dur)
+        attrs = dict(ref=c.asset_id, name=c.name, offset=self.tb.t(offset_s),
+                     start=rt(self.asset_start(c)), duration=self.tb.t(dur, math.floor))
+        if lane is not None:
+            attrs["lane"] = str(lane)
+        if c.has_video and c.fps:
+            attrs["format"] = self.format_for(c.fps, c.width, c.height)
+            attrs["tcFormat"] = "DF" if c.drop_frame else "NDF"
+        if c.has_audio:
+            attrs["audioRole"] = role
+        if not c.has_video:
+            attrs.pop("format", None)
+        el = ET.SubElement(parent, "asset-clip", **attrs)
+        if note:
+            ET.SubElement(el, "note").text = note
+        kws = [c.device] + ([extra_kw] if extra_kw else [])
+        ET.SubElement(el, "keyword", start=rt(self.asset_start(c)), duration=self.tb.t(dur, math.floor), value=", ".join(kws))
+        return el
+
+    def clip_note(self, c: Clip) -> str:
+        local = dt.datetime.fromtimestamp(c.start, self.tz).strftime("%H:%M:%S.%f")[:-3]
+        bits = [f"Shot {local} ({c.method}"
+                + (f", match z {c.z:.0f}" if c.method == "audio sync" else "") + ")",
+                f"Clock source: {c.raw_source}"]
+        if c.camera:
+            bits.append(f"Camera: {c.camera}")
+        if c.transcript:
+            bits.append("Transcript: " + c.transcript)
+        return "\n".join(bits)
+
+    def build(self, name: str, events: list[tuple[float, str, str]], role_for: dict[str, str], gap_join: float):
+        ev = ET.Element("event", name=f"{name} (Marco)")
+        # every clip in the browser, with keywords and notes
+        for c in sorted(self.clips, key=lambda k: k.start):
+            el_parent = ev
+            attrs_offset = 0.0
+            el = self.clip_el(el_parent, c, attrs_offset, None, role_for.get(c.device, "dialogue"),
+                              note=self.clip_note(c))
+            el.attrib.pop("offset", None)
+            for t, label, detail in events:
+                if c.start <= t < c.end:
+                    rel = float(self.asset_start(c)) + (t - c.start)
+                    self.insert_marker(el, rel, label, detail, c)
+        # day project: everything on one timeline, one lane per device, timecode = time of day
+        t_first = min(c.start for c in self.placeable())
+        t_last = max(c.end for c in self.placeable())
+        day0 = self.tb.frames(self.tod(t_first), math.floor) * self.tb.fd
+        total = self.tb.frames(t_last - t_first + 1, math.ceil) * self.tb.fd
+        proj = ET.SubElement(ev, "project", name=f"{name} aligned, all devices")
+        seq = ET.SubElement(proj, "sequence", format=self.timeline_fmt, duration=rt(total), tcStart=rt(day0),
+                            tcFormat="NDF", audioLayout="stereo", audioRate="48k")
+        spine = ET.SubElement(seq, "spine")
+        gap = ET.SubElement(spine, "gap", name="Day", offset=rt(day0), start=rt(day0), duration=rt(total))
+        lanes = self.device_lanes()
+        for c in sorted(self.placeable(), key=lambda k: (lanes[k.device], k.start)):
+            off = float(day0) + (c.start - t_first) + (self.tod(t_first) - float(day0))
+            self.clip_el(gap, c, off, lanes[c.device], role_for.get(c.device, "dialogue"))
+        for t, label, detail in events:
+            if t_first <= t <= t_last:
+                m = ET.SubElement(gap, "marker", start=self.tb.t(float(day0) + (t - t_first) + (self.tod(t_first) - float(day0))),
+                                  duration=rt(self.tb.fd), value=label)
+                if detail:
+                    m.set("note", detail)
+        # per setup (clips that overlap in time): a stacked-lanes project and a multicam clip
+        for i, group in enumerate(self.setups(gap_join), 1):
+            if len({c.device for c in group}) < 2:
+                continue
+            when = dt.datetime.fromtimestamp(min(c.start for c in group), self.tz).strftime("%H%M")
+            self.stacked(ev, f"{name} setup {i:02d} {when}", group, role_for, events)
+            self.multicam(ev, f"{name} setup {i:02d} {when} multicam", group, role_for, events)
+        self.root.append(ev)
+
+    def stacked(self, ev, title: str, group: list[Clip], role_for, events):
+        t0 = min(c.start for c in group)
+        t1 = max(c.end for c in group)
+        tc0 = self.tb.frames(self.tod(t0), math.floor) * self.tb.fd
+        lead = self.tod(t0) - float(tc0)
+        total = self.tb.frames(t1 - t0 + lead, math.ceil) * self.tb.fd
+        proj = ET.SubElement(ev, "project", name=title)
+        seq = ET.SubElement(proj, "sequence", format=self.timeline_fmt, duration=rt(total), tcStart=rt(tc0),
+                            tcFormat="NDF", audioLayout="stereo", audioRate="48k")
+        gap = ET.SubElement(ET.SubElement(seq, "spine"), "gap", name="Setup", offset=rt(tc0), start=rt(tc0), duration=rt(total))
+        lanes = self.device_lanes()
+        for c in sorted(group, key=lambda k: (lanes[k.device], k.start)):
+            weak = c.method not in ("audio sync", "anchor clock")
+            lane = lanes[c.device] + (50 if weak else 0)
+            el = self.clip_el(gap, c, float(tc0) + lead + (c.start - t0), lane, role_for.get(c.device, "dialogue"),
+                              extra_kw="needs your eye" if weak else None)
+            if weak:
+                ET.SubElement(el, "marker", start=rt(self.asset_start(c)), duration=rt(self.tb.fd),
+                              value=f"Needs your eye: placed by {c.method}, not by sound", completed="0")
+        for t, label, detail in events:
+            if t0 <= t <= t1:
+                m = ET.SubElement(gap, "marker", start=self.tb.t(float(tc0) + lead + (t - t0)), duration=rt(self.tb.fd), value=label)
+                if detail:
+                    m.set("note", detail)
+
+    def insert_marker(self, el, rel_s: float, label: str, detail: str, c: Clip):
+        fd = (1 / c.fps) if (c.has_video and c.fps) else self.tb.fd
+        frames = int(round(rel_s / float(fd)))
+        m = ET.SubElement(el, "marker", start=rt(frames * fd), duration=rt(fd), value=label)
+        if detail:
+            m.set("note", detail)
+
+    def device_lanes(self) -> dict[str, int]:
+        devs = sorted({c.device for c in self.clips}, key=lambda d: (not any(k.has_video for k in self.clips if k.device == d), d))
+        return {d: i + 1 for i, d in enumerate(devs)}
+
+    def placeable(self) -> list[Clip]:
+        return [c for c in self.clips if not c.method.startswith("clock far off")]
+
+    def setups(self, gap_join: float) -> list[list[Clip]]:
+        groups: list[list[Clip]] = []
+        for c in sorted(self.placeable(), key=lambda k: k.start):
+            if groups and c.start <= max(k.end for k in groups[-1]) + gap_join:
+                groups[-1].append(c)
+            else:
+                groups.append([c])
+        return groups
+
+    def multicam(self, ev, title: str, group: list[Clip], role_for, events):
+        t0 = min(c.start for c in group)
+        t1 = max(c.end for c in group)
+        tc0 = self.tb.frames(self.tod(t0), math.floor) * self.tb.fd
+        lead = self.tod(t0) - float(tc0)  # first clip sits this far after tc0
+        total = self.tb.frames(t1 - t0 + lead, math.ceil) * self.tb.fd
+        mid = self.nid("r")
+        media = ET.SubElement(self.res, "media", id=mid, name=title)
+        mc = ET.SubElement(media, "multicam", format=self.timeline_fmt, tcStart=rt(tc0), tcFormat="NDF")
+        # one angle per device; a second angle if a device's clips overlap each other
+        angles: list[tuple[str, list[Clip]]] = []
+        for dev in sorted({c.device for c in group}):
+            rows: list[list[Clip]] = []
+            for c in sorted([k for k in group if k.device == dev], key=lambda k: k.start):
+                for r in rows:
+                    if r[-1].end <= c.start:
+                        r.append(c)
+                        break
+                else:
+                    rows.append([c])
+            for j, r in enumerate(rows):
+                angles.append((dev if j == 0 else f"{dev} {j + 1}", r))
+        video_angle = audio_angle = None
+        for aname, row in angles:
+            aid = hashlib.sha1(f"{title}|{aname}".encode()).hexdigest()[:12]
+            ang = ET.SubElement(mc, "mc-angle", name=aname, angleID=aid)
+            cursor = 0  # frames from tc0
+            for c in row:
+                pos = self.tb.frames(c.start - t0 + lead)
+                if pos > cursor:
+                    ET.SubElement(ang, "gap", name="Gap", offset=rt(tc0 + cursor * self.tb.fd), start="3600s",
+                                  duration=rt((pos - cursor) * self.tb.fd))
+                    cursor = pos
+                elif pos < cursor:  # rounding overlap, trim the head by the overlap
+                    pos = cursor
+                dur_f = self.tb.frames(c.duration - (pos * float(self.tb.fd) - (c.start - t0 + lead)), math.floor)
+                if dur_f <= 0:
+                    continue
+                el = self.clip_el(ang, c, float(tc0 + pos * self.tb.fd), None, role_for.get(c.device, "dialogue"))
+                el.set("duration", rt(dur_f * self.tb.fd))
+                cursor = pos + dur_f
+            if video_angle is None and any(k.has_video for k in row):
+                video_angle = aid
+            if role_for.get(row[0].device) == "dialogue" and not any(k.has_video for k in row) and audio_angle is None:
+                audio_angle = aid
+        if audio_angle is None:
+            audio_angle = video_angle
+        mcc = ET.SubElement(ev, "mc-clip", ref=mid, name=title, start=rt(tc0), duration=rt(total))
+        if video_angle == audio_angle:
+            ET.SubElement(mcc, "mc-source", angleID=video_angle, srcEnable="all")
+        else:
+            ET.SubElement(mcc, "mc-source", angleID=video_angle, srcEnable="video")
+            ET.SubElement(mcc, "mc-source", angleID=audio_angle, srcEnable="audio")
+        for t, label, detail in events:
+            if t0 <= t <= t1:
+                m = ET.SubElement(mcc, "marker", start=self.tb.t(float(tc0) + lead + (t - t0)), duration=rt(self.tb.fd), value=label)
+                if detail:
+                    m.set("note", detail)
+        ET.SubElement(mcc, "keyword", start=rt(tc0), duration=rt(total), value="multicam")
+
+    def write(self, path: Path):
+        ET.indent(self.root)
+        body = ET.tostring(self.root, encoding="unicode")
+        path.write_text('<?xml version="1.0" encoding="UTF-8"?>\n<!DOCTYPE fcpxml>\n\n' + body + "\n")
+
+
+# ---------------------------------------------------------------- main
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("shoot", type=Path, help="shoot folder, one subfolder per device")
+    ap.add_argument("--out", type=Path, required=True)
+    ap.add_argument("--anchor", help="device folder whose clock is trusted (default: Marco's recordings if present, else the longest)")
+    ap.add_argument("--events", type=Path, help="Marco events.jsonl for markers")
+    ap.add_argument("--search", type=float, default=300.0, help="seconds either side of the clock guess to search (default 300)")
+    ap.add_argument("--tz", default="America/New_York")
+    ap.add_argument("--name", default=None)
+    ap.add_argument("--fps", default=None, help="timeline rate, e.g. 30000/1001 (default: most common camera rate)")
+    ap.add_argument("--join", type=float, default=30.0, help="seconds between clips that still count as one setup")
+    ap.add_argument("--transcribe", action="store_true", help="local whisper.cpp transcripts into clip notes (runs after the first FCPXML is written)")
+    ap.add_argument("--truth", action="append", help="device folder(s) with a network-synced clock that sets time of day (default: iphone/screen/marco folders)")
+    ap.add_argument("--extra", type=Path, action="append", default=[], help="another folder to include as its own device (repeatable), e.g. Marco's screen recordings")
+    args = ap.parse_args(argv)
+
+    for tool in ("ffprobe", "ffmpeg"):
+        if not shutil.which(tool):
+            print(f"missing {tool} on PATH", file=sys.stderr)
+            return 2
+    tz = ZoneInfo(args.tz)
+    out = args.out
+    out.mkdir(parents=True, exist_ok=True)
+    logf = open(out / "log.txt", "a")
+
+    def log(s: str):
+        print(s)
+        logf.write(s + "\n")
+        logf.flush()
+
+    log(f"== assistant editor {dt.datetime.now(tz).isoformat(timespec='seconds')} on {args.shoot}")
+    sources: list[tuple[Path, str]] = []
+    shoot = args.shoot.resolve()
+    for p in sorted(shoot.rglob("*")):
+        if p.is_file() and p.suffix.lower() in VIDEO_EXT | AUDIO_EXT and not p.name.startswith("._"):
+            rel = p.relative_to(shoot)
+            # device = top folder; a subfolder inside it (screen/logic-main, screen/manual) is its own device
+            dev = rel.parts[0] if len(rel.parts) > 1 else "loose"
+            if len(rel.parts) > 2:
+                dev = f"{rel.parts[0]}-{rel.parts[1]}"
+            sources.append((p, dev))
+    for extra in args.extra:
+        for p in sorted(extra.resolve().rglob("*")):
+            if p.is_file() and p.suffix.lower() in VIDEO_EXT | AUDIO_EXT and not p.name.startswith("._"):
+                sources.append((p, extra.name))
+    clips = []
+    for p, dev in sources:
+        c = probe(p, dev, tz)
+        if c:
+            clips.append(c)
+        else:
+            log(f"  skipped (unreadable): {p}")
+    if not clips:
+        log("no media found")
+        return 1
+    apply_manifests(clips, tz, log)
+    devices = sorted({c.device for c in clips})
+    log(f"found {len(clips)} clips on {len(devices)} devices: {', '.join(devices)}")
+    anchor = args.anchor
+    if not anchor:
+        # the device with the most recorded sound: everything else syncs to it by ear
+        marco = [d for d in devices if "marco" in d.lower() and any(c.has_audio for c in clips if c.device == d)]
+        anchor = marco[0] if marco else max(devices, key=lambda d: sum(c.duration for c in clips if c.device == d and c.has_audio))
+    if anchor not in devices:
+        log(f"anchor {anchor!r} not among devices")
+        return 1
+    log(f"anchor clock: {anchor}")
+    cache = AudioCache(out / ".audio-cache")
+    offsets = align(clips, anchor, cache, args.search, tz, log)
+    # true time of day: shift everything so network-clock devices read their own clock
+    truth = args.truth or [d for d in devices if any(k in d.lower() for k in ("iphone", "screen", "marco", "phone"))]
+    diffs = [c.raw_start - c.start for c in clips if c.device in truth and c.method in ("audio sync", "anchor clock")]
+    shift = float(np.median(diffs)) if diffs else 0.0
+    if abs(shift) > 0.0005:
+        for c in clips:
+            if not c.method.startswith("own clock"):  # unsynced clips already read their own clock
+                c.start += shift
+        offsets = {d: o + shift for d, o in offsets.items()}
+    locked = [c.start for c in clips if c.method in ("audio sync", "anchor clock")]
+    if locked:
+        mid = float(np.median(locked))
+        for c in clips:
+            if c.method not in ("audio sync", "anchor clock") and abs(c.start - mid) > 12 * 3600:
+                c.method = "clock far off (in the browser only, not on timelines)"
+                log(f"  {c.device}/{c.path.name}: camera clock far from the rest; kept out of timelines")
+    log(f"time of day taken from: {', '.join(truth) if diffs else anchor + ' (no network-clock device synced)'}; shift {shift:+.3f}s")
+    events = load_events(args.events, tz) if args.events and args.events.exists() else []
+    if args.fps:
+        fps = Fraction(args.fps)
+    else:
+        rates = [c.fps for c in clips if c.has_video and c.fps]
+        fps = max(set(rates), key=rates.count) if rates else Fraction(30000, 1001)
+    role_for = {d: ("dialogue" if any(c.has_audio for c in clips if c.device == d) else "video") for d in devices}
+    name = args.name or dt.datetime.fromtimestamp(min(c.start for c in clips), tz).strftime("Shoot %Y-%m-%d")
+    fx = out / f"{name}.fcpxml"
+
+    def write_fcpxml():
+        w = Writer(clips, fps, tz)
+        w.build(name, events, role_for, args.join)
+        w.write(fx)
+
+    write_fcpxml()
+    log(f"wrote {fx} (ready to import)")
+    if args.transcribe:
+        for c in sorted(clips, key=lambda k: k.start):
+            if c.has_audio:
+                c.transcript = transcribe(c, out, log)
+        write_fcpxml()
+        log(f"rewrote {fx} with transcripts in clip notes")
+    with open(out / "alignment.csv", "w", newline="") as f:
+        wr = csv.writer(f)
+        wr.writerow(["device", "file", "shot_at_local", "length_s", "method", "match_z", "clock_offset_s", "clock_source", "camera", "matched_with"])
+        for c in sorted(clips, key=lambda k: k.start):
+            wr.writerow([c.device, str(c.path), dt.datetime.fromtimestamp(c.start, tz).isoformat(timespec="milliseconds"),
+                         f"{c.duration:.2f}", c.method, f"{c.z:.1f}", f"{c.start - c.raw_start:+.3f}", c.raw_source, c.camera, c.matched_to])
+    synced = sum(1 for c in clips if c.method in ("audio sync", "anchor clock"))
+    weak = [c for c in clips if c.method.startswith(("own clock", "clock far off"))]
+    summary = (f"{len(clips)} clips, {len(devices)} devices, {synced} locked by sound or anchor, "
+               f"{len(clips) - synced - len(weak)} placed by device clock, {len(weak)} unsynced, {len(events)} Marco markers")
+    log(summary)
+    log("device clock offsets vs anchor: " + ", ".join(f"{d} {o:+.3f}s" for d, o in offsets.items()))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
