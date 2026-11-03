@@ -79,3 +79,30 @@ def test_audio_lead_shifts_clip_start(tmp_path):
     cache.memo[late.path] = seg / np.abs(seg).max()
     start, z, _ = ae.try_sync(late, [anchor], cache, 1004.0, 5.0)
     assert abs(start - 1005.0) < 0.0015 and z >= ae.MIN_Z
+
+
+def test_short_clip_locks_despite_a_louder_unrelated_neighbour(tmp_path):
+    """A 10 s clip placed after a 40 s clip from the same room: the true match against the
+    anchor must win even though the 40 s clip, which does not contain this sound, sits in the window."""
+    sr = ae.SR
+    rng = np.random.default_rng(11)
+    t = np.arange(sr * 120) / sr
+    env = (np.sin(2 * np.pi * 2.7 * t) ** 2) * (rng.random(120)[t.astype(int)] > 0.3)
+    room = (np.convolve(rng.standard_normal(len(t)), np.ones(10) / 10, "same") * env).astype(np.float32)
+    cache = ae.AudioCache(tmp_path / "cache")
+
+    def clip(name, a, b, dev, filt):
+        c = ae.Clip(path=tmp_path / name, device=dev, duration=b - a, has_video=False, has_audio=True)
+        seg = np.convolve(room[int(a * sr): int(b * sr)], filt, "same") + rng.standard_normal(int((b - a) * sr)).astype(np.float32) * 0.05
+        x = ae.prep(seg)
+        cache.memo[c.path] = (x / np.abs(x).max()).astype(np.float32)
+        return c
+
+    anchor = clip("apollo.wav", 0, 120, "apollo", [1.0])
+    anchor.start = 1000.0
+    cam40 = clip("cam40.mov", 37.25, 77.25, "cam40", [0.5, 0.3, 0.2])
+    cam40.start = 1037.25
+    cam10 = clip("cam10.mov", 80.5, 90.5, "cam10", [0.2, 0.3, 0.5])
+    cam10.raw_start = 1070.0
+    r = ae.try_sync(cam10, [anchor, cam40], cache, 1070.0, 300.0)
+    assert r is not None and abs(r[0] - 1080.5) < 0.0015 and r[2] == "apollo"

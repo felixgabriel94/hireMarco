@@ -296,66 +296,71 @@ def render_window(clips: list[Clip], cache: AudioCache, t0: float, t1: float) ->
     return out
 
 
-def best_match(seg: np.ndarray, placed: list[Clip], cache: AudioCache, t0: float, t1: float):
-    """Correlate one probe against each placed clip on its own; returns (lag, z, clip) of the strongest.
+def matches(seg: np.ndarray, placed: list[Clip], cache: AudioCache, t0: float, t1: float) -> list[tuple[float, float, Clip]]:
+    """Correlate one probe against each placed clip on its own. Returns (audio start, z, clip) per clip.
 
-    Each clip is its own reference so a loud neighbour cannot bury a quiet match, and the
-    clip that matched is known.
+    The reference is the clip's own sound inside [t0, t1], never zero padding: a peak measured
+    against digital silence looks exceptional and is not. The lag is only valid where the
+    probe lies wholly inside that sound.
     """
-    best = None
+    out = []
+    L = len(seg) / SR
+    hang = 0.3 * L  # a probe may hang over either edge of the sound by 30 %: overlap stays at least 70 %
     for c in placed:
-        if not c.has_audio or c.start is None or c.end < t0 or c.start > t1:
+        if not c.has_audio or c.start is None:
             continue
-        ref = render_window([c], cache, t0, t1)
+        a0, a1 = max(t0, c.start + c.audio_lead), min(t1, c.end + c.audio_lead)
+        if a1 - a0 < 0.7 * L:
+            continue
+        ref = render_window([c], cache, a0 - hang, a1 + hang)
         if np.abs(ref).max() < 1e-9 or len(ref) <= len(seg):
             continue
         lag, z = gcc_phat(seg, ref)
-        if best is None or z > best[1]:
-            best = (lag, z, c)
-    return best
+        out.append((a0 - hang + lag / SR, z, c))
+    return out
 
 
 def try_sync(clip: Clip, placed: list[Clip], cache: AudioCache, guess: float, search: float):
     """Find clip start on the master clock near guess. Returns (start, z, matched) or None.
 
     The clip is cut into up to three separate probes. A sync counts only when at least two
-    probes, each with a strong peak, land on the same start within 5 ms. One strong peak on
-    its own is not trusted: chance peaks between unrelated recordings can score high.
+    probes, each with a strong peak against the SAME placed clip, land on the same start
+    within 5 ms. One strong peak on its own is not trusted: chance peaks between unrelated
+    recordings can score high.
     """
     x = cache.prepped(clip).astype(np.float64)
     if len(x) < SR * 2 or np.abs(x).max() < 1e-6:
         return None
     dur = len(x) / SR
-    plen = min(CHUNK_S, dur / 2)
-    if plen >= 4.0:
-        n = min(3, int(dur // plen))
-        probes = [max(0.0, (i + 0.5) * dur / n - plen / 2) for i in range(n)]
+    if dur >= 12.0:
+        n, plen = 3, min(CHUNK_S, dur / 3)
+    elif dur >= 4.0:
+        n, plen = 2, dur / 2
     else:
-        plen, probes = dur, [0.0]
-    results = []
+        n, plen = 1, dur
+    probes = [max(0.0, (i + 0.5) * dur / n - plen / 2) for i in range(n)]
+    results: list[tuple[float, float, Clip]] = []  # (clip start, z, reference clip)
     for p in probes:
         seg = x[int(p * SR): int((p + plen) * SR)]
         if np.abs(seg).max() < 1e-6:
             continue
         t0 = guess + clip.audio_lead + p - search
         t1 = guess + clip.audio_lead + p + len(seg) / SR + search
-        m = best_match(seg, placed, cache, t0, t1)
-        if m is None:
-            continue
-        lag, z, _ = m
-        results.append((t0 + lag / SR - p - clip.audio_lead, z))
+        for a_start, z, ref_clip in matches(seg, placed, cache, t0, t1):
+            results.append((a_start - p - clip.audio_lead, z, ref_clip))
     strong = [r for r in results if r[1] >= MIN_Z]
     best = None
     for r in strong:
-        agree = [k for k in strong if abs(k[0] - r[0]) < 0.005]
+        agree = [k for k in strong if k[2] is r[2] and abs(k[0] - r[0]) < 0.005]
         if len(agree) >= 2 and (best is None or len(agree) > best[2] or (len(agree) == best[2] and r[1] > best[1])):
-            best = (float(np.median([k[0] for k in agree])), min(k[1] for k in agree), len(agree))
-    if best is None and len(probes) == 1 and strong and strong[0][1] >= 3 * MIN_Z:
-        best = (strong[0][0], strong[0][1], 1)  # very short clip: one probe, much stronger peak needed
+            best = (float(np.median([k[0] for k in agree])), min(k[1] for k in agree), len(agree), r[2])
+    if best is None and len(probes) == 1 and strong:
+        top = max(strong, key=lambda k: k[1])
+        if top[1] >= 3 * MIN_Z:
+            best = (top[0], top[1], 1, top[2])  # very short clip: one probe, much stronger peak needed
     if best is None:
         return None
-    near = [c.name for c in placed if c.start is not None and c.start < best[0] + clip.duration and c.end > best[0]]
-    return best[0], best[1], ", ".join(near[:3])
+    return best[0], best[1], best[3].name
 
 
 def align(clips: list[Clip], anchor: str, cache: AudioCache, search: float, local_tz: ZoneInfo, log) -> dict[str, float]:
@@ -429,12 +434,10 @@ def coarse_scan(clip: Clip, placed: list[Clip], cache: AudioCache, win: float) -
         t = a
         while t < b:
             t0, t1 = t, min(b, t + 2 * win)
-            m = best_match(seg, placed, cache, t0, t1)
-            if m is not None:
-                lag, z, _ = m
-                hits.append((t0 + lag / SR - p - clip.audio_lead, z))
+            for a_start, z, _ in matches(seg, placed, cache, t0, t1):
+                hits.append((a_start - p - clip.audio_lead, z))
             t += 2 * win - CHUNK_S
-    return sorted(hits, key=lambda h: -h[1])[:4]
+    return sorted(hits, key=lambda h: -h[1])[:6]
 
 
 def wide_search(pending: list[Clip], placed: list[Clip], offsets: dict[str, float], cache: AudioCache, log) -> bool:
