@@ -90,6 +90,12 @@ def build(design: str) -> str:
     # Owner 2026-11-03: the Now section is never blank; with nothing running it says he is waiting for the next task
     now_blank = "typeNow(S.plain);n.style.visibility=S.plain?'visible':'hidden';}"
     now_always = "typeNow(S.plain||'Marco is waiting for the next task.');n.style.visibility='visible';}"
+    # Owner 2026-11-03: no ellipsis ever. Every header gives the model's whole name its width, nothing on the page
+    # shortens text with dots, and an id is shown whole
+    trunc = "function midTrunc(s,n){s=String(s);return s.length<=n?s:s.slice(0,Math.ceil(n/2)-1)+'\u2026'+s.slice(-Math.floor(n/2));}"
+    whole = "function midTrunc(s,n){return String(s);}"
+    req_short = "return pre+(body.length>12?body.slice(0,4)+'\u2026'+body.slice(-4):body);}"
+    req_whole = "return pre+body;}"
     type_now = "function renderNow(){"
     type_into = ("function wordsOf(l){return new Set(String([l.summary,l.text,l.task].filter(Boolean).join(' ')).toLowerCase().replace(/[^a-z0-9' ]+/g,' ').split(/\\s+/).filter(w=>w.length>2));}\n"
                  "function similar(a,b){if(a.kind==='call'&&b.kind==='call'&&a.key&&a.key===b.key)return true;"
@@ -102,14 +108,15 @@ def build(design: str) -> str:
     ear_css = (".ear{display:flex;align-items:center}.big.ear{min-height:1.2em}.st.ear{white-space:normal}"
                ".ear .bars{display:flex;align-items:center;gap:8px;height:1em;width:100%;max-width:1400px}"
                ".ear .bars i{flex:1;display:block;height:.3em;border-radius:6px;background:#fff;animation:ear 1.1s ease-in-out infinite}"   # white (Owner 2026-11-03)
-               ".sl.ear .sh{grid-template-columns:auto max-content auto 1fr}.sl.ear .sh b{overflow:visible;text-overflow:clip}.sl.ear .sh .sc{justify-self:end}"   # the model's whole name, no ellipsis
+               ".sl .sh{grid-template-columns:auto max-content auto 1fr}.sl .sh b{overflow:visible;text-overflow:clip}.sl .sh .sc{justify-self:end}"   # the model's whole name, no ellipsis
+               "*{text-overflow:clip!important}"   # no ellipsis anywhere (Owner 2026-11-03)
                "@keyframes ear{0%,100%{height:.22em;opacity:.55}50%{height:1em;opacity:1}}"
                ".big.typing .c,.st.typing .c{opacity:0}.big .c.on,.st .c.on{opacity:1}"
                ".big .caret,.st .caret{display:inline-block;width:.42em;height:.9em;margin-left:.1em;vertical-align:-.08em;background:var(--accent)}\n")
     if not (sample and links and styled and icon and tally in page and decided in page and using in page and shown in page
             and page.count(calling) == 1 and page.count(decided_line) == 1 and page.count(type_now) == 1 and page.count(decided_focus) == 1
             and page.count(slot_word) == 1 and page.count(slot_task) == 1 and page.count(slot_sum) == 1 and page.count(stream_end) == 1
-            and page.count(place) == 1 and page.count(now_blank) == 1
+            and page.count(place) == 1 and page.count(now_blank) == 1 and page.count(trunc) == 1 and page.count(req_short) == 1
             and page.count(run_start) == 1 and page.count(eq_mark) == 1 and page.count(motifs) == 1 and page.count(family) == 1
             and page.count(rec_route) == 1 and page.count(vu_css) == 1):
         raise SystemExit(f"the design changed shape: sample {sample}, fonts {links}, style {styled}, icon {icon}, tally {tally in page}, "
@@ -122,7 +129,7 @@ def build(design: str) -> str:
             .replace(run_start, run_reset).replace(eq_mark, wavefile_mark, 1).replace(motifs, motifs_more, 1)
             .replace(family, family_more, 1).replace(rec_route, file_route, 1).replace(vu_css, wavefile_css, 1)
             .replace(calling, listening, 1).replace(decided_line, heard_line, 1).replace(type_now, type_into, 1)
-            .replace(slot_task, slot_strip, 1).replace(slot_sum, slot_heard, 1).replace(stream_end, stream_typed, 1).replace(place, place_once, 1).replace(now_blank, now_always, 1)
+            .replace(slot_task, slot_strip, 1).replace(slot_sum, slot_heard, 1).replace(stream_end, stream_typed, 1).replace(place, place_once, 1).replace(now_blank, now_always, 1).replace(trunc, whole, 1).replace(req_short, req_whole, 1)
             .replace("</style>", extra + "</style>", 1))
 
 
