@@ -200,3 +200,18 @@ def test_set_up_my_session_never_reaches_the_brain_that_only_knows_beats(tmp_pat
     wa, sent, words, brain = three_jobs(tmp_path, monkeypatch)
     line = handle(inbound(wa, "w1", kind="text", text="Marco, set up my session pls"), wa=wa, inbox=tmp_path / "inbox")
     assert "his song asked of the booth" in line and words == [b"song"] and brain == []
+
+
+def test_his_song_is_shown_in_finder_before_the_copy(tmp_path):
+    # Owner 2026-11-04: the judges see him find the one song on LaCie, never Logic's recents
+    from hiremarco.studio.beat_in import BeatLoader
+
+    song, logic, order = song_at(tmp_path), FakeLogic("Made Up Song"), []
+    opener = loader(tmp_path, logic)
+    opener.reveal = lambda path: order.append(("reveal", path))
+    real_open = opener.open_session
+    opener.open_session = lambda *a, **k: order.append(("copy", a[0])) or real_open(*a, **k)
+    opener.open_song(song)
+    assert order == [("reveal", song), ("copy", song)]
+    (tmp_path / "b").mkdir()
+    assert loader(tmp_path / "b", logic).reveal is None   # stand-in hands: no Finder during tests

@@ -418,6 +418,13 @@ def dismiss_notices() -> str:
     return done.stdout.strip()
 
 
+REVEAL_SECONDS = 2.5   # his song selected in Finder on LaCie before the copy (Owner 2026-11-04: show the finding, not recents)
+
+
+def reveal_in_finder(song: Path) -> None:
+    subprocess.run(["open", "-R", str(song)], check=False, timeout=15)
+
+
 CHOOSER_CHECKS = 12   # half a second apart: Logic's "Choose a Project" is watched for 6 s after the session shows
 
 
@@ -522,8 +529,10 @@ class BeatLoader:
                  wait_s: float = 180.0, wake: Callable[[], None] = wake_display,
                  notices: Callable[[], str] = dismiss_notices, asking: Callable[..., str] = save_question,
                  jump: Callable[[float], str] | None = None,
-                 chooser: Callable[[], str] = dismiss_chooser):
+                 chooser: Callable[[], str] = dismiss_chooser, reveal: Callable[[Path], None] | None = None):
         self.run, self.front, self.click, self.scroll = run, front, click, scroll
+        # the real Mac shows his song in Finder before the copy; a loader with stand-in hands shows nothing
+        self.reveal = reveal if reveal is not None else (reveal_in_finder if open_app is None else None)
         self.jump = jump or _scroll_to
         self.open_app = open_app or (lambda p: subprocess.run(["open", "-a", "Logic Pro", str(p)], check=True,
                                                               timeout=30))
@@ -638,6 +647,12 @@ class BeatLoader:
         if not (song / "Media").is_dir() and (song.parent / "Audio Files").is_dir():
             raise LoadError(f"{song.name} keeps its audio beside it, in a project folder; a copy of the package alone "
                             "would play from the original's files")
+        if self.reveal is not None:   # the audience sees him find the song on LaCie, one file, before he copies it
+            try:
+                self.reveal(song)
+                self.sleep(REVEAL_SECONDS)
+            except Exception:   # showing it is for the film; the copy goes on either way
+                pass
         session = self.open_session(song, None, source=song)
         chooser = f"; Logic's {self.last_chooser} cancelled" if self.last_chooser else ""
         return f"{session.name} is open, a copy of {song.name}{chooser}"
