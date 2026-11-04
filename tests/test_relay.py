@@ -287,3 +287,19 @@ def test_pressing_and_holding_are_never_narrated():
     assert unnarrate("Uh-huh. Indoor please.") == "Indoor please."
     assert unnarrate("One sec. Those don't work for us, unfortunately.") == "Those don't work for us, unfortunately."
     assert unnarrate("Indoor at half past eight works.") == "Indoor at half past eight works."
+
+
+def test_their_yes_to_a_time_gets_the_name_and_the_contact_question_not_a_hang_up():
+    # live 2026-11-04, twice: "Eight thirty works." then "I'll lock in the details." and the call ended
+    from hiremarco.relay import booking_line
+
+    system = {"role": "system", "content": "Call brief:\n- name on the booking (first and last): Felix Gabriel\n- party size: 4"}
+    talk = [system, {"role": "assistant", "content": "Hi, just so you know, this call is recorded."},
+            {"role": "user", "content": "For when?"}, {"role": "assistant", "content": "Thursday at eight, for four."},
+            {"role": "user", "content": "Eight thirty works."}]
+    assert booking_line(talk) == "Perfect. It's under Felix Gabriel. Do you need a phone number or an email for it?"
+    assert booking_line(talk[:-1] + [{"role": "user", "content": "We have Saturday at 7. Does that work?"}]) is None
+    assert booking_line(talk[:-1] + [{"role": "user", "content": "Sorry, nothing is available."}]) is None
+    said = talk + [{"role": "assistant", "content": "Perfect. It's under Felix Gabriel."}, {"role": "user", "content": "Works."}]
+    assert booking_line(said) is None                                  # once a call
+    assert booking_line([talk[1], *talk[2:]]) is None                  # not a booking call

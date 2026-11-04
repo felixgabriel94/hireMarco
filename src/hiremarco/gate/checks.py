@@ -179,7 +179,9 @@ def check_outbound(
         # Repeating "record" in the studio is normal; repeating a message to a person is not.
         # The Owner's own word (his number in his words, or his yes to an offer) is never made to wait
         # (Owner 2026-11-04: "what I say goes"); a client's calls and every text keep the rule.
-        owners_word = tenant_id == OWNER_TENANT and channel == "voice" and (named or offered)
+        # A text to the Owner himself is not held as a repeat either (live 2026-11-04: "Calling Test Kitchen now."
+        # was swallowed); the idempotency key and the daily limit still stop a loop.
+        owners_word = tenant_id == OWNER_TENANT and (channel == "voice" and (named or offered) or channel == "whatsapp")
         row = channel in PERSON_CHANNELS and not owners_word and conn.execute(
             "select 1 from effects where ok = 1 and channel = ? and target = ? and message_hash = ? and ts >= ?",
             (channel, target, _hash(message), since),

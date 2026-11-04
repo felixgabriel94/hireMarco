@@ -352,6 +352,13 @@ def accept(conn: sqlite3.Connection, offer: CallOffer, now: datetime | None = No
     return get(conn, offer.id) if cur.rowcount == 1 else None
 
 
+def preferences_known(profile: dict | None = None) -> bool:
+    """True when his profile already answers the fallback questions (window, seating, requests; the card is always
+    a link), so a yes dials at once (Owner 2026-11-04: "he shouldn't have to ask me every time")."""
+    profile = briefs.load_profile() if profile is None else profile
+    return all(str(profile.get(k) or "").strip() for k in ("time_window", "seating", "special_requests"))
+
+
 def held_to_retry(conn: sqlite3.Connection, now: datetime | None = None) -> CallOffer | None:
     """The newest table offer held inside the yes window, put back to pending so his yes or "call again" dials it."""
     now = now or datetime.now(timezone.utc)

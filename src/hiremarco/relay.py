@@ -114,6 +114,30 @@ def unnarrate(text: str) -> str:
 
 RESAY_LIMIT = 2
 
+# live 2026-11-04, twice: "Eight thirty works." and the model said "I'll lock in the details." and hung up, the place
+# holding no number and no email. The moment the place says yes to a time, the relay says the next line itself.
+BOOKING_CALL = re.compile(r"name on the booking[^:\n]*:\s*([^\n]+)", re.I)
+TIME_YES = re.compile(r"\b(?:works|we can do|can do that|is open|we have (?:that|it|a table|you)|available|booked|"
+                      r"all set|reserved|you'?re in|that'?s fine|no problem)\b", re.I)
+NOT_YES = re.compile(r"\b(?:no|not|don'?t|doesn'?t|isn'?t|unfortunately|sorry|nothing)\b", re.I)
+UNDER = "It's under "
+
+
+def booking_line(messages: list[dict]) -> str | None:
+    """On a booking call, the line after the place says yes to a time, with no model call: the name on it and
+    the one question that gets them a number or an email. Said once a call."""
+    system = " ".join(str(m.get("content", "")) for m in messages if m.get("role") in ("system", "developer"))
+    named = BOOKING_CALL.search(system)
+    if not named or not messages or messages[-1].get("role") != "user":
+        return None
+    said = [str(m.get("content") or "") for m in messages if m.get("role") == "assistant"]
+    if len(said) < 2 or any(UNDER in s for s in said):
+        return None
+    last = str(messages[-1].get("content") or "")
+    if "?" in last or not TIME_YES.search(last) or NOT_YES.search(last):
+        return None
+    return f"Perfect. {UNDER}{named.group(1).strip().rstrip('.')}. Do you need a phone number or an email for it?"
+
 
 def opening_for(messages: list[dict]) -> str | None:
     """The opening line, said by the relay with no model call: on the first turn of a call, and again (up to
@@ -229,6 +253,18 @@ def make_relay(transport: httpx.AsyncBaseTransport | None = None, joblog: JobLog
                 return StreamingResponse(say_opening(), media_type="text/event-stream")
             return JSONResponse({"object": "chat.completion", "model": CALL_MODEL, "choices": [
                 {"index": 0, "message": {"role": "assistant", "content": opening}, "finish_reason": "stop"}]})
+
+        fixed = booking_line(messages)
+        if fixed is not None:
+            log.append(JobRow(job="call-relay", model=CALL_MODEL, note="booking line after their yes, no model call"))
+            if body.get("stream"):
+                async def say_fixed() -> AsyncIterator[bytes]:
+                    yield _chunk(fixed)
+                    yield _chunk("", "stop")
+                    yield b"data: [DONE]\n\n"
+                return StreamingResponse(say_fixed(), media_type="text/event-stream")
+            return JSONResponse({"object": "chat.completion", "model": CALL_MODEL, "choices": [
+                {"index": 0, "message": {"role": "assistant", "content": fixed}, "finish_reason": "stop"}]})
 
         # a cut-off notice is said again, first, before whatever Marco says next
         prefix = gate.RECORDING_OPENING + " " if notice_owed(messages) else ""

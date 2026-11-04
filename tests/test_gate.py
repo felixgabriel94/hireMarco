@@ -47,9 +47,12 @@ def test_kill_switch_refuses_a_send(env):
 
 
 def test_same_message_twice_second_refused(env):
-    act(env, idempotency_key="a")
+    # a client's repeat is held; the Owner's own chat is not (Owner 2026-11-04: "what I say goes")
+    act(env, idempotency_key="a", tenant_id="client-1")
     with pytest.raises(gate.Refused, match="same message"):
-        act(env, idempotency_key="b")
+        act(env, idempotency_key="b", tenant_id="client-1")
+    act(env, idempotency_key="c")
+    assert act(env, idempotency_key="d") == "sent"
 
 
 def test_same_key_twice_refused(env):

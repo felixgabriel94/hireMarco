@@ -16,7 +16,7 @@ from hiremarco.whatsapp import WhatsApp
 OWNER = "15551230000"
 KITCHEN = Place("test-kitchen", "Test Kitchen", "15557770000")
 NOW = datetime(2026, 11, 2, 20, 0, tzinfo=timezone.utc)
-PROFILE = {"full_name": "Felix Example", "email": "f@example.com", "seating": "indoor", "special_requests": "none",
+PROFILE = {"full_name": "Felix Example", "email": "f@example.com", "seating": "indoor", "special_requests": "",
            "time_window": "plus or minus 30 minutes", "say_as": ""}
 
 
@@ -266,3 +266,24 @@ def test_his_seating_answer_outranks_the_profile(world):
     said = replace(offer, fallbacks="If 8 isn't open, ask for 7:30 or 8:30. No voicemail, outdoor, a link is fine, 4: none")
     assert briefs.build("reservation", offers.brief_for(said))["seating"] == "outdoor"   # the profile says indoor
     assert briefs.build("reservation", offers.brief_for(replace(offer, fallbacks="7:30 is fine")))["seating"] == "indoor"
+
+
+def test_with_his_preferences_standing_a_yes_dials_at_once(world, monkeypatch):
+    # Owner 2026-11-04: "he shouldn't have to ask me every time if I have allergies"
+    monkeypatch.setattr("hiremarco.critic.Critic.__call__", lambda self, d: (True, "ok"))
+    briefs.save_profile({**PROFILE, "seating": "outdoor", "time_window": "up to 30 minutes either side",
+                         "special_requests": "none"})
+    offer = offers.record_offer(world["conn"], KITCHEN, weekday="thursday", day="2026-11-05", hour=20, party_size=4,
+                                now=datetime.now(timezone.utc))
+    assert yes(world).startswith(f"offer {offer.id}: calling Test Kitchen") and len(world["dialed"]) == 1
+    brief = world["dialed"][0]["conversation_initiation_client_data"]["dynamic_variables"]["brief"]
+    assert "outdoor" in brief and "up to 30 minutes either side" in brief
+
+
+def test_call_again_during_the_questions_is_not_taken_as_his_answers(world, monkeypatch):
+    monkeypatch.setattr("hiremarco.critic.Critic.__call__", lambda self, d: (True, "ok"))
+    offer = offers.record_offer(world["conn"], KITCHEN, weekday="thursday", day="2026-11-05", hour=20, party_size=4,
+                                now=datetime.now(timezone.utc))
+    yes(world)
+    yes(world, said="Call again", mid="m2")
+    assert offers.get(world["conn"], offer.id).fallbacks != "Call again"

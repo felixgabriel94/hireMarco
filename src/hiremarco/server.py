@@ -633,7 +633,7 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
     answered = offer if offer is not None and offer.status == "questions" else \
         (None if offer is not None else offers.asking(conn, now))
     if answered is not None:  # his one reply to the fallback questions: it goes into the brief, then the call
-        offer = offers.record_fallbacks(conn, answered, said)
+        offer = answered if AGAIN.search((said or "").strip()) else offers.record_fallbacks(conn, answered, said)
     elif offer is None:
         words = (said or "").strip()
         if not (AFFIRM.search(words) or AGAIN.search(words)):
@@ -652,7 +652,8 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
         offers.set_status(conn, offer.id, "no such place")
         reply("I can't find that place in your list anymore, so I'm holding off on the call.", "offer-place")
         return f"offer {offer.id}: place {offer.place_id} not in the places file"
-    if answered is None and not retry:  # the questions come first, so one reply can fill what the profile leaves open
+    # Owner 2026-11-04: he answers once; with his window, seating and requests standing in his profile, his yes dials
+    if answered is None and not retry and not offers.preferences_known():  # the questions fill what the profile leaves open
         offers.ask_fallbacks(conn, offer)
         offers.add_message(conn, offer.id, reply(offers.questions_text(offer), "offer-questions"))
         return f"offer {offer.id}: asked the fallback questions before dialing"
