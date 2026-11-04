@@ -81,6 +81,7 @@ class State:
         self.began_at: float | None = None
         self.ended_at: float | None = None
         self.job = False   # a master job is lit: it ends on its own row, not on the command's that started it
+        self.resting = False   # he is speaking in the middle of the work: the light is out for the halo (Owner 2026-11-04)
         self.alive = alive or _alive
 
     def add(self, rows: list[dict], now: float) -> None:
@@ -93,18 +94,25 @@ class State:
                 self.job = kind == "job_started" or (self.job and kind == "work_started")
             elif kind == "job_ended" or (kind == "work_ended" and not self.job):
                 self._end(now)   # a command's end does not end a job it started: the job's own last row does
+            elif kind == "glow_rest":
+                if self.pid and not self.resting:
+                    self.resting, self.ended_at = True, now   # fades where it is; the halo comes once it is gone
+            elif kind == "glow_back":
+                if self.resting:
+                    self.resting, self.ended_at = False, None
+                    self.began_at = now + HANDOFF_S   # the halo fades first, then the light is born again
             elif self.pid and row.get("model") != events.VOICE_MODEL:
                 self.pulsed_at = now
 
     def _end(self, now: float) -> None:
-        if self.pid:
+        if self.pid and not self.resting:
             self.ended_at = now
-        self.pid, self.job = None, False
+        self.pid, self.job, self.resting = None, False, False
 
     def working(self, now: float | None = None) -> bool:
         if self.pid and not self.alive(self.pid):
             self._end(now if now is not None else time.monotonic())   # a job that died without its last row
-        return bool(self.pid)
+        return bool(self.pid) and not self.resting
 
     def phase(self, now: float) -> float:
         """0 when there is nothing to show, rising to 1 over BIRTH_S after a start, falling back to 0 after an end."""

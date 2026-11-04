@@ -325,6 +325,16 @@ def live_apply(plan: Plan, *, log: Callable[[str], None] = print, conn=None) -> 
     return apply(plan, select=select, rename=hands.rename, read_names=read_names, log=log)
 
 
+def organize_now(*, direction: str = "", log: Callable[[str], None] = print, conn=None,
+                 survey_of=None, propose_for=None, apply_plan=None) -> str:
+    """Asked aloud or by text, the asking is the go (Owner 2026-11-04: "organize my session"): survey, plan, rename,
+    read back. Only on the copy Marco opened; the booth checks that. One line of what was done."""
+    layout = (survey_of or survey)()
+    plan = (propose_for or (lambda l: propose(l, direction=direction)))(layout)
+    done = (apply_plan or (lambda p: live_apply(p, log=log, conn=conn)))(plan)
+    return f"{len(done)} of {len(layout.tracks)} tracks renamed and read back"
+
+
 def names_by_track_number(listing: str) -> dict[int, str]:
     """'3<TAB>Track 6 “intro lead”<TAB>19' lines read as {6: "intro lead"}: Logic's track number, not the row."""
     import re

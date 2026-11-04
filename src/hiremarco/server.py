@@ -278,8 +278,9 @@ def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Pa
             return f"already started; {booth()}"
         if saved_song() is not None:   # no beat: the session starts on his song, a fresh copy (Owner 2026-11-04)
             started = booth()
-            (nudge or nudge_booth)(b"song")
-            reply("On it. Setting up your session.", "song")
+            organize = re.search(r"\b(?:organi[sz]e|label)", said, re.I) is not None
+            (nudge or nudge_booth)(b"song organize" if organize else b"song")
+            reply("On it. Setting up your session." if not organize else "On it. Opening your session and labeling everything.", "song")
             return f"his song asked of the booth; {started}"
         reply("Send me the beat first, then tell me to start.", "nobeat")
         return "asked for the beat: none is waiting"

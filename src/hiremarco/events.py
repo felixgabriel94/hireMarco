@@ -28,7 +28,8 @@ COUNTER = "events.request"
 KINDS = ("model_call_started", "model_call_completed", "model_call_failed", "analysis_generated", "decision_made",
          "tool_invoked", "tool_completed", "tool_skipped", "verification_started", "verification_completed", "note",
          "job_started", "job_ended", "stage", "thought", "learned", "message_sent", "email_received",
-         "work_started", "work_ended")   # the booth at work in Logic for one command: the glow's cue, not a page line
+         "work_started", "work_ended",   # the booth at work in Logic for one command: the glow's cue, not a page line
+         "glow_rest", "glow_back")       # he speaks in the middle of work: the glow steps out for the halo, then returns
 STATUSES = ("running", "ok", "failed", "retry", "low_confidence", "refused")
 SUMMARY_CHARS = 80
 DETAIL_CHARS = 120
@@ -332,7 +333,7 @@ def for_page(row: dict) -> dict | None:
     def line(type_: str, **fields) -> dict:
         return {**out, "type": type_, **{k: v for k, v in fields.items() if v not in (None, "")}}
 
-    if kind in ("work_started", "work_ended"):   # the glow's cue only (Owner 2026-11-03); the page keeps its one line per task
+    if kind in ("work_started", "work_ended", "glow_rest", "glow_back"):   # the glow's cue only (Owner 2026-11-03); the page keeps its one line per task
         return None
     if kind in ("model_call_started", "model_call_completed", "model_call_failed") or (kind in ("tool_invoked", "tool_completed") and row.get("call_id")):
         name = row.get("model") or row.get("tool") or ""

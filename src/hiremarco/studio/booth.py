@@ -65,6 +65,7 @@ TALK = frozenset({"kill", "dismiss", "chat", "summon", "unknown", "note", "take_
 NOW_LINES = {
     "new_session": "Marco opens a fresh session in Logic and waits for the beat.",
     "open_song": "Marco opens your song in Logic.",
+    "organize": "Marco labels every track in your session.",
     "beat_arrived": "Marco sets the session up from the beat.",
     "export": "Marco prints the mix and masters the song.",
     "mix_pass": "Marco balances the mix.",
@@ -194,6 +195,8 @@ class Booth:
     master: Callable[[str], str] | None = None        # master.live.run_live on this session, the WAVs texted; its summary
     open_empty: Callable[[], str] | None = None       # studio.beat_in.BeatLoader.open_empty: a session from the template, no beat
     open_song: Callable[[], str] | None = None        # studio.beat_in.BeatLoader.open_song: a fresh copy of his song
+    organize: Callable[[], str] | None = None         # studio.organize.organize_now on the open session: labels every track
+    copy_open: bool = False                           # the session in Logic is a copy Marco opened: organizing may rename it
     in_logic: bool = False                            # he is at work in Logic: the glow has him, the halo steps away
     left_logic_at: float = -100.0                     # when the last work in Logic ended: the glow fades, then the halo returns
 
@@ -249,7 +252,56 @@ class Booth:
         pad.stop(2.0)   # he speaks over the pad; it goes out after his line (Owner 2026-11-04)
         return opened
 
-    def song_session(self) -> str:
+    def _out_of_logic(self) -> None:
+        """The work in Logic is over: the halo may return once the glow's fade is done."""
+        from hiremarco.studio.halo import GLOW_OUT_S
+
+        self.in_logic, self.left_logic_at = False, time.monotonic()
+        time.sleep(GLOW_OUT_S)
+
+    def _narrate(self, moment: str, facts: dict, plain: str) -> None:
+        """A checkpoint said in the middle of work (Owner 2026-11-04: when he narrates, the halo shows): the glow
+        fades out first, the halo comes for the line, then fades, and the glow is born again. Never both at once."""
+        from hiremarco import events as stream
+        from hiremarco.studio.halo import GLOW_OUT_S
+
+        stream.emit("glow_rest", source="marco", operation="speaking", status="ok", pid=os.getpid())
+        self.in_logic, self.left_logic_at = False, time.monotonic()
+        time.sleep(GLOW_OUT_S)   # the light gone before his voice, so the halo rises into an empty screen
+        try:
+            self._say(moment, facts, plain)
+        finally:
+            self.in_logic = True
+            stream.emit("glow_back", source="marco", operation="speaking", status="ok", pid=os.getpid())
+
+    def organize_session(self) -> str:
+        """Every track labeled to the house standard (Owner 2026-11-04: "organize my session" before the harmonies),
+        only on the copy he opened, never on a session of the artist's own."""
+        if self.organize is None:
+            return "no organizer in this booth"
+        if self.rolling:
+            return "holding the labels until the take stops"
+        if not self.copy_open:
+            self._say("asked to organize a session that is not a copy you opened; say you'll open his song first",
+                      {}, "Let me open your song first, so I work on a copy.")
+            return "organize held: the open session is not a copy Marco opened"
+        self._work("started", "organize")
+        try:
+            done = self.organize()
+        except Exception as exc:
+            self._work("ended", "organize")
+            self._say("could not label the session", {"why": str(exc)[-160:]}, "I couldn't label the session.")
+            return f"organize stopped: {type(exc).__name__}: {str(exc)[-160:]}"
+        self._work("ended", "organize")
+        if self.tracks is not None:
+            self.session = self.tracks.scan()
+        self._say("every track in his session is labeled; say the session is labeled and ready, in one short line",
+                  {"done": done}, "Your session's labeled and ready.")
+        sent = self._text("Session's labeled and ready.")
+        self._result()
+        return f"organized: {done}; {sent}"
+
+    def song_session(self, then_organize: bool = False) -> str:
         """A fresh copy of his song (Owner 2026-11-04: "set up my session" starts on his song): the halo first, the
         pad, then Logic opens the copy; "Session's ready." when it is up, as for a beat."""
         if self.open_song is None:
@@ -272,9 +324,13 @@ class Booth:
         finally:
             self.operating = False
             self._work("ended", "open_song")
+        self.copy_open = True
         if self.tracks is not None:
             self.session = self.tracks.scan()
         self.last_setup = {}
+        if then_organize:   # one ask: his song open, then every track labeled; one line and one text at the end
+            pad.stop(2.0)
+            return f"{opened}; {self.organize_session()}"
         self._say("Logic now shows his song, ready to work on; say it is up, in plain words, with no name or file name",
                   {}, "Your song's up in Logic.")
         pad.stop(2.0)
@@ -1013,16 +1069,19 @@ class Booth:
 
         def run() -> None:
             self.busy = True
+            self.in_logic = True   # the job works in Logic: the glow has him, the halo steps away until he speaks
             from hiremarco.master import job as master_job
 
             try:
-                with master_job.speaking(self._say):   # his few spoken checkpoints through the run (Owner 2026-11-04)
+                with master_job.speaking(self._narrate):   # his few spoken checkpoints through the run (Owner 2026-11-04)
                     summary = self.master(words)
                 self.log(f"   master: {summary}")
+                self._out_of_logic()   # the job's light fades first; his closing line brings the halo into an empty screen
                 self._say("the master is printed and texted; say so in one short line with its loudness",
                           {"result": summary}, "Master's done. It's on your phone.")
             except Exception as exc:  # the job reports its own stop; the booth only says it stopped
                 self.log(f"   master stopped: {type(exc).__name__}: {str(exc)[-160:]}")
+                self._out_of_logic()
                 self._say("the master stopped before it was done; say so and what stopped it, plainly",
                           {"stopped": str(exc)[-160:]}, "The master stopped. I'll tell you why on your phone.")
                 if self.text_owner is not None:
@@ -1380,7 +1439,9 @@ class Booth:
         if a == "new_session":
             return self.new_session(command.text or None)
         if a == "open_song":
-            return self.song_session()
+            return self.song_session(then_organize=command.text == "organize")
+        if a == "organize":
+            return self.organize_session()
         if a == "live_view":
             if self.live is None:
                 return "no live view in this booth"
@@ -1622,6 +1683,8 @@ def _shortcut_listener(booth: "Booth", sock) -> None:
             booth.hear("Marco, open a new session and wait for me")
         elif data.strip() == b"song":  # his WhatsApp: "set up my session" with no beat, a copy of his song (Owner 2026-11-04)
             booth.hear("Marco, open my song")
+        elif data.strip() == b"song organize":  # the same, then every track labeled
+            booth.hear("Marco, open my song and organize it")
         elif data.strip() in (b"place booth", b"place desk") and booth.on_place is not None:
             booth.on_place(data.strip().split()[1].decode())  # the menu bar's "Listen at"
 
@@ -1855,6 +1918,8 @@ def run_booth(*, dry_run: bool = False) -> int:
                   .BeatLoader().open_empty,
                   open_song=None if dry_run else __import__("hiremarco.studio.beat_in", fromlist=["BeatLoader"])
                   .BeatLoader().open_song,
+                  organize=None if dry_run else (lambda: __import__("hiremarco.studio.organize", fromlist=["organize_now"])
+                                                 .organize_now(log=lambda line: print(line, flush=True))),
                   text_owner=None if dry_run else _text_owner_plain,
                   master=None if dry_run else _booth_master,
                   result_on=None if dry_run else _result_on,

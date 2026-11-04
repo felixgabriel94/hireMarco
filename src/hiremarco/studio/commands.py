@@ -315,7 +315,9 @@ NEW_SESSION_SAID = re.compile(r"^(?:(?:open|start|set up|make|create|give me)(?:
                               r"(?:session|project|logic(?: pro)?(?: session)?)|new session|open (?:up )?logic(?: pro)?)"
                               r"(?: for me)?(?:,? ?(?:and|then)? ?(?:wait|hold)(?: for me| there| up)?)?$")
 MIX_AND_MASTER_SAID = re.compile(r"\bmix and master\b|\bmaster (?:it|this|the track|the song|my song)\b")
-OPEN_SONG_SAID = re.compile(r"^(?:open|pull up|bring up|load|set up) (?:my|the) song(?: for me)?$")
+OPEN_SONG_SAID = re.compile(r"^(?:open|pull up|bring up|load|set up)(?: up)? (?:my|the)(?: latest| last)? (?:song|track|record|session)"
+                            r"(?: for me)?(?P<organize>,? and (?:organi[sz]e|label) (?:it|everything|the tracks|my tracks))?$")
+ORGANIZE_SAID = re.compile(r"^(?:organi[sz]e|label) (?:my|the|this) (?:session|tracks)$|^label everything$")
 LIVE_SAID = re.compile(r"^(?:(?:give me|open|start|turn on|put up) (?:the )?live(?: view| video)?|live view|"
                        r"(?:put|stream) (?:it|the session|logic) (?:on|to) my phone|stream (?:it|the session|logic))$")
 MODE_SAID = re.compile(r"^(?:what mode(?: are you in)?|are we recording or mixing|"
@@ -331,8 +333,11 @@ def tidy_command(said: str) -> Command | None:
             return Command("label_track", text=kind)
     if NEW_SESSION_SAID.match(said):   # a session with no beat yet (Owner 2026-11-03): Logic opens and he waits
         return Command("new_session")
-    if OPEN_SONG_SAID.match(said):   # a copy of his song (Owner 2026-11-04)
-        return Command("open_song")
+    m = OPEN_SONG_SAID.match(said)
+    if m and not said.startswith(("set up my session", "set up the session", "open the session")):   # a copy of his song (Owner 2026-11-04)
+        return Command("open_song", text="organize" if m.group("organize") else "")
+    if ORGANIZE_SAID.match(said):
+        return Command("organize")
     if LIVE_SAID.match(said):
         return Command("live_view")
     if SHOW_SAID.match(said):
