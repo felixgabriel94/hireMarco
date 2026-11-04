@@ -1533,9 +1533,12 @@ def _text_owner(body: str, url: str) -> str:
     public = (config.get("HIREMARCO_LIVE_URL") or "").strip()
     if public:
         # the branded doorway (hiremarco.ai/live, which bounces the phone to the local link on the same Wi-Fi), sent
-        # as a plain link with the preview on so WhatsApp draws our card under it (Owner 2026-11-03)
-        return WhatsApp().send_text(config.require("OWNER_WHATSAPP"), f"{body}\n{public}", idempotency_key=f"link:{time.time_ns()}",
-                                    exact=True, preview=True)
+        # our card as a picture with the link in its caption (Owner 2026-11-03): a link's own preview is a blurred
+        # thumbnail; the picture shows whole and sharp
+        from hiremarco.master import share
+
+        return WhatsApp().send_image(config.require("OWNER_WHATSAPP"), share.live_poster(), f"{body}\n{public}",
+                                     idempotency_key=f"link:{time.time_ns()}", mime="image/jpeg")
     return WhatsApp().send_link(config.require("OWNER_WHATSAPP"), body, url, "Open live view",
                                 idempotency_key=f"link:{time.time_ns()}")
 

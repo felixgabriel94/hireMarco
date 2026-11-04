@@ -201,12 +201,12 @@ def test_the_live_view_text_goes_as_a_card_through_the_branded_doorway(monkeypat
 
     sent = []
     monkeypatch.setattr(wa_client.WhatsApp, "__init__", lambda self: None)
-    monkeypatch.setattr(wa_client.WhatsApp, "send_text", lambda self, to, body, **k: sent.append(("text", body, k.get("preview"))))
+    monkeypatch.setattr(wa_client.WhatsApp, "send_image", lambda self, to, png, caption, **k: sent.append(("picture", caption, k.get("mime"), png[:3])))
     monkeypatch.setattr(wa_client.WhatsApp, "send_link", lambda self, to, body, url, label, **k: sent.append(("button", url, label)))
     monkeypatch.setattr(config, "require", lambda key: "+15550000000")
     monkeypatch.setattr(config, "get", lambda key, default=None: "https://hiremarco.ai/live" if key == "HIREMARCO_LIVE_URL" else default)
     booth._text_owner("Live view of the session.", "http://192.168.5.196:8788/?t=abc")
-    assert sent[-1] == ("text", "Live view of the session.\nhttps://hiremarco.ai/live", True)
+    assert sent[-1] == ("picture", "Live view of the session.\nhttps://hiremarco.ai/live", "image/jpeg", b"\xff\xd8\xff")
     monkeypatch.setattr(config, "get", lambda key, default=None: default)
     booth._text_owner("Live view of the session.", "http://192.168.5.196:8788/?t=abc")
     assert sent[-1] == ("button", "http://192.168.5.196:8788/?t=abc", "Open live view")

@@ -83,9 +83,9 @@ def run_live(song: str | None = None, end_bar: int | None = None, *, purpose: st
             from hiremarco.master import share
 
             url = share.link(share.offer(path, title=song, note=caption, slug=share.slug_for(song)))
-            # a plain link with the preview on: WhatsApp draws the card from the page's title, line and cover (Owner
-            # 2026-11-03: a card, not text); the client's own send puts the bubble on Marco Live, so the job adds none
-            wa.send_text(owner, f"{song}: the master.\n{url}", idempotency_key=f"master:{path.name}", exact=True, preview=True)
+            # the card as a picture with the link in its caption (Owner 2026-11-03): a link's preview is shrunk to a
+            # blurred thumbnail, wide or square, while a picture shows whole and sharp, and the caption's link is tappable
+            wa.send_image(owner, share.poster(song), f"{song}: the master.\n{url}", idempotency_key=f"master:{path.name}", mime="image/jpeg")
             return f"a link to {path.name} went to the Owner: {url}"
     else:
         def deliver(path: Path, caption: str) -> str:

@@ -76,3 +76,14 @@ def test_a_link_can_carry_the_songs_initials_and_a_living_name_is_not_taken_twic
     assert share.link("mmssb") == "https://hiremarco.ai/master/mmssb"
     client = TestClient(Starlette(routes=share.routes()))
     assert client.get("/share/mmssb").status_code == 200 and client.get("/share/MMSSB").status_code == 404
+
+
+def test_posters_are_wide_jpegs_with_the_brand():
+    from PIL import Image
+    import io
+
+    for data in (share.poster("menos mal se siente bien V2"), share.live_poster()):
+        assert data[:3] == b"\xff\xd8\xff"
+        im = Image.open(io.BytesIO(data))
+        assert im.size == (1200, 630)
+        assert len(data) < 300_000

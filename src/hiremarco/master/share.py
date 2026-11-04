@@ -158,6 +158,65 @@ def live_card(size: int = 800) -> bytes:
     return out.getvalue()
 
 
+def poster(title: str, width: int = 1200, height: int = 630) -> bytes:
+    """The picture Marco sends with a master's link: card C (Owner 2026-11-03), wide, black, the tie and the name
+    top-left, the wave mark, the song's name, MASTER, a quiet line. A picture message shows whole and sharp, where
+    a link's preview is shrunk to a thumbnail; the link rides in the caption. JPEG, well under WhatsApp's limit."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    im = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+    d = ImageDraw.Draw(im)
+    _brand(im, d)
+    _mark(d, 80, 230, 170, 9)
+    d.text((300, 290), title, font=_font(58), fill=(255, 255, 255), anchor="lm")
+    d.text((300, 360), "MASTER", font=_font(26, mono=True), fill=(138, 138, 138), anchor="lm")
+    d.line([(80, 470), (width - 80, 470)], fill=(40, 40, 40), width=2)
+    d.text((80, 520), "Mastered by Marco", font=_font(26), fill=(138, 138, 138), anchor="lm")
+    return _jpeg(im)
+
+
+def live_poster(width: int = 1200, height: int = 630) -> bytes:
+    """The picture Marco sends with the live view's link: the same card, the window with the red dot in place of
+    the wave mark, LIVE under the name, and the one thing to know, that it opens on the same Wi-Fi as the Mac."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    im = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+    d = ImageDraw.Draw(im)
+    _brand(im, d)
+    x0, y0, x1, y1 = 80, 262, 250, 400
+    d.rounded_rectangle([x0, y0, x1, y1], radius=18, fill=(92, 155, 255))
+    d.rounded_rectangle([x0 + 14, y0 + 14, x1 - 14, y1 - 14], radius=10, fill=(10, 10, 14))
+    d.ellipse([x1 - 18, y0 - 12, x1 + 12, y0 + 18], fill=(226, 75, 74))
+    d.text((300, 290), "Marco Live View", font=_font(58), fill=(255, 255, 255), anchor="lm")
+    d.text((300, 360), "LIVE", font=_font(26, mono=True), fill=(226, 75, 74), anchor="lm")
+    d.line([(80, 470), (width - 80, 470)], fill=(40, 40, 40), width=2)
+    d.text((80, 520), "Marco at work in Logic. Opens on the same Wi-Fi as the Mac.", font=_font(26), fill=(138, 138, 138), anchor="lm")
+    return _jpeg(im)
+
+
+def _brand(im, d) -> None:
+    from PIL import Image
+
+    try:
+        tie = Image.open(LOGO).convert("RGBA").resize((56, 56))
+        im.alpha_composite(tie, (48, 40))
+    except OSError:
+        pass
+    d.text((116, 68), "hireMarco", font=_font(30), fill=(255, 255, 255), anchor="lm")
+
+
+def _jpeg(im) -> bytes:
+    import io
+
+    out = io.BytesIO()
+    im.convert("RGB").save(out, format="JPEG", quality=92, optimize=True)
+    return out.getvalue()
+
+
 def _font(size: int, mono: bool = False):
     from PIL import ImageFont
 
