@@ -189,3 +189,22 @@ def test_the_page_is_branded_black_with_the_tie_and_a_full_screen_button():
     assert 'id="full"' in page and "webkitEnterFullscreen" in page and "requestFullscreen" in page
     assert "@media (orientation: landscape)" in page and "{logo}" not in page and "{token}" not in page
     assert live.LOGO.exists() and live.LOGO.stat().st_size < 20000
+
+
+def test_the_live_view_text_goes_as_a_card_through_the_branded_doorway(monkeypatch):
+    # Owner 2026-11-03: hiremarco.ai/live in the chat, with our card under it; the raw local link stays the fallback
+    from hiremarco import config
+    from hiremarco.studio import booth
+    from hiremarco.whatsapp import client as wa_client
+
+    sent = []
+    monkeypatch.setattr(wa_client.WhatsApp, "__init__", lambda self: None)
+    monkeypatch.setattr(wa_client.WhatsApp, "send_text", lambda self, to, body, **k: sent.append(("text", body, k.get("preview"))))
+    monkeypatch.setattr(wa_client.WhatsApp, "send_link", lambda self, to, body, url, label, **k: sent.append(("button", url, label)))
+    monkeypatch.setattr(config, "require", lambda key: "+15550000000")
+    monkeypatch.setattr(config, "get", lambda key, default=None: "https://hiremarco.ai/live" if key == "HIREMARCO_LIVE_URL" else default)
+    booth._text_owner("Live view of the session.", "http://192.168.5.196:8788/?t=abc")
+    assert sent[-1] == ("text", "Live view of the session.\nhttps://hiremarco.ai/live", True)
+    monkeypatch.setattr(config, "get", lambda key, default=None: default)
+    booth._text_owner("Live view of the session.", "http://192.168.5.196:8788/?t=abc")
+    assert sent[-1] == ("button", "http://192.168.5.196:8788/?t=abc", "Open live view")

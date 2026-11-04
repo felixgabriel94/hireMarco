@@ -1530,6 +1530,12 @@ def _text_owner(body: str, url: str) -> str:
     first WhatsApp message (filmed Thursday) has gone out, so nothing else is his first message from Marco."""
     from hiremarco.whatsapp import WhatsApp
 
+    public = (config.get("HIREMARCO_LIVE_URL") or "").strip()
+    if public:
+        # the branded doorway (hiremarco.ai/live, which bounces the phone to the local link on the same Wi-Fi), sent
+        # as a plain link with the preview on so WhatsApp draws our card under it (Owner 2026-11-03)
+        return WhatsApp().send_text(config.require("OWNER_WHATSAPP"), f"{body}\n{public}", idempotency_key=f"link:{time.time_ns()}",
+                                    exact=True, preview=True)
     return WhatsApp().send_link(config.require("OWNER_WHATSAPP"), body, url, "Open live view",
                                 idempotency_key=f"link:{time.time_ns()}")
 
