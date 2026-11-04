@@ -388,6 +388,10 @@ def brief_for(offer: CallOffer) -> dict[str, str]:
         for field in ("time_window", "seating", "special_requests"):
             if not standing.get(field):
                 given[field] = "see Felix's fallbacks below"
+        # live 2026-11-04: he answered "outdoor" and the call asked for indoor, the profile's standing choice
+        seating = seating_in(offer.fallbacks)
+        if seating:
+            given["seating"] = seating
     return given
 
 
@@ -395,6 +399,24 @@ def ask_for_gaps(gap: briefs.BriefIncomplete) -> str:
     """The question he gets on WhatsApp before any dialing, when the brief has a gap."""
     wanted = ", ".join(briefs.LABELS.get(k, k.replace("_", " ")) for k in gap.missing)
     return f"Before I call, I need: {wanted}."
+
+
+SETTLED = re.compile(r"\b(?:lock(?:ed)? (?:it |that |the details )?in|all set|you'?re booked|we'?re booked|it'?s booked|"
+                     r"booked|confirmed|that works|works for us|works great|perfect, thank)", re.I)
+SEATING = (("outdoor", re.compile(r"\b(?:outdoor|outdoors|outside|patio|terrace)\b", re.I)),
+           ("indoor", re.compile(r"\b(?:indoor|indoors|inside)\b", re.I)),
+           ("any", re.compile(r"\b(?:either|any|anywhere|whatever works)\b", re.I)))
+
+
+def agreed_on(data: dict) -> str:
+    collected = (data.get("analysis") or {}).get("data_collection_results") or {}
+    return str((collected.get("agreed") or {}).get("value") or "").strip()
+
+
+def seating_in(said: str) -> str:
+    """The seating his reply names, or nothing: his answer outranks the profile's standing choice."""
+    found = [name for name, words in SEATING if words.search(said or "")]
+    return found[0] if len(found) == 1 else ""
 
 
 def outcome(data: dict) -> tuple[str, str]:
@@ -405,7 +427,9 @@ def outcome(data: dict) -> tuple[str, str]:
     words = " ".join(said[-3:]).lower()
     if re.search(r"waitlist|wait list|adding us|cancellation", words):
         kind = "waitlisted"
-    elif re.search(r"see you", last.lower()):
+    elif re.search(r"see you", last.lower()) or (agreed_on(data) and SETTLED.search(last)):
+        # live 2026-11-04: "Eight thirty works, I'll lock in the details." then the line closed; the place said yes
+        # to 8:30 and he took it, so it is booked, not "nothing settled"
         kind = "booked"
     else:
         kind = "nothing settled"

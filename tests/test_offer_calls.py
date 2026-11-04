@@ -117,7 +117,7 @@ def test_one_reply_fills_what_the_profile_leaves_open(world, monkeypatch):
     line = yes(world, said="1. Friday at 8 or Thursday 7:30 to 8:30. 2. Either. 3. Yes. 4. No allergies.", mid="m5")
     assert "calling Test Kitchen" in line and len(world["dialed"]) == 1
     brief = world["dialed"][0]["conversation_initiation_client_data"]["dynamic_variables"]["brief"]
-    assert "- seating (indoor, outdoor, any): see Felix's fallbacks below" in brief
+    assert "- seating (indoor, outdoor, any): any\n" in brief  # his "Either" is the seating (2026-11-04)
     assert "- fallbacks: 1. Friday at 8 or Thursday 7:30 to 8:30. 2. Either. 3. Yes. 4. No allergies." in brief
 
 
@@ -242,3 +242,27 @@ def test_the_owners_word_is_never_held_as_a_repeat_but_a_clients_is(world):
     gate.check_outbound(conn, tenant_id="owner", idempotency_key="again", offer=good, **fields)   # his yes goes
     with pytest.raises(gate.Refused):                                    # anyone else's repeat is still held
         gate.check_outbound(conn, tenant_id="client-1", idempotency_key="again", offer=good, **fields)
+
+
+def test_a_time_the_place_said_yes_to_is_booked_even_without_a_goodbye():
+    # live 2026-11-04: Test Kitchen said "Eight thirty works", Marco took it, the line closed, and he texted
+    # "Nothing settled"
+    data = {"status": "done", "transcript": [
+        {"role": "user", "message": "Eight thirty works."},
+        {"role": "agent", "message": "Eight thirty works, I'll lock in the details."}],
+        "analysis": {"data_collection_results": {"agreed": {"value": "Thursday at 8:30 for four"}}}}
+    assert offers.outcome(data)[0] == "booked"
+    data["analysis"]["data_collection_results"]["agreed"]["value"] = ""
+    assert offers.outcome(data)[0] == "nothing settled"          # nothing agreed, nothing booked
+    held = {"status": "done", "transcript": [{"role": "agent", "message": "Those don't work for us, thanks anyway."}],
+            "analysis": {"data_collection_results": {"agreed": {"value": "Saturday at 7"}}}}
+    assert offers.outcome(held)[0] == "nothing settled"
+
+
+def test_his_seating_answer_outranks_the_profile(world):
+    from dataclasses import replace
+
+    offer = offers.record_offer(world["conn"], KITCHEN, weekday="thursday", day="2026-11-05", hour=20, party_size=4)
+    said = replace(offer, fallbacks="If 8 isn't open, ask for 7:30 or 8:30. No voicemail, outdoor, a link is fine, 4: none")
+    assert briefs.build("reservation", offers.brief_for(said))["seating"] == "outdoor"   # the profile says indoor
+    assert briefs.build("reservation", offers.brief_for(replace(offer, fallbacks="7:30 is fine")))["seating"] == "indoor"
