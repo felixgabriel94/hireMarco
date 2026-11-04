@@ -22,7 +22,7 @@ ACTIONS = (
     "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
     "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "live_view", "hearing", "reference",
     "kill", "summon", "dismiss", "chat", "play_take", "play_from_lyric", "solo", "unsolo", "play_from",
-    "go_again", "next_part", "a_cappella", "read_beat", "accept", "tune_take", "tune_console", "flex_pass",
+    "go_again", "next_part", "a_cappella", "read_beat", "accept", "tune_take", "tune_console", "autotune", "flex_pass",
     "insert_plugin", "stage_beat", "arrange", "copy_section", "list_sections", "bookmark", "go_to_bookmark", "lift",
     "clean_breaths", "harmony", "timing", "split_stems", "generate_sound",
     "unknown",
@@ -66,7 +66,9 @@ INSTRUCTIONS = (
     "the vocal' or 'throw a Pro-Q on the harmony in slot 4' means insert_plugin with the plug-in in text ('LA-2A', "
     "'Pro-Q'), the track in track (empty for the vocal or the selected track) and the slot (0 if not said). "
     "'Set the tune to the beat' or 'put the auto-tune in F minor' means tune_console with the key in text (empty "
-    "for the beat or the session key). 'First pass in Flex' or 'flex the vocal' means flex_pass. 'Set the "
+    "for the beat or the session key). 'Retune speed 20' or 'set the humanize to 30' means autotune with text "
+    "'retune speed=20' (the Auto-Tune control as said, '=', the value); 'faster retune' means autotune with text "
+    "'retune speed' and direction down, 'more humanize' text 'humanize' direction up. 'First pass in Flex' or 'flex the vocal' means flex_pass. 'Set the "
     "levels' or 'the beat's too hot' means stage_beat. "
     "The song's structure is its arrangement sections (Intro, Verse, Pre-Chorus, Chorus, Bridge, Outro); repeats are "
     "counted, so 'chorus 2' is the second Chorus. 'Lay out the song: intro 4 bars, verse 8, chorus 8' means arrange "
@@ -117,6 +119,13 @@ class Command:
 
     def describe(self) -> str:
         """The middle of Marco's log line: 'reverb +1 step', 'punch bar 5 on second harmony'."""
+        if self.action == "autotune":
+            name, _, value = self.text.partition("=")
+            if self.direction == "read":
+                return f"read Auto-Tune {name}".strip()
+            if self.direction in ("up", "down"):
+                return f"Auto-Tune {name} {'+' if self.direction == 'up' else '-'}{self.steps} step{'s' if self.steps != 1 else ''}"
+            return f"Auto-Tune {name} to {value}"
         if self.action == "knob" and self.percent >= 0:
             return f"{self.knob} to {self.percent}%"
         if self.action == "knob":
@@ -285,6 +294,66 @@ def insert_said(said: str) -> Command | None:
 VOCAL_WORDS = {"vocal", "vocals", "lead", "lead vocal", "voice", "track", "this track", "selected track", "it", "me"}
 
 
+# Any control on the Console's Auto-Tune by its name (Owner 2026-11-04: "he should be able to control the entire
+# plug-in", Retune Speed first). "retune speed 20", "set the humanize to thirty", "flex tune off", "faster retune",
+# "what's the retune speed". The text is the control as said, with "=value" for an exact setting; direction is
+# "up" or "down" for a step on its number ("faster retune" is Retune Speed down: fewer milliseconds), "read" to ask.
+AUTOTUNE_NAMES = r"retune(?: speed)?|flex[- ]?tune|humanize|natural vibrato|vibrato|detune|transpose|formant|throat(?: length)?|tracking|input type"
+_VALUE = r"(?P<value>(?:minus |negative |-|\+)?[a-z0-9.#]+(?: [a-z0-9]+)?)(?: ?(?:ms|milliseconds?|cents?|percent|%))?"
+AUTOTUNE_SET_SAID = re.compile(
+    r"^(?:(?:set|put|turn|bring|make|change|move) )?(?:the |my )?(?:auto-?tune(?:'?s)? )?(?P<name>" + AUTOTUNE_NAMES + r")"
+    r"(?: on (?:the |my )?auto-?tune)?(?: (?:to|at|on))? " + _VALUE + r"$|"
+    r"^(?:(?:set|put|turn|change|move) )?(?:the |my )?auto-?tune(?:'?s)? (?P<other>[a-z][a-z -]*?) (?:to|at) " + _VALUE.replace("value", "value2") + r"$")
+AUTOTUNE_STEP_SAID = re.compile(
+    r"^(?P<amount>a (?:lot|touch|little|bit|hair) )?(?P<dir>faster|quicker|tighter|harder|slower|looser|softer|more|less) "
+    r"(?:the |my )?(?:auto-?tune(?:'?s)? )?(?P<name>" + AUTOTUNE_NAMES + r")(?: a (?:lot|touch|little|bit|hair))?$|"
+    r"^(?P<verb>speed up|slow down) (?:the |my )?(?:auto-?tune(?:'?s)? )?retune(?: speed)?(?: a (?:lot|touch|little|bit|hair))?$")
+AUTOTUNE_READ_SAID = re.compile(
+    r"^(?:what(?:'s| is)|where(?:'s| is)|read me|tell me) (?:the |my )?(?:auto-?tune(?:'?s)? )?(?P<name>" + AUTOTUNE_NAMES +
+    r")(?: on| at| set to)?(?: (?:the |my )?auto-?tune)?$|"
+    r"^(?:what(?:'s| is) (?:the |my )?auto-?tune (?:on|at|set to|doing)|read me (?:the |my )?auto-?tune)$")
+_FASTER = ("faster", "quicker", "tighter", "harder")
+
+
+def _autotune_value(words: str) -> str:
+    """'twenty' -> '20', 'minus 10' -> '-10', '12.5' -> '12.5'; a word that is not a number stays ('off', 'chromatic')."""
+    words = re.sub(r" ?(?:ms|milliseconds?|cents?|percent|%)$", "", words.strip())
+    sign = ""
+    for lead in ("minus ", "negative ", "-", "+"):
+        if words.startswith(lead):
+            sign, words = ("" if lead == "+" else "-"), words[len(lead):].strip()
+            break
+    if re.fullmatch(r"\d+(?:\.\d+)?", words):
+        return sign + words
+    n = _percent(words)
+    if n is not None:
+        return f"{sign}{n}"
+    return words
+
+
+def autotune_said(said: str) -> Command | None:
+    m = AUTOTUNE_READ_SAID.match(said)
+    if m:
+        return Command("autotune", direction="read", text=(m.group("name") or "").strip())
+    m = AUTOTUNE_STEP_SAID.match(said)
+    if m:
+        steps = 3 if " lot" in said else 1
+        if m.group("verb"):
+            return Command("autotune", text="retune speed", direction="down" if m.group("verb") == "speed up" else "up", steps=steps)
+        name, word = m.group("name"), m.group("dir")
+        if name.startswith("retune"):  # faster retune = fewer milliseconds
+            direction = "down" if word in _FASTER or word == "more" else "up"
+        else:
+            direction = "up" if word in ("more", *_FASTER) else "down"
+        return Command("autotune", text=name, direction=direction, steps=steps)
+    m = AUTOTUNE_SET_SAID.match(said)
+    if m:
+        name = (m.group("name") or m.group("other")).strip()
+        value = _autotune_value(m.group("value") or m.group("value2"))
+        return Command("autotune", text=f"{name}={value}", direction="set")
+    return None
+
+
 def tune_to_said(said: str) -> Command | None:
     m = TUNE_TO_SAID.match(said)
     if not m:
@@ -412,6 +481,9 @@ def understand(line: str, client: MuseSpark | None = None, context: list[str] | 
     tune_to = tune_to_said(said)  # before the knob steps: "set the tune to ..." is the Console, not a step
     if tune_to:
         return tune_to
+    control = autotune_said(said)  # before the knob steps: a named Auto-Tune control is the Console's, not the CC knob
+    if control:
+        return control
     if TUNE_SAID.match(said):
         return Command("tune_take")
     if READ_BEAT_SAID.match(said):
@@ -485,6 +557,15 @@ def understand(line: str, client: MuseSpark | None = None, context: list[str] | 
     if data.get("action") not in ACTIONS:
         return Command("unknown")
     command = Command(**{k: data.get(k, Command.__dataclass_fields__[k].default) for k in Command.__dataclass_fields__})
+    if command.action == "autotune":
+        name, _, value = command.text.partition("=")
+        if not name.strip():
+            return Command("unknown")
+        if value.strip():
+            return Command("autotune", text=f"{name.strip()}={_autotune_value(value)}", direction="set")
+        if command.direction not in ("up", "down"):
+            return Command("unknown")
+        return Command("autotune", text=name.strip(), direction=command.direction, steps=min(max(command.steps, 1), 3))
     if command.action == "knob" and 0 <= command.percent <= 100 and command.knob in KNOBS:
         return Command("knob", knob=command.knob, direction="set", percent=command.percent)
     if command.action == "knob" and (command.knob not in KNOBS or command.direction not in ("up", "down")):

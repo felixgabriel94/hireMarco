@@ -73,6 +73,38 @@ NOW_LINES = {
     "flex_pass": "Marco tunes the vocal.",
     "record": "Marco rolls a take.",
 }
+# what "read me the Auto-Tune" says, in this order; the rest are there by name
+AUTOTUNE_SUMMARY = ("Key", "Scale", "Retune Speed", "Flex-Tune", "Humanize", "Natural Vibrato", "Detune")
+# one step of "faster retune" or "more humanize", on the number the plug-in shows ("a lot" is three)
+AUTOTUNE_STEPS = {"Retune Speed": 10.0, "Flex-Tune": 10.0, "Humanize": 10.0, "Natural Vibrato": 2.0, "Detune": 5.0}
+
+
+def control_named(said: str, names: list[str]) -> str | None:
+    """The plug-in's control the words name: 'flex tune' -> 'Flex-Tune', 'retune' -> 'Retune Speed', 'vibrato' ->
+    'Natural Vibrato'. One match or None, never a guess between two."""
+    def flat(words: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", words.lower())
+
+    want = flat(said)
+    if not want:
+        return None
+    for test in (lambda n: flat(n) == want, lambda n: flat(n).startswith(want), lambda n: want in flat(n)):
+        found = [n for n in names if test(n)]
+        if len(found) == 1:
+            return found[0]
+        if found:
+            return None
+    return None
+
+
+def _is_number(text: str) -> bool:
+    try:
+        float(text)
+    except (TypeError, ValueError):
+        return not str(text or "").strip()  # an empty read is a number at its center (Detune)
+    return True
+
+
 WAITING = "Marco is on standby."
 AWAKE = 20.0  # seconds after the last exchange in which a sentence needs no "Marco"; the same quiet ends the halo
 LIVE_ON = "Live view's on. The link's on the Mac."
@@ -877,6 +909,61 @@ class Booth:
             "key": key, "settings": shown}, f"Auto-Tune's on {root} {scale}.")
         return f"{read}Auto-Tune on input {self.vocal_input + 1}: " + ", ".join(f"{k} {v}" for k, v in shown.items())
 
+    def _autotune(self, command: Command) -> str:
+        """One control on the Console's Auto-Tune, by its name (Owner 2026-11-04: "he should be able to control the
+        entire plug-in", Retune Speed first): set exactly, stepped, or read. Every value is read back from the plug-in
+        and said, never assumed; nothing moves while a take rolls."""
+        from hiremarco.studio.console import ConsoleError
+
+        if self.console is None:
+            return "no Console in this booth"
+        name, _, value = command.text.partition("=")
+        if self.rolling and command.direction != "read":
+            return "holding the Auto-Tune change until the take stops"
+        try:
+            slot = self.console._auto_tune_slot(self.vocal_input)
+            controls = self.console.params(self.vocal_input, slot)
+        except Exception as exc:  # Console closed, or no Auto-Tune on the input
+            self._say("could not reach the Console's Auto-Tune", {"why": str(exc)[-160:]},
+                      "I can't reach the Auto-Tune. Is Console open with it on your input?")
+            return f"Auto-Tune not read: {type(exc).__name__}: {str(exc)[-120:]}"
+        if command.direction == "read" and not name:
+            shown = {n: (controls[n].get("shown") or "0") for n in AUTOTUNE_SUMMARY if n in controls}
+            self._say("read the Console's Auto-Tune back", {"settings": shown},
+                      ", ".join(f"{n} {v}" for n, v in shown.items()) + ".")
+            return "Auto-Tune reads " + ", ".join(f"{n} {v}" for n, v in shown.items())
+        match = control_named(name, list(controls))
+        if match is None:
+            self._say("the Auto-Tune has no control by that name; list what it has", {"asked": name, "has": list(controls)},
+                      f"Your Auto-Tune has no {name}.")
+            return f"no Auto-Tune control {name!r}; it has {', '.join(controls)}"
+        now = controls[match].get("shown") or ""
+        if command.direction == "read":
+            self._say("read one Auto-Tune control back", {"control": match, "shown": now}, f"{match}'s at {now or 0}.")
+            return f"Auto-Tune {match} reads {now!r}"
+        if command.direction in ("up", "down"):
+            try:
+                current = float(now) if now.strip() else 0.0  # Detune reads empty at its center
+            except ValueError:
+                self._say("that control takes a named setting, not a step", {"control": match, "shown": now},
+                          f"{match} is on {now}. Tell me which setting you want.")
+                return f"Auto-Tune {match} is {now!r}; not a number to step"
+            step = AUTOTUNE_STEPS.get(match, 10.0) * max(1, command.steps)
+            target: object = current + (step if command.direction == "up" else -step)
+        elif value.lower() == "off" and _is_number(now):
+            target = 0.0
+        else:
+            target = value
+        try:
+            shown = self.console.set_param(self.vocal_input, slot, match, target, clamp=True)
+        except (ConsoleError, OSError) as exc:
+            self._say("could not set that Auto-Tune control", {"control": match, "wanted": target, "why": str(exc)[-160:]},
+                      f"{match} wouldn't go to {value or target}.")
+            return f"Auto-Tune {match} not set: {type(exc).__name__}: {str(exc)[-120:]}"
+        self._say("set one Auto-Tune control on the Console and read it back", {"control": match, "was": now, "now": shown},
+                  f"{match}'s at {shown or 0}.")
+        return f"Auto-Tune {match}: {now or 0} -> {shown or 0}"
+
     def _flex_pass(self) -> str:
         """Flex Pitch's first pass on the take in the editor: the session key and Pitch Correction 80."""
         if self.flex is None:
@@ -1546,6 +1633,8 @@ class Booth:
             return self._stage_beat()
         if a == "tune_console":
             return self._tune_console(command.text)
+        if a == "autotune":
+            return self._autotune(command)
         if a == "flex_pass":
             return self._flex_pass()
         if a == "insert_plugin":

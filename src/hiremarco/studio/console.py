@@ -206,8 +206,9 @@ class Console:
         self.set(path, "NormalizedValue", min(1.0, max(0.0, normalized)))
         return self._shown(path)
 
-    def set_param(self, channel: int, slot: int, name: str, value) -> str:
-        """Set one control to what the plug-in should show (40, "E", "MINOR", "Comp"), read back."""
+    def set_param(self, channel: int, slot: int, name: str, value, *, clamp: bool = False) -> str:
+        """Set one control to what the plug-in should show (40, "E", "MINOR", "Comp"), read back. With ``clamp``, a
+        number past either end of the control lands on that end instead of being refused."""
         controls = self.params(channel, slot)
         match = next((n for n in controls if n.lower() == str(name).lower()), None)
         if match is None:
@@ -217,15 +218,17 @@ class Console:
             target = float(value)
         except (TypeError, ValueError):
             return self._seek_label(path, str(value))
-        return self._seek_number(path, target)
+        return self._seek_number(path, target, clamp=clamp)
 
-    def _seek_number(self, path: str, target: float) -> str:
+    def _seek_number(self, path: str, target: float, clamp: bool = False) -> str:
         # Retune Speed shows nothing at the very ends of its range (live 2026-10-29), so the ends step inward
         lo = next((v for v in (0.0, 0.01, 0.02, 0.05) if _number(self._put(path, v)) is not None), None)
         hi = next((v for v in (1.0, 0.99, 0.98, 0.95) if _number(self._put(path, v)) is not None), None)
         if lo is None or hi is None:
             raise ConsoleError(f"{path} does not show a number")
         low_shown, high_shown = _number(self._put(path, lo)), _number(self._put(path, hi))
+        if clamp:
+            target = min(max(target, min(low_shown, high_shown)), max(low_shown, high_shown))
         if not min(low_shown, high_shown) <= target <= max(low_shown, high_shown):
             raise ConsoleError(f"{target:g} is outside {low_shown:g} to {high_shown:g}")
         rising = high_shown > low_shown
