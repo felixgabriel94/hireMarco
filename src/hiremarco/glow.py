@@ -182,16 +182,14 @@ def show(*, at: Path | None = None) -> None:
         inset = LAYERS[0][0] / 2 + 1
         shape = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(NSMakeRect(x + inset, y + inset, max(w - 2 * inset, 1), max(h - 2 * inset, 1)), radius, radius)
         shape.setLineCapStyle_(AppKit.NSRoundLineCapStyle)
-        for width, share in LAYERS:   # layered light: wide and faint outside, narrow and bright at the edge
+        # layered light, wide and faint outside, narrow and bright at the edge; each layer breathes on its own slow
+        # phase, so the whole edge shimmers like air rather than anything travelling around it (Owner 2026-11-03:
+        # no bubble, the whole outline airy, like the air off a waterfall)
+        for k, (width, share) in enumerate(LAYERS):
+            sway = 0.85 + 0.15 * math.sin(2 * math.pi * (drift + 0.21 * k))
             shape.setLineWidth_(width)
-            colour(alpha * share * 0.55).setStroke()
+            colour(alpha * share * 0.55 * sway).setStroke()
             shape.stroke()
-        # the drift: a brighter stretch that travels around the frame, like air moving along the edge
-        lap = 2 * (w + h)
-        shape.setLineWidth_(LAYERS[-1][0] + 2)
-        shape.setLineDash_count_phase_([lap * 0.18, lap * 0.82], 2, -drift * lap)
-        colour(alpha * 0.55).setStroke()
-        shape.stroke()
 
     class GlowView(AppKit.NSView):
         rect = None        # where the light is now, eased
