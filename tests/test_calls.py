@@ -336,3 +336,13 @@ def test_twilio_check_reads_only_and_masks(monkeypatch):
     assert check.recent_calls(3)[0]["to"] == "...4321"
     assert set(methods) == {"GET"}
     assert masked(None) == "?"
+
+
+
+def test_a_booking_is_finished_before_the_goodbye():
+    # live 2026-11-04: the time was agreed and the call ended before the place had a name, a number or an email
+    from hiremarco.calls import PROMPT
+
+    assert "Never end the call right after a time is agreed." in PROMPT
+    assert "Do you need a phone number or an\nemail for it?" in PROMPT or "Do you need a phone number or an email for it?" in PROMPT
+    assert "It's under Felix Gabriel." in PROMPT
