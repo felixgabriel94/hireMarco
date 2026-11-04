@@ -58,6 +58,13 @@ def test_the_outline_slides_to_a_new_window_and_the_birth_stretches_from_the_hal
     assert landed == (0.0, 75.0, 1512.0, 874.0) and radius == glow.RADIUS
     mid, _ = glow.birth(0.5, (756.0, 491.0), (0.0, 75.0, 1512.0, 874.0))
     assert ring[2] < mid[2] < landed[2]
+    # Owner 2026-11-03: a genie, not lines: smoothstep both ways, born at the window's own centre where the halo floats,
+    # wider and fainter while still the orb
+    assert glow.smooth(0.0) == 0.0 and glow.smooth(1.0) == 1.0 and abs(glow.smooth(0.5) - 0.5) < 1e-9
+    assert glow.smooth(0.1) < 0.1 and glow.smooth(0.9) > 0.9
+    assert glow.centre_of((0.0, 75.0, 1512.0, 874.0)) == (756.0, 512.0)
+    assert glow.softness(0.0) > glow.softness(0.5) > glow.softness(1.0) == 1.0
+    assert not hasattr(glow, "TRAIL")
 
 
 def test_the_booth_at_work_lights_the_glow_and_a_job_inside_keeps_one_light():
@@ -85,3 +92,13 @@ def test_a_modal_panel_of_logics_is_followed_like_a_window():
     assert glow.front_logic_window(infos) == (120.0, 140.0, 980.0, 620.0)
     infos[0]["kCGWindowLayer"] = 25   # a menu or a tooltip, not a window
     assert glow.front_logic_window(infos) == (0.0, 33.0, 1512.0, 874.0)
+
+
+def test_a_window_logic_has_not_drawn_yet_is_not_framed_and_a_loading_banner_is():
+    # Owner 2026-11-03: the light came up before Logic's banner showed, and did not move to the thin loading window
+    unseen = {"kCGWindowOwnerName": "Logic Pro", "kCGWindowLayer": 0, "kCGWindowAlpha": 0.0,
+              "kCGWindowBounds": {"X": 300, "Y": 200, "Width": 900, "Height": 600}}
+    banner = {"kCGWindowOwnerName": "Logic Pro", "kCGWindowLayer": 3, "kCGWindowAlpha": 1.0,
+              "kCGWindowBounds": {"X": 480, "Y": 400, "Width": 520, "Height": 130}}
+    assert glow.front_logic_window([unseen]) is None
+    assert glow.front_logic_window([unseen, banner]) == (480.0, 400.0, 520.0, 130.0)

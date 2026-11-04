@@ -62,22 +62,36 @@ def build(design: str) -> str:
     # sound wave instead of a task line; when it ends, the words heard are typed out left to right, as the Now line is
     calling = "<span class=\"w\">calling</span><b>'+esc(m.name)+'</b></span><span class=\"clock\" data-clock=\"'+focus.startTs+'\"></span></div><div class=\"big\">'+esc(focus.task||'')+'<span class=\"caret\"></span></div>'"
     listening = ("<span class=\"w\">'+(focus.key==='musevoicetranscribe10'?'listening':'calling')+'</span><b>'+esc(m.name)+'</b></span><span class=\"clock\" data-clock=\"'+focus.startTs+'\"></span></div>'"
-                 "+(focus.key==='musevoicetranscribe10'?'<div class=\"big ear\"><span class=\"bars\">'+'<i></i>'.repeat(11)+'</span></div>':'<div class=\"big\">'+esc(focus.task||'')+'<span class=\"caret\"></span></div>')")
+                 "+(focus.key==='musevoicetranscribe10'?'<div class=\"big ear\"><span class=\"bars\">'+earBars(36)+'</span></div>':'<div class=\"big\">'+esc(focus.task||'')+'<span class=\"caret\"></span></div>')")
     decided_line = "   cur.innerHTML='<div class=\"khd\"><span class=\"kind\"><span class=\"w\">'+lab+'</span><b>'+esc(m.name)+'</b></span>'+(took!=null?'<span class=\"clock final\">'+fmtClock(took)+'</span>':'')+'</div><div class=\"big\">'+esc(sum)+'</div>'+(focus.detail?'<div class=\"why\">'+esc(focus.detail)+'</div>':'')+proofHtml(focus);}"
     heard_line = ("   const heardKey=focus.key==='musevoicetranscribe10'?String(focus.id||'')+'|'+sum:'';if(heardKey&&cur.dataset.typed===heardKey){tick();return;}\n"
                   + decided_line[:-1] + "\n   if(heardKey){cur.dataset.typed=heardKey;typeInto(cur.querySelector('.big'),sum);}else{delete cur.dataset.typed;}}")
+    # the banner shows the stream's slots, not the mind's focus, so the moment lives there too: "listening" with a long strip
+    # of moving bars across the slot while Voice Transcribe runs, then the words heard typed out in its place
+    slot_word = "(phone?wd('calling','ring'):wd('using','use'))"
+    slot_listening = "(phone?wd('calling','ring'):l.key==='musevoicetranscribe10'?wd('listening','use'):wd('using','use'))"
+    slot_task = "</div><div class=\"st\">'+esc(l.task||'')+'<span class=\"caret\"></span></div></div>';}"
+    slot_strip = ("</div>'+(l.key==='musevoicetranscribe10'?'<div class=\"st ear\"><span class=\"bars\">'+earBars(48)+'</span></div>':'<div class=\"st\">'+esc(l.task||'')+'<span class=\"caret\"></span></div>')+'</div>';}")
+    slot_sum = "<div class=\"st\">'+rich(sum,l.endTs||l.ts)+'</div>'"
+    slot_heard = "<div class=\"st\"'+(l.key==='musevoicetranscribe10'?' data-heard=\"'+esc(String(l.id))+'\"':'')+'>'+rich(sum,l.endTs||l.ts)+'</div>'"
+    stream_end = "return streamLine(l,isNew,l===lastDone);}).join('');tick();}"
+    stream_typed = ("return streamLine(l,isNew,l===lastDone);}).join('');"
+                    "S.typedHeard=S.typedHeard||new Set();cur.querySelectorAll('.st[data-heard]').forEach(el=>{const id=el.dataset.heard;if(S.typedHeard.has(id))return;S.typedHeard.add(id);typeInto(el,el.textContent);});tick();}")
     type_now = "function renderNow(){"
-    type_into = ("function typeInto(el,text){if(!el)return;el.innerHTML=[...text].map(ch=>'<span class=\"c\">'+esc(ch)+'</span>').join('')+'<span class=\"caret\"></span>';"
+    type_into = ("function earBars(n){return Array.from({length:n},(_,k)=>'<i style=\"animation-delay:'+((k*0.07)%0.9).toFixed(2)+'s;animation-duration:'+(0.8+(k%5)*0.12).toFixed(2)+'s\"></i>').join('');}\n"
+                 "function typeInto(el,text){if(!el)return;el.innerHTML=[...text].map(ch=>'<span class=\"c\">'+esc(ch)+'</span>').join('')+'<span class=\"caret\"></span>';"
                  "const chars=el.querySelectorAll('.c'),caret=el.querySelector('.caret');let i=0;el.classList.add('typing');"
                  "(function step(){if(i>=chars.length){el.classList.remove('typing');return;}const ch=chars[i];ch.classList.add('on');ch.after(caret);i++;const c=ch.textContent;setTimeout(step,c===' '?55:/[.,]/.test(c)?140:22+Math.random()*26);})();}\n"
                  + type_now)
-    ear_css = (".big.ear{display:flex;align-items:center;min-height:1.2em}.big.ear .bars{display:inline-flex;align-items:center;gap:10px;height:1em}"
-               ".big.ear .bars i{display:block;width:12px;height:.3em;border-radius:6px;background:var(--accent);animation:ear 1.1s ease-in-out infinite}"
-               + "".join(f".big.ear .bars i:nth-child({k+1}){{animation-delay:{(k*0.09)%0.7:.2f}s;animation-duration:{0.9+(k%4)*0.15:.2f}s}}" for k in range(11))
-               + "@keyframes ear{0%,100%{height:.22em;opacity:.55}50%{height:1em;opacity:1}}"
-               ".big.typing .c{opacity:0}.big .c.on{opacity:1}.big .caret{display:inline-block;width:.42em;height:.9em;margin-left:.1em;vertical-align:-.08em;background:var(--accent)}\n")
+    ear_css = (".ear{display:flex;align-items:center}.big.ear{min-height:1.2em}.st.ear{white-space:normal}"
+               ".ear .bars{display:flex;align-items:center;gap:8px;height:1em;width:100%;max-width:1400px}"
+               ".ear .bars i{flex:1;display:block;height:.3em;border-radius:6px;background:var(--accent);animation:ear 1.1s ease-in-out infinite}"
+               "@keyframes ear{0%,100%{height:.22em;opacity:.55}50%{height:1em;opacity:1}}"
+               ".big.typing .c,.st.typing .c{opacity:0}.big .c.on,.st .c.on{opacity:1}"
+               ".big .caret,.st .caret{display:inline-block;width:.42em;height:.9em;margin-left:.1em;vertical-align:-.08em;background:var(--accent)}\n")
     if not (sample and links and styled and icon and tally in page and decided in page and using in page and shown in page
             and page.count(calling) == 1 and page.count(decided_line) == 1 and page.count(type_now) == 1 and page.count(decided_focus) == 1
+            and page.count(slot_word) == 1 and page.count(slot_task) == 1 and page.count(slot_sum) == 1 and page.count(stream_end) == 1
             and page.count(run_start) == 1 and page.count(eq_mark) == 1 and page.count(motifs) == 1 and page.count(family) == 1
             and page.count(rec_route) == 1 and page.count(vu_css) == 1):
         raise SystemExit(f"the design changed shape: sample {sample}, fonts {links}, style {styled}, icon {icon}, tally {tally in page}, "
@@ -85,10 +99,12 @@ def build(design: str) -> str:
     # the mode's word on screen (the design carries it hidden): a replay must not pass as live; and the path keeps Deliver in
     # frame when a step back marks several stages
     extra = ".mode .mlabel{display:inline}.mode.replay .mlabel{color:var(--catch)}.mode.live .mlabel{color:var(--accent)}\n.banner #path{gap:0 14px}\n" + ear_css
-    return (page.replace(tally, counted).replace(decided_focus, worded_focus, 1).replace(decided, worded).replace(using, testing).replace(shown, lit)
+    return (page.replace(tally, counted).replace(decided_focus, worded_focus, 1).replace(decided, worded)
+            .replace(slot_word, slot_listening, 1).replace(using, testing).replace(shown, lit)   # the slot's word before using becomes testing
             .replace(run_start, run_reset).replace(eq_mark, wavefile_mark, 1).replace(motifs, motifs_more, 1)
             .replace(family, family_more, 1).replace(rec_route, file_route, 1).replace(vu_css, wavefile_css, 1)
             .replace(calling, listening, 1).replace(decided_line, heard_line, 1).replace(type_now, type_into, 1)
+            .replace(slot_task, slot_strip, 1).replace(slot_sum, slot_heard, 1).replace(stream_end, stream_typed, 1)
             .replace("</style>", extra + "</style>", 1))
 
 

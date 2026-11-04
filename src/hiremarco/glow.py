@@ -29,15 +29,15 @@ PULSE_S = 0.7          # a landed event: a quick rise that fades
 # stroke width and share of the alpha, wide and faint to narrow and fuller, with no hard core: an aura that fades
 # both ways from the edge, air, not a line (Owner 2026-11-03)
 LAYERS = ((56.0, 0.05), (40.0, 0.08), (28.0, 0.12), (18.0, 0.18), (11.0, 0.26), (6.0, 0.34))
-MAX_LAYER = 8   # the window server's layer up to which a Logic window counts: a modal panel ("Choose a Project") is 8
+MAX_LAYER = 20  # the window server's layer up to which a Logic window counts: a modal panel ("Choose a Project") is 8, a
+                # loading banner higher; menus and tooltips sit above 20
 DRIFT_S = 6.0          # one lap of the brighter stretch around the frame
 WINDOW_POLL_S = 0.1    # the window server read, ten a second
 EASE = 0.38            # how much of the way to a new frame each tick (30 a second): about a tenth of a second to settle
-BIRTH_S = 0.8          # the halo's ring stretching into the window, and back at the end
-BIRTH_R = 64.0         # the ring's radius where it starts, the halo's size at the centre of the screen
-TRAIL = (0.18, 0.36)   # ghost outlines behind the moving one during the birth, in time, and their alphas below
-TRAIL_ALPHA = (0.35, 0.18)
-MIN_W, MIN_H = 200.0, 120.0   # anything smaller is a sheet or a palette, not a window Marco works in
+BIRTH_S = 1.25         # the halo's orb flowing into the window's frame, and back at the end (Owner 2026-11-03: a genie, not lines)
+BIRTH_R = 110.0        # the orb's radius where it starts, at the centre of the window it will frame, where the halo floats
+LOST_S = 0.45          # the light fading when Logic has no window to frame for a moment
+MIN_W, MIN_H = 150.0, 60.0    # anything smaller is a palette or a tooltip; a loading banner and a sheet both count (Owner 2026-11-03)
 
 Rect = tuple[float, float, float, float]
 
@@ -132,6 +132,8 @@ def front_logic_window(infos: list[dict]) -> Rect | None:
     for info in infos:
         if info.get("kCGWindowOwnerName") != "Logic Pro" or int(info.get("kCGWindowLayer", 0) or 0) > MAX_LAYER:
             continue
+        if float(info.get("kCGWindowAlpha", 1.0) or 0.0) <= 0.0:   # a window Logic holds but has not shown (its launch, 2026-11-03)
+            continue
         b = info.get("kCGWindowBounds") or {}
         try:
             x, y, w, h = float(b["X"]), float(b["Y"]), float(b["Width"]), float(b["Height"])
@@ -156,14 +158,30 @@ def ease(current: Rect | None, target: Rect, k: float = EASE) -> Rect:
     return tuple(c + (t - c) * k for c, t in zip(current, target))   # type: ignore[return-value]
 
 
+def smooth(t: float) -> float:
+    """Smoothstep: no hard start or stop, the same curve the halo eases with."""
+    t = min(max(t, 0.0), 1.0)
+    return t * t * (3.0 - 2.0 * t)
+
+
 def birth(t: float, centre: tuple[float, float], target: Rect) -> tuple[Rect, float]:
-    """The halo's ring stretching into the window: at t=0 a circle of BIRTH_R at the centre of the screen, at t=1 the
-    window itself; eased so it leaves fast and lands soft. Returns the rect and its corner radius."""
-    s = 1.0 - (1.0 - min(max(t, 0.0), 1.0)) ** 3
+    """The halo's orb flowing into the window's frame: at t=0 a circle of BIRTH_R at the centre of the window, where
+    the halo floats, at t=1 the window itself, by smoothstep both ways. Returns the rect and its corner radius."""
+    s = smooth(t)
     cx, cy = centre
     ring = (cx - BIRTH_R, cy - BIRTH_R, 2 * BIRTH_R, 2 * BIRTH_R)
     rect = tuple(a + (b - a) * s for a, b in zip(ring, target))
     return rect, BIRTH_R + (RADIUS - BIRTH_R) * s   # type: ignore[return-value]
+
+
+def centre_of(rect: Rect) -> tuple[float, float]:
+    x, y, w, h = rect
+    return x + w / 2, y + h / 2
+
+
+def softness(t: float) -> float:
+    """How much wider and fainter the light is while it is still the orb: 1 when landed, more at the start."""
+    return 1.0 + 1.4 * (1.0 - smooth(t))
 
 
 def show(*, at: Path | None = None) -> None:
@@ -184,18 +202,18 @@ def show(*, at: Path | None = None) -> None:
     def colour(alpha: float):
         return AppKit.NSColor.colorWithSRGBRed_green_blue_alpha_(red, green, blue, max(0.0, min(1.0, alpha)))
 
-    def outline(rect: Rect, radius: float, alpha: float, drift: float) -> None:
+    def outline(rect: Rect, radius: float, alpha: float, drift: float, soft: float = 1.0) -> None:
         x, y, w, h = rect
         # the stroke sits on the window's edge itself, half out and half in, not inside it (Owner 2026-11-03)
         shape = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(NSMakeRect(x, y, max(w, 1), max(h, 1)), radius, radius)
         shape.setLineCapStyle_(AppKit.NSRoundLineCapStyle)
         # layered light, wide and faint outside, narrow and bright at the edge; each layer breathes on its own slow
         # phase, so the whole edge shimmers like air rather than anything travelling around it (Owner 2026-11-03:
-        # no bubble, the whole outline airy, like the air off a waterfall)
+        # no bubble, the whole outline airy, like the air off a waterfall); wider and fainter while still the orb
         for k, (width, share) in enumerate(LAYERS):
             sway = 0.85 + 0.15 * math.sin(2 * math.pi * (drift + 0.21 * k))
-            shape.setLineWidth_(width)
-            colour(alpha * share * 0.8 * sway).setStroke()
+            shape.setLineWidth_(width * soft)
+            colour(alpha * share * 0.8 * sway / soft).setStroke()
             shape.stroke()
 
     class GlowView(AppKit.NSView):
@@ -205,17 +223,16 @@ def show(*, at: Path | None = None) -> None:
         phase = 0.0
         drift = 0.0
 
+        shown = 0.0        # eased 0 to 1: the light fading when Logic has no window for a moment
+
         def drawRect_(self, dirty):
-            if self.alpha <= 0.0 or self.target is None:
+            if self.alpha <= 0.0 or self.target is None or self.shown <= 0.0:
                 return
-            if self.phase < 1.0:   # being born out of the halo, or drawing back into it, with a trail that fades
-                for back, trail_alpha in zip(TRAIL, TRAIL_ALPHA):
-                    rect, radius = birth(self.phase - back, centre, self.target)
-                    outline(rect, radius, self.alpha * trail_alpha, self.drift)
-                rect, radius = birth(self.phase, centre, self.target)
-                outline(rect, radius, self.alpha, self.drift)
+            if self.phase < 1.0:   # the orb flowing into the frame, or back into the orb: one shape, no trail, no lines
+                rect, radius = birth(self.phase, centre_of(self.rect or self.target), self.target)
+                outline(rect, radius, self.alpha * self.shown * smooth(self.phase), self.drift, softness(self.phase))
                 return
-            outline(self.rect or self.target, RADIUS, self.alpha, self.drift)
+            outline(self.rect or self.target, RADIUS, self.alpha * self.shown, self.drift)
 
     style = AppKit.NSWindowStyleMaskBorderless | AppKit.NSWindowStyleMaskNonactivatingPanel
     panel = AppKit.NSPanel.alloc().initWithContentRect_styleMask_backing_defer_(screen, style, AppKit.NSBackingStoreBuffered, False)
@@ -259,19 +276,28 @@ def show(*, at: Path | None = None) -> None:
                 feed["polled"] = now
                 found = front_logic_window(windows())
                 if found is not None:
-                    if view.target is None and state.began_at is not None:   # Logic was still opening: the birth starts now
-                        state.began_at = max(state.began_at, now - 0.001)
+                    if feed.get("lost") and state.working(now):   # Logic had nothing to frame: the orb is born again
+                        state.began_at = now
+                    feed["lost"] = False
                     view.target = view_rect(found, screen_h)
+                else:
+                    feed["lost"] = True   # no window of Logic's to frame right now: the light fades, the frame stays put
+            want = 1.0 if (view.target is not None and not feed.get("lost")) else 0.0
+            view.shown += (want - view.shown) * min(1.0, (1 / 30.0) / LOST_S * 3)
+            if view.shown < 0.01:
+                view.shown = 0.0
             view.alpha = state.alpha(now) if view.target is not None else 0.0
             view.phase = state.phase(now)
             view.drift = ((now - feed["t0"]) / DRIFT_S) % 1.0
             if view.target is not None:
                 view.rect = ease(view.rect, view.target)
-            if view.alpha > 0 and not panel.isVisible():
+            if view.alpha > 0 and view.shown > 0 and not panel.isVisible():
                 panel.orderFrontRegardless()
-            elif view.alpha <= 0 and panel.isVisible():
+            elif (view.alpha <= 0 or view.shown <= 0) and panel.isVisible():
                 panel.orderOut_(None)
                 view.rect = None
+                if view.alpha <= 0:
+                    view.target = None
             view.setNeedsDisplay_(True)
 
     ticker = Ticker.alloc().init()
