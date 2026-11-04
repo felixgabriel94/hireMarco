@@ -44,7 +44,7 @@ PERSON_CHANNELS = {"whatsapp", "voice"}
 # Every call opens with the recording notice, word for word (ElevenLabs records every call; Florida needs every
 # party's consent). The booking call's whole first line is also the film's caption.
 RECORDING_OPENING = "Hi, just so you know, this call is recorded."
-RECORDING_NOTICE = RECORDING_OPENING + " I'm calling to book a table for Felix."
+RECORDING_NOTICE = RECORDING_OPENING + " I'm calling to book a table for Felix Gabriel."  # his full name (2026-11-04)
 
 DAILY_LIMITS = {"voice": 30, "whatsapp": 100, "mail": 25}
 MAIL_WORD_WINDOW = timedelta(hours=24)  # a preview older than this can't be sent on a word

@@ -58,7 +58,7 @@ def test_handle_reads_types_answers_and_replies(tmp_path, monkeypatch, capsys):
     line = handle(Inbound(id="wamid.in", sender=OWNER, kind="text", text="Marco?"),
                   marco=marco.Marco(muse(tmp_path, brain)), wa=wa)
     assert line.startswith("heard: Marco? > brain: reply; replied > ")
-    assert b'"status":"read"' in sent[0] and b"Here, Felix." in sent[1]
+    assert b'"status":"read"' in sent[0] and b"Here, FEGA." in sent[1]
     # the same inbound message never gets a second reply
     again = handle(Inbound(id="wamid.in", sender=OWNER, kind="text", text="Marco?"),
                    marco=marco.Marco(muse(tmp_path, brain)), wa=wa)

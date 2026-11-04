@@ -81,6 +81,7 @@ def speakable(text: str) -> str:
     """Music written the way it is said: "A major" is "Eigh major" (live 2026-10-31 the voice said "uh major"), "F#" is
     "F sharp", "Bb" is "B flat", "Am" is "Eigh minor". A capital A that is a word ("A beat arrived") stays as it is."""
     t = _without_fillers(text)
+    t = re.sub(r"\bFEGA\b", "Feyga", t, flags=re.I)  # his artist name as he says it (Owner 2026-11-04, by ear)
     t = re.sub(r"\b([A-G])(?:#|♯)", r"\1 sharp", t)
     t = re.sub(r"\b([A-G])(?:b|♭)(?=m\b|\s|[.,;:!?]|$)", r"\1 flat", t)
     t = re.sub(r"\b([A-G])m\b", r"\1 minor", t)

@@ -147,12 +147,12 @@ def test_a_call_with_his_number_dials_once_and_texts_him_how_it_went(world):
     assert line.startswith("brain: call; calling Lucie, conversation conv_x")
     assert len(world["dialed"]) == 1 and world["dialed"][0]["to_number"] == "+19085550142"
     variables = world["dialed"][0]["conversation_initiation_client_data"]["dynamic_variables"]
-    assert variables["opening"].endswith("I'm calling to ask if you're free for dinner Saturday at 8pm for Felix.")
+    assert variables["opening"].endswith("I'm calling to ask if you're free for dinner Saturday at 8pm for Felix Gabriel.")
     assert "- what to ask or arrange: Is she free for dinner with Felix on Saturday at 8pm?" in variables["brief"]
     assert "- if it cannot be done: ask when she is free this weekend" in variables["brief"]
     assert reactions.CALLING in world["reacted"]                     # the phone goes on his message, before the dial
     assert world["texts"][1:] == ["Calling Lucie now. I'll tell you how it goes.",   # in this order
-                                  "Lucie: Saturday at 8pm works. Next: Felix picks the place."]
+                                  "Lucie: Saturday at 8pm works. Next: FEGA picks the place."]
     assert reactions.RESULT in world["reacted"]
     assert "0142" not in " ".join(world["texts"])
 

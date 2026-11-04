@@ -561,6 +561,9 @@ class Booth:
             time.sleep(QUIET_READ)
 
     def _speak(self, text: str) -> None:
+        from hiremarco.style import to_owner
+
+        text = to_owner(text)  # he is FEGA to Marco, on screen and in the voice (said "Feyga" by the voice)
         self._wait_for_quiet()
         self.last_said = text
         self.spoken.append((time.monotonic(), text))

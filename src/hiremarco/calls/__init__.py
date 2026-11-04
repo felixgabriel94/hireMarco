@@ -40,7 +40,7 @@ TTS_MODEL = "eleven_v4_turbo"
 TTS_FALLBACK = "eleven_flash_v2_5"
 MAX_CALL_SECONDS = 300
 RELAY_MODEL = "muse-spark"  # the relay pins its own model whatever this says
-OPENING = "Hi, just so you know, this call is recorded. I'm calling to {purpose} for Felix."
+OPENING = "Hi, just so you know, this call is recorded. I'm calling to {purpose} for Felix Gabriel."
 
 # Marco waits for the callee to speak; after this long in silence he speaks first (Owner 2026-10-31: he spoke the
 # instant the call connected). Either way his first reply is the opening, said by the relay word for word.
@@ -188,7 +188,7 @@ def voicemail_text(purpose: str, written: str = "") -> str:
     call that reaches a person still opens with it, said by the relay.
     """
     body = " ".join(written.split()) or (
-        f"It's Marco, Felix's assistant, calling to {' '.join(purpose.split()).rstrip('.')} for Felix. "
+        f"It's Marco, Felix's assistant, calling to {' '.join(purpose.split()).rstrip('.')} for Felix Gabriel. "
         "Felix will follow up. Thanks, bye.")
     return body
 

@@ -223,7 +223,7 @@ def test_the_brain_keeps_and_forgets_in_the_same_breath_and_reads_who_he_is(tmp_
                   marco=brain)
     assert "forgot 1" in line and [t for _, t in known(wa.conn)] == ["the hook needs more space"]
     shown = brain.seen[-1]["text"]
-    assert shown["about_felix"] == "# Felix\n\nFelix sings and produces in Miami."
+    assert shown["about_felix"].startswith("# Felix\n\nFelix sings and produces in Miami.\n\nHis artist name is FEGA.")
     assert shown["facts"] and shown["facts"][0].endswith("Dani plays bass on everything") or \
         any(f.endswith("the hook needs more space") for f in shown["facts"])
 

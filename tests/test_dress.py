@@ -455,7 +455,7 @@ def test_the_command_dry_run_writes_the_pictures_and_sends_nothing(tmp_path, mon
     out = capsys.readouterr().out
     assert code == 0 and "dry run, nothing sent" in out and "<- pick" in out
     assert json.loads(seen[0]["messages"][1]["content"][0]["text"])["felix_says"].startswith("Marco, dress me.")
-    assert len(list((tmp_path / "film").iterdir())) == 2
+    assert len(list((tmp_path / "film").iterdir())) == 3  # the two pictures and what SAM sees in motion
     assert dress.open_board(gate.connect()) is None
 
 

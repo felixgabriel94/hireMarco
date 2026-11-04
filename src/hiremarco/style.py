@@ -168,10 +168,25 @@ def written_days(text: str, today: date | None = None) -> str:
                    for i, piece in enumerate(_QUOTED.split(text or "")))
 
 
+# The Owner's name to him (Owner 2026-11-04): FEGA, his artist name, in capitals with no exceptions. "Felix" said to
+# him becomes FEGA; "Felix's", "Felix Gabriel", "Felix Betancourt" and an address (felix@) stay as they are, since
+# those are about him to others. Calls and bookings for him use "Felix Gabriel" and never pass through here.
+OWNER_NAME = "FEGA"
+OWNER_NAME_RULE = ("His artist name is FEGA. When you talk or write to him, call him FEGA, always written in capitals "
+                   "as FEGA, never Fega or Felix. To anyone else, on a call or a booking, he is Felix Gabriel.")
+_FEGA = re.compile(r"\bfega\b", re.I)
+_FELIX_TO_HIM = re.compile(r"(?<![@\w.])Felix\b(?!['\u2019]s|\s+(?:Gabriel|Betancourt)\b|@)")
+
+
+def to_owner(text: str) -> str:
+    """What Marco writes or says to the Owner, with his name as he wants it: FEGA, in capitals."""
+    return _FEGA.sub(OWNER_NAME, _FELIX_TO_HIM.sub(OWNER_NAME, text or ""))
+
+
 def written(text: str) -> str:
-    """Marco's text as it goes out on WhatsApp: times exact, runs of days as ranges, and his company's name as it is
-    spelled, wherever it stands. A link or an address with the name in it stays as it is."""
-    return _NAME.sub("hireMarco", written_days(written_times(text)))
+    """Marco's text as it goes out on WhatsApp: times exact, runs of days as ranges, his company's name as it is
+    spelled, and the Owner's name as FEGA, wherever they stand. A link or an address with the name in it stays."""
+    return to_owner(_NAME.sub("hireMarco", written_days(written_times(text))))
 
 
 # Owner 2026-10-31: Marco never shows the client what is under the hood. A text that would name a part of the

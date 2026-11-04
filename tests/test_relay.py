@@ -73,7 +73,7 @@ def test_kill_switch_stops_the_call_brain(setup):
     assert r.status_code == 403 and seen == []
 
 
-OPENING = "Hi, just so you know, this call is recorded. I'm calling to book a table for Felix."
+OPENING = "Hi, just so you know, this call is recorded. I'm calling to book a table for Felix Gabriel."
 CALL_SYSTEM = {"role": "system", "content": f"You are Marco.\n\nYour first words, exactly: {OPENING}\n\nWhy: x"}
 
 

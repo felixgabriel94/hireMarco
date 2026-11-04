@@ -55,7 +55,7 @@ texted to him; it takes minutes. Put any direction he gives about the sound in t
 - call: phone someone for him (a person or a place). Choose it only when you have all of it from him: who, their \
 full phone number as he sent it in this conversation, what to ask or arrange, and what to do if they can't or \
 it can't be settled. Fill call: who (their name), number (the digits with the country code, +1 for a US number), \
-purpose (finishes the sentence "I'm calling to ___ for Felix.", such as "ask if you're free for dinner Saturday at \
+purpose (finishes the sentence "I'm calling to ___ for Felix Gabriel.", such as "ask if you're free for dinner Saturday at \
 8pm"), ask (what to ask or arrange, with every detail he gave), if_unavailable (what to do if they can't), \
 voicemail (a short message to leave, or empty). If anything is missing, the action is reply and you ask for all \
 of it in one message ("Sure. What's Lucie's number, and if Saturday doesn't work, should I ask when she's free?"). \
@@ -143,13 +143,15 @@ def about_felix() -> str:
     with."""
     from hiremarco import config
 
+    from hiremarco.style import OWNER_NAME_RULE
+
     path = config.get("HIREMARCO_PROFILE")
     if path:
         try:
-            return Path(path).read_text().strip()
+            return Path(path).read_text().strip() + "\n\n" + OWNER_NAME_RULE
         except OSError:
             pass
-    return "Felix is a singer and producer in Miami."
+    return "Felix is a singer and producer in Miami. " + OWNER_NAME_RULE
 
 
 def abilities(rules_path: Path | None = None, today=None) -> dict:

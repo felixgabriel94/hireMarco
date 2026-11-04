@@ -17,7 +17,7 @@ LLM_URL = "https://marco.example.ngrok.app/llm/v1"
 
 def test_book_a_table_opening_is_word_for_word():
     assert first_message("book a table") == (
-        "Hi, just so you know, this call is recorded. I'm calling to book a table for Felix."
+        "Hi, just so you know, this call is recorded. I'm calling to book a table for Felix Gabriel."
     )
     assert first_message("book a table") == gate.RECORDING_NOTICE
     with pytest.raises(CallError):
@@ -195,14 +195,14 @@ def test_place_sends_opening_details_and_machine_hangup(placing, env):
     assert body["to_number"] == "+" + OWNER
     client = body["conversation_initiation_client_data"]
     variables = client["dynamic_variables"]
-    assert variables["opening"] == "Hi, just so you know, this call is recorded. I'm calling to book a table for Felix."
+    assert variables["opening"] == "Hi, just so you know, this call is recorded. I'm calling to book a table for Felix Gabriel."
     assert (variables["purpose"], variables["details"]) == ("book a table", "test call, no booking")
     assert "- party size: 4" in variables["brief"] and "never read out card details" in variables["brief"]
     amd = body["telephony_call_config"]["twilio_machine_detection"]
     # only a fax hangs up: a bot voice labelled a machine (an AI receptionist) stays on the line
     assert amd == {"mode": "detect_message_end", "actions": [{"action": "hang_up", "answered_by": ["fax"]}]}
     # RULES.md: a voicemail after a recorded greeting carries no recording notice; the live opening still does
-    assert variables["voicemail"] == ("It's Marco, Felix's assistant, calling to book a table for Felix. "
+    assert variables["voicemail"] == ("It's Marco, Felix's assistant, calling to book a table for Felix Gabriel. "
                                       "Felix will follow up. Thanks, bye.")
     assert variables["opening"].startswith(gate.RECORDING_OPENING)
     row = env["log"].rows()[-1]
