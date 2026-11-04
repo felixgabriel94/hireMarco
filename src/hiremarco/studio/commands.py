@@ -226,6 +226,16 @@ SOUND_SAID = re.compile(r"^(?:make (?:it|me|my voice|the vocal)|i want (?:it|my 
                         r"(?:spacey|spacy|metallic|wet|dry|dark|darker|bright|brighter|warm|warmer|airy|big|bigger|"
                         r"wide|wider|small|tight|tighter|lush|washy|distant|closer|intimate|haunting|dreamy|"
                         r"cathedral|room|hall|plate|cave|space)\b.*)$")
+# Tone asked for in an engineer's words (Owner 2026-11-04: "cut some of the lows on this track"): the same sound design
+# across the selected track's chain, where the EQ (Pro-Q 3) does it; the brain picks the band and the values.
+EQ_SAID = re.compile(r"^(?:(?:can you |let'?s |go ahead and )?(?:cut|take out|take off|clean up|roll off|reduce|lower|tame|"
+                     r"pull back|scoop|boost|add|bring up|bring down|lift|push|give me) |more |less )"
+                     r"(?:a (?:little|bit|touch|lot) (?:of )?|some (?:of )?|a little bit of )?(?:the |my )?"
+                     r"(?:lows?|low end|low mids|bottom( end)?|mud|muddiness|mids?|midrange|highs?|high end|top( end)?|"
+                     r"air|harshness|boom|boominess|rumble|sibilance|esses|nasal(?:ity)?|boxiness|presence|body|"
+                     r"\d+(?:\.\d+)? ?(?:k|khz|hz|hertz)|[a-z]+ (?:k|hertz|hundred))"
+                     r"(?: (?:on|in|from|off) (?:this|the|my) (?:track|vocals?|voice|lead|beat|harmony|adlib))?"
+                     r"(?: a (?:little|bit|touch|lot))?$")
 PUT_BACK_SAID = re.compile(r"^(?:put it back|undo that( sound)?|go back|back to how it was)$")
 # Recording-mode housekeeping and the mode switch, all without a model call.
 KIND_WORDS = {"lead": "lead", "the lead": "lead", "lead vocal": "lead", "main vocal": "lead", "ad lib": "ad-lib",
@@ -368,9 +378,9 @@ _UNIT_WORDS = {"ms": "ms", "millisecond": "ms", "milliseconds": "ms", "millis": 
 _UNITS = "|".join(sorted((re.escape(u) for u in _UNIT_WORDS), key=len, reverse=True))
 _NUMBER = r"(?P<value>(?:minus |negative |-)?(?:\d+(?:\.\d+)?|[a-z]+(?: [a-z]+)??))"
 PLUGIN_SET_SAID = re.compile(
-    r"^(?:set|put|turn|bring|make|change|move) (?:the |my )?(?P<name>[a-z][a-z -]{0,30}?)"
+    r"^(?:set|put|turn|bring|make|change|move) (?:the |my )?(?P<name>[a-z][a-z0-9 -]{0,30}?)"
     r"(?: on (?:the |my )?(?P<hint>[a-z0-9][a-z0-9 -]{0,30}?))? (?:to|at) " + _NUMBER + r"(?: ?(?P<unit>" + _UNITS + r"))?$|"
-    r"^(?P<bare>[a-z][a-z -]{0,30}?) " + _NUMBER.replace("value", "value2") + r"(?: ?(?P<unit2>" + _UNITS + r"))?$")
+    r"^(?P<bare>[a-z][a-z0-9 -]{0,30}?) " + _NUMBER.replace("value", "value2") + r"(?: ?(?P<unit2>" + _UNITS + r"))?$")
 # words that start other lines (sections, takes, the knobs, the speakers): never a plug-in control
 NOT_A_CONTROL = {"bar", "bars", "take", "verse", "chorus", "bridge", "intro", "outro", "hook", "pre-chorus", "track",
                  "harmony", "adlib", "ad-lib", "double", "lead", "slot", "insert", "bus", "part", "section", "bookmark",
@@ -379,7 +389,12 @@ NOT_A_CONTROL = {"bar", "bars", "take", "verse", "chorus", "bridge", "intro", "o
                  "record", "punch", "it", "this", "that", "me", "everything", "the", "my", "one", "number"}
 
 
+_BAND_NUMBERS = {w: str(i) for i, w in enumerate("one two three four five six seven eight nine ten eleven twelve".split(), 1)}
+
+
 def plugin_set_said(said: str) -> Command | None:
+    # Pro-Q 3's controls are numbered by band ("Band 2 Gain"); "band two gain" as speech writes it is the same band
+    said = re.sub(r"\bband (" + "|".join(_BAND_NUMBERS) + r")\b", lambda m: f"band {_BAND_NUMBERS[m.group(1)]}", said)
     m = PLUGIN_SET_SAID.match(said.replace("%", " percent"))
     if not m:
         return None
@@ -578,6 +593,8 @@ def understand(line: str, client: MuseSpark | None = None, context: list[str] | 
     plugin = insert_said(said)  # after the housekeeping lines: "put it on my phone" is the live view
     if plugin:
         return plugin
+    if EQ_SAID.match(said):
+        return Command("sound", text=said)
     sound = SOUND_SAID.match(said)
     if sound:
         return Command("sound", text=sound.group("want").strip())

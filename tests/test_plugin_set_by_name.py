@@ -146,3 +146,69 @@ def test_nothing_moves_while_a_take_rolls(rules):
     b.rolling = True
     assert "holding the plug-in change" in b.handle(Command("plugin_set", text="decay=2 s", direction="set"))
     assert logic.params["Decay"] == 40.0 and not any(c[0] == "setmany" for c in logic.calls)
+
+
+@pytest.mark.parametrize("line, command", [
+    ("Marco, set band 2 gain to minus 3 dB", Command("plugin_set", text="band 2 gain=-3 dB", direction="set")),
+    ("Marco, band two frequency 300 hertz", Command("plugin_set", text="band 2 frequency=300 Hz", direction="set")),
+    ("Marco, set the band 1 q to 1.5", Command("plugin_set", text="band 1 q=1.5", direction="set")),
+])
+def test_pro_q_bands_by_number(line, command):
+    assert understand(line, client=None) == command
+
+
+class ProQ(Valhalla):
+    """Pro-Q 3 on slot 1, with its controls numbered by band and shown in dB, Hz and its Q."""
+
+    def __init__(self):
+        super().__init__()
+        self.params = {"Band 1 Frequency": 100.0, "Band 1 Gain": 0.0, "Band 1 Q": 1.0, "Band 2 Frequency": 1000.0,
+                       "Band 2 Gain": 0.0, "Band 2 Q": 1.0, "Band 2 Shape": "Bell"}
+
+    def shown(self, k, v):
+        return f"{v:.1f} Hz" if k.endswith("Frequency") else f"{v:+.2f} dB" if k.endswith("Gain") else f"{v:.2f}"
+
+    def block(self):
+        return super().block().replace("ValhallaVintageVerb", "Pro-Q 3")
+
+    def __call__(self, args):
+        if args[0] == "list":
+            self.calls.append(args)
+            return "1\tPro-Q 3\ton"
+        if args[0] == "setmany":
+            self.calls.append(args)
+            for k, v in zip(args[2:-1:2], args[3:-1:2]):
+                number = float(v[1:].split(" ", 1)[0]) if v.startswith("=") else float(v)
+                self.params[k] = number
+            return "slot\t1\n" + self.block()
+        return super().__call__(args)
+
+
+
+def test_pro_q_band_gain_and_frequency_land_in_its_units(rules):
+    logic = ProQ()
+    said = []
+    b = Booth(understand=lambda line: understand(line, client=None), logic=lambda c: c.describe(),
+              say=said.append, feedback=None, tape=Tape(1000, seconds=1), log=lambda line: None,
+              plugin=Channel(run=logic, conn=gate.connect(":memory:"), rules_path=rules))
+    b.hear("Marco, set band 2 gain to minus 3 dB")
+    assert logic.params["Band 2 Gain"] == -3.0 and said[-1] == "Band 2 Gain's at -3.00 dB."
+    b.hear("Marco, band two frequency 300 hertz")
+    assert logic.params["Band 2 Frequency"] == 300.0 and said[-1] == "Band 2 Frequency's at 300.0 Hz."
+    b.hear("Marco, set band 2 shape to 3")
+    assert said[-1].startswith("I leave band 2 shape as it is")
+
+
+@pytest.mark.parametrize("line", [
+    "Marco, cut some of the lows on this track", "Marco, clean up the low end", "Marco, less mud",
+    "Marco, tame the harshness on my vocal", "Marco, add a little air", "Marco, cut some 300 hertz",
+    "Marco, boost the highs a little", "Marco, roll off the bottom",
+])
+def test_eq_words_go_to_the_sound_on_the_track(line):
+    from hiremarco.studio.commands import strip_wake
+    assert understand(line, client=None) == Command("sound", text=strip_wake(line))
+
+
+def test_older_sound_and_knob_lines_hold():
+    assert understand("Marco, more verb", client=None) == Command("knob", knob="reverb", direction="up", steps=1)
+    assert understand("Marco, make it darker", client=None) == Command("sound", text="darker")
