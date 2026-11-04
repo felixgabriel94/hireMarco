@@ -102,3 +102,12 @@ def test_a_window_logic_has_not_drawn_yet_is_not_framed_and_a_loading_banner_is(
               "kCGWindowBounds": {"X": 480, "Y": 400, "Width": 520, "Height": 130}}
     assert glow.front_logic_window([unseen]) is None
     assert glow.front_logic_window([unseen, banner]) == (480.0, 400.0, 520.0, 130.0)
+
+
+def test_the_birth_waits_for_the_halo_to_go_first():
+    # Owner 2026-11-04: the halo fades out completely, then the glow is born
+    state = glow.State(alive=lambda pid: True)
+    state.add([{"kind": "work_started", "pid": 7}], 10.0)
+    state.began_at = 10.0 + glow.HANDOFF_S
+    assert state.phase(10.0 + glow.HANDOFF_S / 2) == 0.0 and state.alpha(10.0 + glow.HANDOFF_S / 2) == 0.0
+    assert state.phase(10.0 + glow.HANDOFF_S + glow.BIRTH_S) == 1.0

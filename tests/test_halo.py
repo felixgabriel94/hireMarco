@@ -284,3 +284,17 @@ def test_once_logic_has_shown_a_window_the_halo_holds_away_until_the_work_ends()
     assert halo.booth_state(booth, audio, window_up=lambda: False) == ("listening", 0.16)
     booth.in_logic, booth.busy = True, True
     assert halo.booth_state(booth, audio, window_up=lambda: False) == ("thinking", 0.0)   # a new work: the latch is off again
+
+
+def test_the_halo_returns_only_once_the_glow_has_faded(monkeypatch):
+    # Owner 2026-11-04: the glow and the halo are never on together, either or
+    from types import SimpleNamespace
+    import time as clock
+
+    audio = SimpleNamespace(speaking=False, out_level=0.05, in_level=0.02)
+    booth = SimpleNamespace(rolling=False, busy=True, in_logic=True, operating=False, left_logic_at=-100.0)
+    assert halo.booth_state(booth, audio, window_up=lambda: True) == ("working", 0.0)
+    booth.in_logic, booth.busy, booth.left_logic_at = False, False, clock.monotonic()
+    assert halo.booth_state(booth, audio, window_up=lambda: True) == ("working", 0.0)      # the glow still fading
+    booth.left_logic_at = clock.monotonic() - halo.GLOW_OUT_S - 0.1
+    assert halo.booth_state(booth, audio, window_up=lambda: True) == ("listening", 0.16)   # gone: the halo is back

@@ -44,6 +44,7 @@ def level_of(rms: float, gain: float) -> float:
 
 
 _LOGIC_WINDOW = {"at": 0.0, "up": False}
+GLOW_OUT_S = 1.4   # the glow's fade at the end of work (glow.BIRTH_S and a little): the halo and the glow are never on together
 
 
 def logic_window_up(now: float | None = None, windows: Callable[[], list] | None = None) -> bool:
@@ -82,6 +83,8 @@ def booth_state(booth, audio, window_up: Callable[[], bool] = logic_window_up) -
         if _LOGIC_WINDOW.get("taken") or window_up():
             _LOGIC_WINDOW["taken"] = True
             return "working", 0.0
+    elif _LOGIC_WINDOW.get("taken") and time.monotonic() - getattr(booth, "left_logic_at", -100.0) < GLOW_OUT_S:
+        return "working", 0.0   # the glow is still fading where it is: the halo returns only once it is gone (Owner 2026-11-04)
     else:
         _LOGIC_WINDOW["taken"] = False
     if getattr(booth, "operating", False):  # he is setting the session up: shown before Logic is even open

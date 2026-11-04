@@ -71,7 +71,7 @@ NOW_LINES = {
     "flex_pass": "Marco tunes the vocal.",
     "record": "Marco rolls a take.",
 }
-WAITING = "Marco is ready for the next task."
+WAITING = "Marco is on standby."
 AWAKE = 20.0  # seconds after the last exchange in which a sentence needs no "Marco"; the same quiet ends the halo
 LIVE_ON = "Live view's on. The link's on the Mac."
 LIVE_TEXTED = "Live view's on. I texted you the link."
@@ -193,11 +193,14 @@ class Booth:
     master: Callable[[str], str] | None = None        # master.live.run_live on this session, the WAVs texted; its summary
     open_empty: Callable[[], str] | None = None       # studio.beat_in.BeatLoader.open_empty: a session from the template, no beat
     in_logic: bool = False                            # he is at work in Logic: the glow has him, the halo steps away
+    left_logic_at: float = -100.0                     # when the last work in Logic ended: the glow fades, then the halo returns
 
     def _work(self, what: str, action: str) -> None:
         """One row for the glow: the booth is at work in Logic, or done (Owner 2026-11-03: wherever he goes, the
         audience sees where he is). The master job writes its own job rows inside; the glow keeps the first light."""
         self.in_logic = what == "started"
+        if what == "ended":
+            self.left_logic_at = time.monotonic()   # the halo waits for the glow's fade before it returns
         try:
             from hiremarco import events as stream
 
@@ -232,8 +235,6 @@ class Booth:
         finally:
             self.operating = False
             self._work("ended", "new_session")
-        pad.stop(1.0)
-        time.sleep(1.0)
         if self.tracks is not None:
             self.session = self.tracks.scan()
         self.last_setup = {}
@@ -243,6 +244,7 @@ class Booth:
         self._say("Logic now shows the empty session; say it is up and that you are waiting for the beat, in plain words, "
                   "with no name or file name, without the words fresh, new or open", {},
                   "The session's up in Logic. Send the beat when you have it.")
+        pad.stop(2.0)   # he speaks over the pad; it goes out after his line (Owner 2026-11-04)
         return opened
 
     def beat_arrived(self, path: Path, name: str | None = None) -> str:

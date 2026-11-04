@@ -36,7 +36,9 @@ WINDOW_POLL_S = 0.1    # the window server read, ten a second
 EASE = 0.38            # how much of the way to a new frame each tick (30 a second): about a tenth of a second to settle
 BIRTH_S = 1.25         # the halo's orb flowing into the window's frame, and back at the end (Owner 2026-11-03: a genie, not lines)
 BIRTH_R = 110.0        # the orb's radius where it starts, at the centre of the window it will frame, where the halo floats
-LOST_S = 0.45          # the light fading when Logic has no window to frame for a moment
+HANDOFF_S = 0.95       # the halo's fade-out: the glow is born only once the halo is gone (Owner 2026-11-04: never both)
+HOLD_S = 0.8           # Logic's windows swap in well under this: the last frame holds, so the light sticks, no flicker
+LOST_S = 0.45          # the light fading when Logic has no window to frame for longer than the hold
 MIN_W, MIN_H = 150.0, 60.0    # anything smaller is a palette or a tooltip; a loading banner and a sheet both count (Owner 2026-11-03)
 
 Rect = tuple[float, float, float, float]
@@ -107,7 +109,7 @@ class State:
     def phase(self, now: float) -> float:
         """0 when there is nothing to show, rising to 1 over BIRTH_S after a start, falling back to 0 after an end."""
         if self.working(now):
-            return min(1.0, (now - self.began_at) / BIRTH_S) if self.began_at is not None else 1.0
+            return min(1.0, max(0.0, (now - self.began_at) / BIRTH_S)) if self.began_at is not None else 1.0
         if self.ended_at is not None and now - self.ended_at < BIRTH_S:
             return max(0.0, 1.0 - (now - self.ended_at) / BIRTH_S)
         return 0.0
@@ -286,12 +288,15 @@ def show(*, at: Path | None = None) -> None:
                     print(f"{time.strftime('%H:%M:%S')} frame {found} of Logic's windows {front}", flush=True)
                 if found is not None:
                     if view.target is None and state.working(now) and not feed.get("born"):
-                        state.began_at = now   # the first window of this work: the orb flows into it from the halo
+                        state.began_at = now + HANDOFF_S   # the first window of this work: the halo goes first, then the orb flows in
                     feed["born"] = True
                     feed["lost"] = False
+                    feed["lost_at"] = None
                     view.target = view_rect(found, screen_h)
-                else:
-                    feed["lost"] = True   # no window of Logic's to frame right now: the light fades, the frame stays put
+                elif feed.get("lost_at") is None:
+                    feed["lost_at"] = now   # no window of Logic's right now: the frame holds through a swap, then fades
+                elif now - feed["lost_at"] > HOLD_S:
+                    feed["lost"] = True
             if not state.working(now) and state.phase(now) <= 0.0:
                 feed["born"] = False
             want = 1.0 if (view.target is not None and not feed.get("lost")) else 0.0

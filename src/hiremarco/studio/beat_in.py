@@ -519,7 +519,7 @@ class BeatLoader:
         self.template, self.sessions, self.today = template, sessions, today
         self.conn, self.rules_path, self.wait_s = conn, rules_path, wait_s  # Logic opening cold takes over a minute
         self.wake, self.notices, self.asking = wake, notices, asking
-        self.chooser = chooser
+        self.chooser, self.last_chooser = chooser, ""
 
     def clear_windows(self) -> None:
         """Every plug-in window closed, so nothing floats over the track headers."""
@@ -613,7 +613,8 @@ class BeatLoader:
         """A new session from the template with no beat (Owner 2026-11-03: "open a new session and wait for me"):
         the same copy, the same wait for Logic's window, the Beat track left empty for the beat that comes later."""
         session = self.open_session(Path("Session"), name)
-        return f"{session.name} is open from the template, nothing on it yet"
+        chooser = f"; Logic's {self.last_chooser} cancelled" if self.last_chooser else ""
+        return f"{session.name} is open from the template, nothing on it yet{chooser}"
 
     def open_session(self, beat: Path, name: str | None = None, prepare: Callable[[Path], None] | None = None) -> Path:
         if not self.template.exists():
@@ -635,7 +636,8 @@ class BeatLoader:
             if title.startswith(target.stem):
                 self.sleep(1.0)
                 self.notices()
-                if self.chooser():   # the cold launch's chooser over the session: gone, the session is in front
+                self.last_chooser = self.chooser()   # the cold launch's chooser over the session: gone, the session is in front
+                if self.last_chooser:
                     self.sleep(0.5)
                 return target
             asked = self._save_question()
