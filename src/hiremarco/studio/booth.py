@@ -71,6 +71,7 @@ NOW_LINES = {
     "flex_pass": "Marco tunes the vocal.",
     "record": "Marco rolls a take.",
 }
+WAITING = "Marco is waiting for the next task."
 AWAKE = 20.0  # seconds after the last exchange in which a sentence needs no "Marco"; the same quiet ends the halo
 LIVE_ON = "Live view's on. The link's on the Mac."
 LIVE_TEXTED = "Live view's on. I texted you the link."
@@ -201,8 +202,11 @@ class Booth:
             from hiremarco import events as stream
 
             stream.emit(f"work_{what}", source="marco", operation=action, status="ok", pid=os.getpid())
-            if what == "started" and action in NOW_LINES:   # the page's Now line, no stream moment of its own
-                stream.emit("stage", source="marco", operation=action.replace("_", " "), plain=NOW_LINES[action])
+            if action in NOW_LINES:   # the page's Now line, no stream moment of its own; never blank (Owner 2026-11-03)
+                if what == "started":
+                    stream.emit("stage", source="marco", operation=action.replace("_", " "), plain=NOW_LINES[action])
+                else:
+                    stream.emit("stage", source="marco", operation="waiting", plain=WAITING)
         except Exception:   # the glow is the look, not the work
             pass
 
