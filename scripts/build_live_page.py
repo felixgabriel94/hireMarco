@@ -76,7 +76,12 @@ def build(design: str) -> str:
     slot_heard = "<div class=\"st\"'+(l.key==='musevoicetranscribe10'?' data-heard=\"'+esc(String(l.id))+'\"':'')+'>'+rich(sum,l.endTs||l.ts)+'</div>'"
     stream_end = "return streamLine(l,isNew,l===lastDone);}).join('');tick();}"
     stream_typed = ("return streamLine(l,isNew,l===lastDone);}).join('');"
-                    "S.typedHeard=S.typedHeard||new Set();cur.querySelectorAll('.st[data-heard]').forEach(el=>{const id=el.dataset.heard;if(S.typedHeard.has(id))return;S.typedHeard.add(id);typeInto(el,el.textContent);});tick();}")
+                    "S.typedHeard=S.typedHeard||new Set();cur.querySelectorAll('.st[data-heard]').forEach(el=>{const id=el.dataset.heard;if(S.typedHeard.has(id))return;S.typedHeard.add(id);typeInto(el,el.textContent);});"
+                    # the strip runs from under the E of LISTENING to under the I of TRANSCRIBE (Owner 2026-11-03): measured
+                    # off the header's own letters, in the page's unscaled pixels
+                    "cur.querySelectorAll('.st.ear').forEach(st=>{const sl=st.parentElement;sl.classList.add('ear');const w=sl.querySelector('.sh .w'),b=sl.querySelector('.sh b'),bars=st.querySelector('.bars');if(!w||!b||!bars)return;"
+                    "const u=($('stage').getBoundingClientRect().width/DIMS[layout][0])||1;const s0=st.getBoundingClientRect().left;const wf=parseFloat(getComputedStyle(w).fontSize)||18,bf=parseFloat(getComputedStyle(b).fontSize)||24;"
+                    "const left=(w.getBoundingClientRect().left-s0)/u+wf*0.85;const right=(b.getBoundingClientRect().right-s0)/u-bf*0.66*6;bars.style.marginLeft=left+'px';bars.style.width=Math.max(120,right-left)+'px';});tick();}")
     # Owner 2026-11-03: no redundancies. A new line whose words mostly match a line already in a slot replaces that line,
     # so the two slots never say the same thing; a lone moment sits in the centre by the design's own layout
     place = "for(const l of S.lines){if(l.seen)continue;l.seen=true;l.placedAt=++uidN;\n  let i=slots.indexOf(null);"
@@ -93,7 +98,8 @@ def build(design: str) -> str:
                  + type_now)
     ear_css = (".ear{display:flex;align-items:center}.big.ear{min-height:1.2em}.st.ear{white-space:normal}"
                ".ear .bars{display:flex;align-items:center;gap:8px;height:1em;width:100%;max-width:1400px}"
-               ".ear .bars i{flex:1;display:block;height:.3em;border-radius:6px;background:var(--accent);animation:ear 1.1s ease-in-out infinite}"
+               ".ear .bars i{flex:1;display:block;height:.3em;border-radius:6px;background:#fff;animation:ear 1.1s ease-in-out infinite}"   # white (Owner 2026-11-03)
+               ".sl.ear .sh{grid-template-columns:auto max-content auto 1fr}.sl.ear .sh b{overflow:visible;text-overflow:clip}.sl.ear .sh .sc{justify-self:end}"   # the model's whole name, no ellipsis
                "@keyframes ear{0%,100%{height:.22em;opacity:.55}50%{height:1em;opacity:1}}"
                ".big.typing .c,.st.typing .c{opacity:0}.big .c.on,.st .c.on{opacity:1}"
                ".big .caret,.st .caret{display:inline-block;width:.42em;height:.9em;margin-left:.1em;vertical-align:-.08em;background:var(--accent)}\n")
