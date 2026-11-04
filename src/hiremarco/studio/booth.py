@@ -64,6 +64,7 @@ TALK = frozenset({"kill", "dismiss", "chat", "summon", "unknown", "note", "take_
 # the Now line on Marco Live for work the booth starts (Owner 2026-11-03: the left section stays, and it says what he is on)
 NOW_LINES = {
     "new_session": "Marco opens a fresh session in Logic and waits for the beat.",
+    "open_song": "Marco opens your song in Logic.",
     "beat_arrived": "Marco sets the session up from the beat.",
     "export": "Marco prints the mix and masters the song.",
     "mix_pass": "Marco balances the mix.",
@@ -192,6 +193,7 @@ class Booth:
     last_setup: dict = field(default_factory=dict)    # the key, tempo and beat gain the session was last set to
     master: Callable[[str], str] | None = None        # master.live.run_live on this session, the WAVs texted; its summary
     open_empty: Callable[[], str] | None = None       # studio.beat_in.BeatLoader.open_empty: a session from the template, no beat
+    open_song: Callable[[], str] | None = None        # studio.beat_in.BeatLoader.open_song: a fresh copy of his song
     in_logic: bool = False                            # he is at work in Logic: the glow has him, the halo steps away
     left_logic_at: float = -100.0                     # when the last work in Logic ended: the glow fades, then the halo returns
 
@@ -246,6 +248,39 @@ class Booth:
                   "The session's up in Logic. Send the beat when you have it.")
         pad.stop(2.0)   # he speaks over the pad; it goes out after his line (Owner 2026-11-04)
         return opened
+
+    def song_session(self) -> str:
+        """A fresh copy of his song (Owner 2026-11-04: "set up my session" starts on his song): the halo first, the
+        pad, then Logic opens the copy; "Session's ready." when it is up, as for a beat."""
+        if self.open_song is None:
+            return "no song opener in this booth"
+        if self.rolling:
+            return "holding the session until the take stops"
+        self.operating = True
+        self._work("started", "open_song")
+        time.sleep(1.2)
+        from hiremarco.studio import pad
+
+        pad.start()
+        try:
+            opened = self.open_song()
+        except Exception as exc:
+            pad.stop()
+            self._say("could not open his song", {"why": str(exc)[-160:]}, "I couldn't open your song.")
+            self._text("I couldn't open your song. Nothing changed on it.")
+            return f"song not opened: {type(exc).__name__}: {str(exc)[-160:]}"
+        finally:
+            self.operating = False
+            self._work("ended", "open_song")
+        if self.tracks is not None:
+            self.session = self.tracks.scan()
+        self.last_setup = {}
+        self._say("Logic now shows his song, ready to work on; say it is up, in plain words, with no name or file name",
+                  {}, "Your song's up in Logic.")
+        pad.stop(2.0)
+        sent = self._text("Session's ready.")
+        self._result()
+        return f"{opened}; {sent}"
 
     def beat_arrived(self, path: Path, name: str | None = None) -> str:
         """A beat in his inbox (Owner 2026-10-29): a new session from the template with the beat on the Beat track
@@ -1341,6 +1376,8 @@ class Booth:
             return f"shown on the phone ({message_id[-6:]})"
         if a == "new_session":
             return self.new_session(command.text or None)
+        if a == "open_song":
+            return self.song_session()
         if a == "live_view":
             if self.live is None:
                 return "no live view in this booth"
@@ -1580,6 +1617,8 @@ def _shortcut_listener(booth: "Booth", sock) -> None:
             booth.hear("Marco, give me the live view")
         elif data.strip() == b"session":  # his WhatsApp: a fresh session with no beat (Owner 2026-11-03)
             booth.hear("Marco, open a new session and wait for me")
+        elif data.strip() == b"song":  # his WhatsApp: "set up my session" with no beat, a copy of his song (Owner 2026-11-04)
+            booth.hear("Marco, open my song")
         elif data.strip() in (b"place booth", b"place desk") and booth.on_place is not None:
             booth.on_place(data.strip().split()[1].decode())  # the menu bar's "Listen at"
 
@@ -1811,6 +1850,8 @@ def run_booth(*, dry_run: bool = False) -> int:
                   .BeatLoader().load,
                   open_empty=None if dry_run else __import__("hiremarco.studio.beat_in", fromlist=["BeatLoader"])
                   .BeatLoader().open_empty,
+                  open_song=None if dry_run else __import__("hiremarco.studio.beat_in", fromlist=["BeatLoader"])
+                  .BeatLoader().open_song,
                   text_owner=None if dry_run else _text_owner_plain,
                   master=None if dry_run else _booth_master,
                   result_on=None if dry_run else _result_on,

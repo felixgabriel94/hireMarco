@@ -239,13 +239,16 @@ def fresh_session(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: 
 
 
 def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None,
-                booth=ensure_booth, running=booth_running, nudge=None) -> str | None:
+                booth=ensure_booth, running=booth_running, nudge=None, saved_song=None) -> str | None:
     """His words about a session, answered from the real state: start the beat he sent (on "start a session",
     "set it up", or a yes to Marco's question), take a corrected title, or say where things stand. None when the
     words are about something else (Owner 2026-10-30, after a live test where Marco missed all three)."""
     from hiremarco.studio.beat_in import INBOX, latest_received, pending, rename_pending, session_name, \
         start_session, title, wants_session
 
+    from hiremarco.studio.beat_in import his_song
+
+    saved_song = saved_song or his_song
     folder = inbox or INBOX
     said = (said or "").strip()
     reply = lambda text, tag: wa.send_text(sender, text, idempotency_key=f"{tag}:{message_id}")  # noqa: E731
@@ -273,6 +276,11 @@ def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Pa
                                                                                 " Opening my booth now.")
             reply(line, "start")
             return f"already started; {booth()}"
+        if saved_song() is not None:   # no beat: the session starts on his song, a fresh copy (Owner 2026-11-04)
+            started = booth()
+            (nudge or nudge_booth)(b"song")
+            reply("On it. Setting up your session.", "song")
+            return f"his song asked of the booth; {started}"
         reply("Send me the beat first, then tell me to start.", "nobeat")
         return "asked for the beat: none is waiting"
     if waiting and short and not AFFIRM.search(said):

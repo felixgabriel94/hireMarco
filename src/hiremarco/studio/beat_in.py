@@ -41,12 +41,22 @@ from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-from hiremarco import gate
+from hiremarco import config, gate
 from hiremarco.studio.tracks import TENANT, _osascript
 
 AUDIO = (".wav", ".aif", ".aiff", ".mp3", ".m4a", ".flac", ".caf")
 TEMPLATE = Path.home() / "Music" / "Audio Music Apps" / "Project Templates" / "hireMarco Vocal Session.logicx"
 SESSIONS = Path.home() / "Music" / "Logic" / "hireMarco Sessions"
+SONG_KEY = "HIREMARCO_SONG"  # his song's .logicx: "set up my session" with no beat opens a copy of it (Owner 2026-11-04)
+
+
+def his_song() -> Path | None:
+    """The song "set up my session" opens a copy of when no beat is waiting; None when none is set or it is gone."""
+    raw = (config.get(SONG_KEY) or "").strip()
+    if not raw:
+        return None
+    song = Path(raw).expanduser()
+    return song if song.suffix == ".logicx" and song.is_dir() else None
 INBOX = Path.home() / "Music" / "hireMarco Inbox"
 BEAT_TRACK = "Beat"
 BEAT_STACK = "PROD"
@@ -616,12 +626,29 @@ class BeatLoader:
         chooser = f"; Logic's {self.last_chooser} cancelled" if self.last_chooser else ""
         return f"{session.name} is open from the template, nothing on it yet{chooser}"
 
-    def open_session(self, beat: Path, name: str | None = None, prepare: Callable[[Path], None] | None = None) -> Path:
-        if not self.template.exists():
-            raise LoadError(f"the template is missing: {self.template}")
+    def open_song(self, song: Path | None = None) -> str:
+        """His song, a fresh copy of it, never the original (Owner 2026-11-04: the session starts on his song): the
+        copy sits beside the other sessions under the song's name and the day, and opens the same way."""
+        song = song or his_song()
+        if song is None:
+            raise LoadError(f"no song is set ({SONG_KEY})")
+        if not (song / "Media").is_dir() and (song.parent / "Audio Files").is_dir():
+            raise LoadError(f"{song.name} keeps its audio beside it, in a project folder; a copy of the package alone "
+                            "would play from the original's files")
+        session = self.open_session(song, None, source=song)
+        chooser = f"; Logic's {self.last_chooser} cancelled" if self.last_chooser else ""
+        return f"{session.name} is open, a copy of {song.name}{chooser}"
+
+    def open_session(self, beat: Path, name: str | None = None, prepare: Callable[[Path], None] | None = None,
+                     source: Path | None = None) -> Path:
+        source = source or self.template
+        if not source.exists():
+            raise LoadError(f"the template is missing: {source}" if source == self.template else f"the song is missing: {source}")
         self.sessions.mkdir(parents=True, exist_ok=True)
         target = session_path(beat, self.sessions, self.today(), name)
-        shutil.copytree(self.template, target)
+        if target.resolve() == source.resolve():
+            raise LoadError(f"the copy would land on {source.name} itself")
+        shutil.copytree(source, target)
         if prepare is not None:  # files that belong in the session go in before Logic opens it
             prepare(target)
         self.wake()
