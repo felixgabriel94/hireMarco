@@ -616,7 +616,15 @@ def dress(photo_path: Path, said: str, *, conn: sqlite3.Connection, send: Callab
                                "(?, 'open', ?, ?, ?, ?)", (now.isoformat(), said, str(photo_path), record,
                                                             looks.recommend)).lastrowid
         conn.commit()
-    return Dressed(pieces, looks, seen, made, [c for c in (seen_copy, made_copy) if c], row)
+    from hiremarco import reveal  # what SAM sees in motion, for the edit: after both pictures are sent
+
+    clip = reveal.try_clip([what_sam_sees(photo, [p for p in pieces if p.number <= k]) for k in range(len(pieces) + 1)],
+                           seen.with_suffix(".mp4"))
+    clip_copy = None
+    if clip is not None and film is not None and film.is_dir():
+        clip_copy = film / clip.name
+        shutil.copyfile(clip, clip_copy)
+    return Dressed(pieces, looks, seen, made, [c for c in (seen_copy, made_copy, clip_copy) if c], row)
 
 
 def lock_in(conn: sqlite3.Connection, letter: str, *, client=None, now: datetime | None = None) -> tuple[str, str]:

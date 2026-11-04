@@ -1191,11 +1191,23 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
                          idempotency_key=f"beat:{message.id}")
             return trace.done(f"beat kept as {path.name}, waiting for his word")
         said, photo = message.text, None
-        if message.kind == "image" and message.media_id:
+        if message.kind in ("image", "video") and message.media_id:
             try:
                 data, mime = wa.download_media(message.media_id)
+                suffix = photos.suffix_of(message.filename, message.mime_type or mime)
+                if message.kind == "video":  # SAM reads stills: his video becomes its sharpest frame (Owner 2026-11-04)
+                    from hiremarco import reveal
+
+                    from dataclasses import replace as replaced
+
+                    try:
+                        data, suffix = reveal.sharpest_frame(data), ".jpg"
+                    except ValueError as unread:
+                        raise photos.Unreadable(str(unread)) from unread
+                    message = replaced(message, kind="image")  # from here on it is the photo he meant
+                    trace.add("video: its sharpest frame kept as the photo")
                 photo = photos.keep(wa.conn, data, message.id, message.caption,  # remembered in the conversation
-                                    suffix=photos.suffix_of(message.filename, message.mime_type or mime))
+                                    suffix=suffix)
             except (photos.Unreadable, WhatsAppError) as bad:
                 photos.failed(wa.conn, message.id)
                 # one line for the whole burst: the same key for ten minutes, and the gate lets one through

@@ -162,7 +162,7 @@ def done_waiting() -> None:
     _waiting_path().unlink(missing_ok=True)
 
 
-def what_sam_sees(photo: bytes, boxes: list[Box], long_side: int = 1600):
+def what_sam_sees(photo: bytes, boxes: list[Box], long_side: int = 1600, shown: int | None = None):
     """The photo with every knob SAM found outlined in its own color and numbered big, like Dress me's first picture."""
     from PIL import Image, ImageDraw
 
@@ -178,7 +178,7 @@ def what_sam_sees(photo: bytes, boxes: list[Box], long_side: int = 1600):
     ring = max(5, round(longest * 0.006))
     radius = max(18, round(longest * 0.022))
     numbers = font(round(radius * 1.25))
-    for i, b in enumerate(boxes, 1):
+    for i, b in enumerate(boxes[:shown] if shown is not None else boxes, 1):  # ``shown``: the first few, for the clip
         color = COLORS[(i - 1) % len(COLORS)]
         x1, y1, x2, y2 = b.x1 * sx, b.y1 * sy, b.x2 * sx, b.y2 * sy
         draw.rectangle((x1, y1, x2, y2), outline=color, width=ring)
@@ -228,6 +228,7 @@ def save(photo_path: Path, *, send: Callable[[bytes, str, str], object] | None, 
         send(jpeg_of(seen), f"I see {len(boxes)} knob{'s' if len(boxes) != 1 else ''}. Reading them now.", "sees")
     readings = read_6176(photo, client=client, boxes=boxes)
     note = as_note(readings)
+    _clip(photo, boxes, out.with_suffix(".mp4"), film)  # after his replies' content is known, before the recall
     if not readings:  # nothing read with confidence is not a recall: the last good one stands
         return Saved(note, [], len(boxes), out)
     with recall_path().open("a") as f:
@@ -243,3 +244,13 @@ def latest_recall() -> dict | None:
     except OSError:
         return None
     return json.loads(lines[-1]) if lines else None
+
+
+def _clip(photo: bytes, boxes: list[Box], path: Path, film: Path | None) -> Path | None:
+    """What SAM sees in motion for the edit: the unit alone, then each knob outlined and numbered in reading order."""
+    from hiremarco import reveal
+
+    made = reveal.try_clip([what_sam_sees(photo, boxes, shown=k) for k in range(len(boxes) + 1)], path)
+    if made is not None and film is not None and film.is_dir():
+        (film / made.name).write_bytes(made.read_bytes())
+    return made

@@ -283,7 +283,8 @@ def test_dress_me_with_the_photo_sends_what_sam_sees_then_the_board_then_locks_i
     assert sent[1]["image"]["caption"].startswith("B for me")
     assert len(uploads) == 2 and all(b"image/jpeg" in u and b"marco.jpg" in u for u in uploads)
     film = sorted(p.name for p in (tmp_path / "film").iterdir())
-    assert len(film) == 2 and film[0].endswith("-board.png") and film[1].endswith("-what-sam-sees.png")
+    assert len(film) == 3 and film[0].endswith("-board.png") and film[2].endswith("-what-sam-sees.png")
+    assert film[1].endswith("-what-sam-sees.mp4")  # what SAM sees in motion, for the edit (Owner 2026-11-04)
     for name in film:
         assert (config.STATE_DIR / "dress" / name).read_bytes() == (tmp_path / "film" / name).read_bytes()
     asked = json.loads(seen[0]["messages"][1]["content"][0]["text"])
