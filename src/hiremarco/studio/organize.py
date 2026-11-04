@@ -325,14 +325,34 @@ def live_apply(plan: Plan, *, log: Callable[[str], None] = print, conn=None) -> 
     return apply(plan, select=select, rename=hands.rename, read_names=read_names, log=log)
 
 
+def open_stacks() -> dict:
+    """Every closed stack opened before the survey, so the tracks inside are seen and named (live 2026-11-04)."""
+    done = subprocess.run(["osascript", "-l", "JavaScript", str(SCRIPTS / "open_stacks.js")], capture_output=True,
+                          text=True, timeout=120)
+    if done.returncode != 0:
+        raise RuntimeError(done.stderr.strip()[-200:] or f"osascript exit {done.returncode}")
+    return json.loads(done.stdout)
+
+
 def organize_now(*, direction: str = "", log: Callable[[str], None] = print, conn=None,
-                 survey_of=None, propose_for=None, apply_plan=None) -> str:
-    """Asked aloud or by text, the asking is the go (Owner 2026-11-04: "organize my session"): survey, plan, rename,
-    read back. Only on the copy Marco opened; the booth checks that. One line of what was done."""
+                 survey_of=None, propose_for=None, apply_plan=None, unstack=None) -> str:
+    """Asked aloud or by text, the asking is the go (Owner 2026-11-04: "organize my session"): every stack opened,
+    survey, plan, rename, read back. Only on the copy Marco opened; the booth checks that. One line of what was
+    done; a stack that would not open is said, never hidden behind "labeled" (live 2026-11-04)."""
+    stacks = {"opened": 0, "still_closed": 0}
+    if unstack is not None or survey_of is None:
+        try:
+            stacks = (unstack or open_stacks)()
+            log(f"   stacks opened: {stacks.get('opened', 0)}, still closed: {stacks.get('still_closed', 0)}")
+        except Exception as exc:
+            log(f"   (stacks not opened: {type(exc).__name__}: {str(exc)[-120:]})")
+            stacks = {"opened": 0, "still_closed": -1}
     layout = (survey_of or survey)()
+    closed = sum(1 for t in layout.tracks if getattr(t, "stack", "") == "closed")
     plan = (propose_for or (lambda l: propose(l, direction=direction)))(layout)
     done = (apply_plan or (lambda p: live_apply(p, log=log, conn=conn)))(plan)
-    return f"{len(done)} of {len(layout.tracks)} tracks renamed and read back"
+    line = f"{len(done)} of {len(layout.tracks)} tracks renamed and read back"
+    return line + (f"; {closed} stack{'s' if closed != 1 else ''} stayed closed" if closed else "")
 
 
 def names_by_track_number(listing: str) -> dict[int, str]:

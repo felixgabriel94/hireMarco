@@ -418,6 +418,9 @@ def dismiss_notices() -> str:
     return done.stdout.strip()
 
 
+CHOOSER_CHECKS = 12   # half a second apart: Logic's "Choose a Project" is watched for 6 s after the session shows
+
+
 def dismiss_chooser() -> str:
     """Logic's "Choose a Project" chooser, which a cold launch puts over the session it was asked to open (live
     2026-11-04: Marco stopped there): its Cancel is pressed, the session behind it is the one he opened. Returns the
@@ -663,8 +666,15 @@ class BeatLoader:
             if title.startswith(target.stem):
                 self.sleep(1.0)
                 self.notices()
-                self.last_chooser = self.chooser()   # the cold launch's chooser over the session: gone, the session is in front
-                if self.last_chooser:
+                # the cold launch's chooser over the session: gone, the session is in front. It can come up seconds
+                # after the session shows (live 2026-11-04: it stayed over the song), so it is watched for a while
+                self.last_chooser = ""
+                for _ in range(CHOOSER_CHECKS):
+                    found = self.chooser()
+                    if found:
+                        self.last_chooser = found
+                    elif self.last_chooser:
+                        break
                     self.sleep(0.5)
                 return target
             asked = self._save_question()

@@ -90,3 +90,19 @@ def test_a_spoken_checkpoint_puts_the_glow_out_first_and_back_after(monkeypatch)
     in_logic_while_speaking, rows_then = seen[0]
     assert in_logic_while_speaking is False and rows_then[-1][0] == "glow_rest"
     assert rows[-1][0] == "glow_back" and b.in_logic is True
+
+
+def test_stacks_are_opened_before_the_survey_and_a_closed_one_is_said(monkeypatch):
+    # live 2026-11-04: with the stacks closed he saw 3 of 30 tracks and said "labeled and ready"
+    from types import SimpleNamespace
+
+    from hiremarco.studio import organize
+
+    order = []
+    layout = SimpleNamespace(tracks=[SimpleNamespace(stack="closed"), SimpleNamespace(stack=""),
+                                     SimpleNamespace(stack="open")])
+    line = organize.organize_now(unstack=lambda: order.append("open") or {"opened": 4, "still_closed": 1},
+                                 survey_of=lambda: order.append("survey") or layout, propose_for=lambda l: "plan",
+                                 apply_plan=lambda p: [1, 2], log=lambda line: None)
+    assert order == ["open", "survey"]
+    assert line == "2 of 3 tracks renamed and read back; 1 stack stayed closed"

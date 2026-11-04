@@ -328,6 +328,13 @@ class Booth:
         self._work("ended", "organize")
         if self.tracks is not None:
             self.session = self.tracks.scan()
+        if "stayed closed" in done:   # never "labeled" when stacks hid tracks from him (live 2026-11-04)
+            self._say("some track stacks would not open, so the tracks inside them are not labeled; say so plainly",
+                      {"done": done}, "I labeled the tracks I could see. Some stacks wouldn't open.")
+            sent = self._text("I labeled the tracks I could see, but some stacks wouldn't open, so the tracks inside "
+                              "them still have their old names.")
+            self._result()
+            return f"organized in part: {done}; {sent}"
         self._say("every track in his session is labeled; say the session is labeled and ready, in one short line",
                   {"done": done}, "Your session's labeled and ready.")
         sent = self._text("Session's labeled and ready.")
