@@ -254,6 +254,12 @@ KIND_WORDS = {"lead": "lead", "the lead": "lead", "lead vocal": "lead", "main vo
               "the beat": "beat", "beat": "beat"}
 NEW_FOR_SAID = re.compile(r"(?:^|\b)(?:(?:create|make|give me|add|open) )?(?:a |the )?new track for (?:the |my |an? )?"
                           r"(?P<kind>lead vocal|main vocal|lead|ad[- ]?libs?|harmony|harmonies|doubles?|reference|beat)$")
+# "create a new harmony", "make a new lead track", "give me another ad-lib": a new track for that part (Owner 2026-11-04)
+NEW_KIND_SAID = re.compile(r"(?:^|\b)(?:(?:create|make|give me|get me|add|open|start|i need|let'?s do) )?(?:me )?"
+                           r"(?:a |another |one more )?(?:new )?(?P<kind>lead vocal|main vocal|lead|ad[- ]?libs?|harmony|"
+                           r"harmonies|doubles?)(?: track| vocal| part)?(?: please)?$")
+NEW_KIND_ASK = re.compile(r"^(?:(?:create|make|give me|get me|add|open|start|i need|let'?s do) |another |one more |"
+                          r"(?:a )?new )")
 LABEL_SAID = re.compile(r"^(?:we'?re on|this is|this one'?s|this track is|it'?s|recording) (?:the |an? )?(?P<kind>lead vocal|"
                         r"main vocal|lead|ad[- ]?libs?|harmony|harmonies|double|reference|beat)(?: track| now)?$")
 NAME_SAID = re.compile(r"^(?:name|call|label) (?:this track|the track|this one|this|the|it) (?P<name>.+)$")
@@ -597,6 +603,13 @@ def understand(line: str, client: MuseSpark | None = None, context: list[str] | 
     if m:
         kind = KIND_WORDS.get(m.group("kind").replace("-", " ")) or KIND_WORDS.get(m.group("kind"))
         return Command("new_track", text=kind or "")
+    asks_new = bool(NEW_KIND_ASK.match(said) and " new " in f" {said} " or re.match(r"^(?:another|one more) ", said))
+    m = NEW_KIND_SAID.search(said) if asks_new else None
+    if m:
+        word = m.group("kind")
+        kind = KIND_WORDS.get(word.replace("-", " ")) or KIND_WORDS.get(word) or KIND_WORDS.get(word.rstrip("s"))
+        if kind:
+            return Command("new_track", text=kind)
     tidy = tidy_command(said)
     if tidy:
         return tidy

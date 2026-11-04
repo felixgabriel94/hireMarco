@@ -229,6 +229,7 @@ class Booth:
     open_empty: Callable[[], str] | None = None       # studio.beat_in.BeatLoader.open_empty: a session from the template, no beat
     open_song: Callable[[], str] | None = None        # studio.beat_in.BeatLoader.open_song: a fresh copy of his song
     organize: Callable[[], str] | None = None         # studio.organize.organize_now on the open session: labels every track
+    place: Callable[[str], str] | None = None         # studio.placement.place: a new part's track selected inside its stack
     copy_open: bool = False                           # the session in Logic is a copy Marco opened: organizing may rename it
     in_logic: bool = False                            # he is at work in Logic: the glow has him, the halo steps away
     left_logic_at: float = -100.0                     # when the last work in Logic ended: the glow fades, then the halo returns
@@ -1679,7 +1680,15 @@ class Booth:
                 return "punch where? nothing pending"
             command = replace(command, section=self.pending_punch)
         if a == "new_track" and command.text and self.tracks is not None:
-            # one move: make the track (Logic selects it), then name it for its kind
+            # one move: the part's stack found and its last track selected (Owner 2026-11-04: inside the stack, never
+            # outside the groups), the track made (Logic selects it), then named for its kind
+            where = ""
+            if self.place is not None:
+                try:
+                    where = self.place(command.text)
+                except Exception as exc:  # the track is still made; where it went is said, not hidden
+                    where = f"not placed: {type(exc).__name__}: {str(exc)[-120:]}"
+                self.log(f"   placing: {where or 'no stack for this part'}")
             made = self.logic(Command("new_track"))
             time.sleep(self.settle)  # Logic draws the new track and selects it before it can be named
             if self.session is None:
@@ -1696,9 +1705,14 @@ class Booth:
             from hiremarco.studio.tracks import TrackInfo
 
             self.session.tracks.append(TrackInfo(len(self.session.tracks) + 1, name, 0))  # he knows it is there now
-            self._say("made a new track and named it", {"role": command.text, "name": name},
-                      f"{name}. Rolling when you are.")
-            return f"{made}; {what}"
+            if where.startswith(("no stack", "not placed")):
+                self._say("made a new track and named it, but found no stack for that part, so it sits outside the stacks",
+                          {"role": command.text, "name": name, "where": where},
+                          f"{name}. There's no stack for that part, so it's at the end.")
+            else:
+                self._say("made a new track inside its stack and named it", {"role": command.text, "name": name,
+                          "where": where}, f"{name}. Rolling when you are.")
+            return f"{made}; {where + '; ' if where else ''}{what}"
         if a in ("play_take", "play_from_lyric"):
             return self._play_back(command)
         if a in ("solo", "unsolo"):
@@ -1777,6 +1791,14 @@ class Booth:
                 result = f"{result}; take note: {note.spoken}"
             self._mention_email_offer()
         return result
+
+
+def _place(kind: str) -> str:
+    from hiremarco.studio.beat_in import BeatLoader
+    from hiremarco.studio.placement import place
+
+    loader = BeatLoader()
+    return place(kind, select=loader.select, select_last=loader.select_last)
 
 
 def _song() -> str:
@@ -2095,6 +2117,7 @@ def run_booth(*, dry_run: bool = False) -> int:
                   .BeatLoader().open_song,
                   organize=None if dry_run else (lambda: __import__("hiremarco.studio.organize", fromlist=["organize_now"])
                                                  .organize_now(log=lambda line: print(line, flush=True))),
+                  place=None if dry_run else _place,
                   text_owner=None if dry_run else _text_owner_plain,
                   master=None if dry_run else _booth_master,
                   result_on=None if dry_run else _result_on,
