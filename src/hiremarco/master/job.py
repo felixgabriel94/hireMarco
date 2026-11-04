@@ -850,6 +850,11 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
                 row["bypassed"] = True
     for row in result.manifest:
         log(f"   {row['name']}: {row['status']}" + (" (bypassed)" if row["bypassed"] else ""))
+        if row["status"] == "stray":
+            # the catch goes on the screen, not only in the log (Owner 2026-11-03: an unowned Shadow Hills sat on the
+            # strip with START DEMO on its window; Marco had put it out and nobody saw him do it)
+            events.emit("tool_skipped", source="marco", status="refused", tool="Logic Pro", summary=f"{row['name']} left out.",
+                        detail="On the output from before, and not in this plan.", plain="This one is not his to use. Marco leaves it out.")
     # every planned insert that was already on the strip gets its face read too (Owner 2026-11-02: an unowned
     # Shadow Hills sat in the chain with START DEMO on its window because only new inserts were faced)
     if look_at_face is not None and hasattr(strip, "open_insert"):

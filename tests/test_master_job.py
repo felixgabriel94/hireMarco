@@ -656,3 +656,24 @@ def test_the_job_trims_the_tail_before_it_measures_the_master(tmp_path, monkeypa
     trim = next(r for r in rows if r["kind"] == "tool_completed" and r.get("summary", "").startswith("Cut 3 seconds"))
     check = next(i for i, r in enumerate(rows) if r.get("plain") == "Marco is checking what actually came out.")
     assert rows.index(trim) < check and json.loads(result.record.read_text())["trimmed_s"] == 3.0
+
+
+def test_a_stray_left_out_is_a_catch_on_the_screen(tmp_path, monkeypatch):
+    # Owner 2026-11-03: an unowned plug-in sat on the strip with START DEMO showing; Marco had put it out, in the log only
+    from hiremarco import config
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+    monkeypatch.setattr(jobs, "LEDGER", tmp_path / "ledger.json", raising=False)
+    jobs.remember_insert("song", "Kickstart ", "Gain", stray=True)
+    strip = FakeStrip()
+    strip.inserts.append(Insert("Kickstart ", False, 585, 180, marcos=True) if "marcos" in Insert.__dataclass_fields__ else Insert("Kickstart ", False, 585, 180))
+    bouncer, channel = FakeBouncer(tmp_path, [-30.0, -20.0, -12.0]), FakeChannel()
+    plan = MasterPlan([{"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}], -12.0, -1.0, "ok", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings([], ""))
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+                      toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2"}, log=lambda s: None)
+    strays = [r for r in result.manifest if r["status"] == "stray"]
+    catches = [r for r in _events(tmp_path) if r["kind"] == "tool_skipped" and r.get("summary", "").endswith("left out.")]
+    assert strays and catches and catches[0]["plain"] == "This one is not his to use. Marco leaves it out."
