@@ -58,6 +58,9 @@ HEARD = ["Talk to me.", "What's up?", "Yeah?", "I'm here.", "Right here.", "What
          "Hey, what's up?", "I got you, what's up?", "What are we thinking?"]
 AFTER_TAKE = ["How we feeling?", "Talk to me.", "What you thinking?"]
 DISMISSED = "Anytime."
+# what is talk, not work in Logic: the halo alone, no glow on a window (Owner 2026-11-03); anything else lights the glow
+TALK = frozenset({"kill", "dismiss", "chat", "summon", "unknown", "note", "take_feedback", "hearing", "reference",
+                  "live_view", "mode", "show", "list_sections"})
 AWAKE = 20.0  # seconds after the last exchange in which a sentence needs no "Marco"; the same quiet ends the halo
 LIVE_ON = "Live view's on. The link's on the Mac."
 LIVE_TEXTED = "Live view's on. I texted you the link."
@@ -177,6 +180,43 @@ class Booth:
     text_owner: Callable[[str], str] | None = None    # one WhatsApp text to the artist; None: the line is said only
     last_setup: dict = field(default_factory=dict)    # the key, tempo and beat gain the session was last set to
     master: Callable[[str], str] | None = None        # master.live.run_live on this session, the WAVs texted; its summary
+    open_empty: Callable[[], str] | None = None       # studio.beat_in.BeatLoader.open_empty: a session from the template, no beat
+
+    def _work(self, what: str, action: str) -> None:
+        """One row for the glow: the booth is at work in Logic, or done (Owner 2026-11-03: wherever he goes, the
+        audience sees where he is). The master job writes its own job rows inside; the glow keeps the first light."""
+        try:
+            from hiremarco import events as stream
+
+            stream.emit(f"work_{what}", source="marco", operation=action, status="ok", pid=os.getpid())
+        except Exception:   # the glow is the look, not the work
+            pass
+
+    def new_session(self, name: str | None = None) -> str:
+        """A session from the template with no beat (Owner 2026-11-03): the halo first, then Logic opens, then he
+        waits; the beat can land later and goes on the Beat track as always."""
+        if self.open_empty is None:
+            return "no session opener in this booth"
+        if self.rolling:
+            return "holding the new session until the take stops"
+        self.operating = True   # the halo shows him setting up before Logic is even open
+        self._work("started", "new_session")
+        self._say("the artist asked for a fresh session with no beat; opening one from the template; say so in a line",
+                  {"song": name or ""}, "Opening a fresh session. I'll wait for you.")
+        try:
+            opened = self.open_empty(name) if name else self.open_empty()
+        except Exception as exc:
+            self._say("could not open the session", {"why": str(exc)[-160:]}, "I couldn't open the session.")
+            return f"session not opened: {type(exc).__name__}: {str(exc)[-160:]}"
+        finally:
+            self.operating = False
+            self._work("ended", "new_session")
+        if self.tracks is not None:
+            self.session = self.tracks.scan()
+        self.last_setup = {}
+        self._say("the fresh session is open and empty; say so in a line and that you are ready", {"session": opened},
+                  "Session's open. Ready when you are.")
+        return opened
 
     def beat_arrived(self, path: Path, name: str | None = None) -> str:
         """A beat in his inbox (Owner 2026-10-29): a new session from the template with the beat on the Beat track
@@ -190,6 +230,7 @@ class Booth:
 
         self._asked = asked_for(path)
         self.operating = True  # the halo comes up first, then Logic opens (Owner 2026-10-31)
+        self._work("started", "beat_arrived")
         time.sleep(1.5)
         self._say("a beat arrived; opening a session from the template with it on the Beat track",
                   {"file": path.name, "song": name}, "Got the beat. Setting up the session.")
@@ -197,11 +238,13 @@ class Booth:
             loaded = self.load_beat(path, name) if name else self.load_beat(path)
         except Exception as exc:  # the file stays where it was; he hears why
             self.operating = False
+            self._work("ended", "beat_arrived")
             self._say("could not put the beat in a session", {"file": path.name, "why": str(exc)[-160:]},
                       "I couldn't put the beat in the session. It's still in the inbox.")
             self._text(f"I couldn't put {path.name} in a session. It's still in the inbox.")
             return f"beat not loaded: {type(exc).__name__}: {str(exc)[-160:]}"
         self.operating = False
+        self._work("ended", "beat_arrived")
         if self.tracks is not None:
             self.session = self.tracks.scan()
         self.last_setup = {}
@@ -404,6 +447,9 @@ class Booth:
         self.busy = True
         self.last_said = ""
         self.heard_line = line
+        working = command.action not in TALK   # Owner 2026-11-03: talking is the halo; work in Logic is the glow on its window
+        if working:
+            self._work("started", command.action)
         try:
             result = self.handle(command)
         except gate.Refused as refused:
@@ -413,6 +459,8 @@ class Booth:
             self._say("an action failed", {"asked": line, "what_failed": result}, FAILED)
         finally:
             self.busy = False
+            if working:
+                self._work("ended", command.action)
         if self.writer is not None:
             self.writer.heard(line, self.last_said)
         self.history.append(f"artist: {line} | done: {result} | marco said: {self.last_said}")
@@ -1261,6 +1309,8 @@ class Booth:
             except gate.Refused as held:
                 return f"held: {held.reason}"
             return f"shown on the phone ({message_id[-6:]})"
+        if a == "new_session":
+            return self.new_session(command.text or None)
         if a == "live_view":
             if self.live is None:
                 return "no live view in this booth"
@@ -1727,6 +1777,8 @@ def run_booth(*, dry_run: bool = False) -> int:
                   flex=None if dry_run else flex.first_pass,
                   load_beat=None if dry_run else __import__("hiremarco.studio.beat_in", fromlist=["BeatLoader"])
                   .BeatLoader().load,
+                  open_empty=None if dry_run else __import__("hiremarco.studio.beat_in", fromlist=["BeatLoader"])
+                  .BeatLoader().open_empty,
                   text_owner=None if dry_run else _text_owner_plain,
                   master=None if dry_run else _booth_master,
                   result_on=None if dry_run else _result_on,

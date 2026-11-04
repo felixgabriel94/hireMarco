@@ -75,22 +75,26 @@ class State:
         self.pulsed_at: float | None = None
         self.began_at: float | None = None
         self.ended_at: float | None = None
+        self.job = False   # a master job is lit: it ends on its own row, not on the command's that started it
         self.alive = alive or _alive
 
     def add(self, rows: list[dict], now: float) -> None:
         for row in rows:
             kind = row.get("kind")
-            if kind == "job_started":
-                self.pid, self.began_at, self.ended_at = row.get("pid"), now, None
-            elif kind == "job_ended":
-                self._end(now)
+            if kind in ("job_started", "work_started"):   # a master job, or the booth at work in Logic for one command
+                if not self.pid:   # a light already on stays on: no second birth for work inside work
+                    self.began_at, self.ended_at = now, None
+                self.pid = row.get("pid") or self.pid
+                self.job = kind == "job_started" or (self.job and kind == "work_started")
+            elif kind == "job_ended" or (kind == "work_ended" and not self.job):
+                self._end(now)   # a command's end does not end a job it started: the job's own last row does
             elif self.pid and row.get("model") != events.VOICE_MODEL:
                 self.pulsed_at = now
 
     def _end(self, now: float) -> None:
         if self.pid:
             self.ended_at = now
-        self.pid = None
+        self.pid, self.job = None, False
 
     def working(self, now: float | None = None) -> bool:
         if self.pid and not self.alive(self.pid):
@@ -252,6 +256,8 @@ def show(*, at: Path | None = None) -> None:
                 feed["polled"] = now
                 found = front_logic_window(windows())
                 if found is not None:
+                    if view.target is None and state.began_at is not None:   # Logic was still opening: the birth starts now
+                        state.began_at = max(state.began_at, now - 0.001)
                     view.target = view_rect(found, screen_h)
             view.alpha = state.alpha(now) if view.target is not None else 0.0
             view.phase = state.phase(now)

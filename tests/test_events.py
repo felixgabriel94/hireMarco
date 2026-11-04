@@ -82,3 +82,9 @@ def test_a_step_carries_the_word_it_ends_with_to_the_page(tmp_path, monkeypatch)
     start, end = events.for_page(rows[0]), events.for_page(rows[1])
     assert start["type"] == "call_start" and start["word"] == "tested"
     assert end["type"] == "call_end" and end["word"] == "tested" and end["summary"].startswith("Pro-L 2 stays")
+
+
+def test_work_rows_are_the_glows_cue_and_not_a_page_line(tmp_path):
+    row = events.emit("work_started", source="marco", operation="arrange", pid=7, at=tmp_path / "e.jsonl")
+    assert row["kind"] == "work_started" and row["pid"] == 7
+    assert events.for_page(row) is None and events.for_page({"kind": "work_ended", "status": "ok"}) is None

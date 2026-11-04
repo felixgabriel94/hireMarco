@@ -556,3 +556,26 @@ def test_a_track_for_a_made_sound_is_not_armed():
     presses = plan(Command("new_sound_track")).presses
     armed = plan(Command("new_track")).presses
     assert len(presses) == 1 and presses[0].key == KEYMAP["new_audio_track"][0] and len(armed) == 2
+
+
+def test_a_session_opens_from_the_template_with_no_beat_and_waits(tmp_path):
+    # Owner 2026-11-03: "open a new session and wait for me"; the beat can come later
+    logic = FakeLogic("Session")
+    result = loader(tmp_path, logic).open_empty()
+    session = tmp_path / "sessions" / "Session 2026-10-29.logicx"
+    assert result == "Session 2026-10-29.logicx is open from the template, nothing on it yet"
+    assert (session / "Alternatives" / "000" / "ProjectData").read_bytes() == b"pd"
+    assert logic.opened == session and logic.calls[0] == ["wake"] and logic.clicks == []
+
+
+def test_the_booth_opens_an_empty_session_with_the_halo_first_and_the_glow_rows_around_it(monkeypatch):
+    from hiremarco import events
+
+    rows, seen = [], []
+    monkeypatch.setattr(events, "emit", lambda kind, **k: rows.append((kind, k.get("operation"))) or {})
+    b, said = booth_with(lambda p: "unused")
+    b.open_empty = lambda: seen.append(b.operating) or "Session 2026-11-03.logicx is open from the template, nothing on it yet"
+    assert b.new_session().startswith("Session 2026-11-03.logicx is open")
+    assert seen == [True] and b.operating is False
+    assert said == ["Opening a fresh session. I'll wait for you.", "Session's open. Ready when you are."]
+    assert rows == [("work_started", "new_session"), ("work_ended", "new_session")]

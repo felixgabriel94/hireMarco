@@ -311,6 +311,9 @@ REFERENCE_SAID = re.compile(r"^(?:i want (?:it |this |my vocal |my voice )?to so
                             r"(?:the )?reference is|like) (?P<who>.+)$")
 SHOW_SAID = re.compile(r"^(?:show me|show me the (?:session|screen|logic)|send me (?:a |the )?(?:screenshot|picture|screen)|"
                        r"what does it look like)$")
+NEW_SESSION_SAID = re.compile(r"^(?:(?:open|start|set up|make|create|give me)(?: up)? (?:a |the )?(?:new |fresh |blank |empty )?"
+                              r"(?:session|project|logic(?: pro)?(?: session)?)|new session|open (?:up )?logic(?: pro)?)"
+                              r"(?: for me)?(?:,? ?(?:and|then)? ?(?:wait|hold)(?: for me| there| up)?)?$")
 LIVE_SAID = re.compile(r"^(?:(?:give me|open|start|turn on|put up) (?:the )?live(?: view| video)?|live view|"
                        r"(?:put|stream) (?:it|the session|logic) (?:on|to) my phone|stream (?:it|the session|logic))$")
 MODE_SAID = re.compile(r"^(?:what mode(?: are you in)?|are we recording or mixing|"
@@ -324,6 +327,8 @@ def tidy_command(said: str) -> Command | None:
             KIND_WORDS.get(m.group("kind"), None)
         if kind:
             return Command("label_track", text=kind)
+    if NEW_SESSION_SAID.match(said):   # a session with no beat yet (Owner 2026-11-03): Logic opens and he waits
+        return Command("new_session")
     if LIVE_SAID.match(said):
         return Command("live_view")
     if SHOW_SAID.match(said):

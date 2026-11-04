@@ -588,6 +588,12 @@ class BeatLoader:
         self.select(name)
         return name
 
+    def open_empty(self, name: str | None = None) -> str:
+        """A new session from the template with no beat (Owner 2026-11-03: "open a new session and wait for me"):
+        the same copy, the same wait for Logic's window, the Beat track left empty for the beat that comes later."""
+        session = self.open_session(Path("Session"), name)
+        return f"{session.name} is open from the template, nothing on it yet"
+
     def open_session(self, beat: Path, name: str | None = None, prepare: Callable[[Path], None] | None = None) -> Path:
         if not self.template.exists():
             raise LoadError(f"the template is missing: {self.template}")

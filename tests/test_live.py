@@ -210,3 +210,11 @@ def test_the_live_view_text_goes_as_a_card_through_the_branded_doorway(monkeypat
     monkeypatch.setattr(config, "get", lambda key, default=None: default)
     booth._text_owner("Live view of the session.", "http://192.168.5.196:8788/?t=abc")
     assert sent[-1] == ("button", "http://192.168.5.196:8788/?t=abc", "Open live view")
+
+
+@pytest.mark.parametrize("line", ["Marco, open a new session and wait for me", "Marco, open a new session", "Marco, new session",
+                                  "Marco, open Logic", "Marco, set up a session and wait", "Marco, start a fresh session for me"])
+def test_the_booth_opens_an_empty_session_on_the_line(line):
+    from hiremarco.studio.commands import Command, understand
+
+    assert understand(line, client=None) == Command("new_session")

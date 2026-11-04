@@ -58,3 +58,19 @@ def test_the_outline_slides_to_a_new_window_and_the_birth_stretches_from_the_hal
     assert landed == (0.0, 75.0, 1512.0, 874.0) and radius == glow.RADIUS
     mid, _ = glow.birth(0.5, (756.0, 491.0), (0.0, 75.0, 1512.0, 874.0))
     assert ring[2] < mid[2] < landed[2]
+
+
+def test_the_booth_at_work_lights_the_glow_and_a_job_inside_keeps_one_light():
+    # Owner 2026-11-03: talking is the halo, work in Logic is the glow, for every command, not only a master
+    state = glow.State(alive=lambda pid: True)
+    state.add([{"kind": "work_started", "pid": 7, "operation": "arrange"}], 10.0)
+    assert state.working(10.0) and state.began_at == 10.0
+    state.add([{"kind": "work_ended", "pid": 7, "operation": "arrange"}], 12.0)
+    assert not state.working(12.0) and state.ended_at == 12.0
+    state.add([{"kind": "work_started", "pid": 7, "operation": "export"}], 20.0)
+    state.add([{"kind": "job_started", "pid": 7}], 20.5)       # the master's own rows, inside the command's
+    assert state.began_at == 20.0                               # one light, no second birth
+    state.add([{"kind": "work_ended", "pid": 7, "operation": "export"}], 21.0)
+    assert state.working(21.0)                                  # the command returned; the job still runs
+    state.add([{"kind": "job_ended"}], 40.0)
+    assert not state.working(40.0) and state.ended_at == 40.0

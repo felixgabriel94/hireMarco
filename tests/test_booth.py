@@ -168,3 +168,17 @@ def test_after_a_real_take_he_says_how_it_went_without_being_asked():
     b.tape.write(np.ones(RATE * AUTO_NOTE_SECONDS))
     result = b.hear("Marco, stop.")
     assert fed and said[-1] == "That was a great take, you're killing it." and "take note" in result
+
+
+def test_a_logic_command_lights_the_glow_and_talk_does_not(monkeypatch):
+    # Owner 2026-11-03: whenever he works in Logic the glow is on its window; talking is the halo alone
+    from hiremarco import events
+
+    rows = []
+    monkeypatch.setattr(events, "emit", lambda kind, **k: rows.append((kind, k.get("operation"))) or {})
+    b, said, did, fed = booth()
+    b.hear("Marco, more reverb")
+    assert rows == [("work_started", "knob"), ("work_ended", "knob")]
+    rows.clear()
+    b.hear("Marco, note the bridge needs air")
+    assert rows == []
