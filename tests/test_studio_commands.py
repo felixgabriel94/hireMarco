@@ -78,8 +78,9 @@ def test_section_needs_a_marker(tmp_path, monkeypatch):
         plan(Command("go_to_section", section="bridge"))
 
 
-def test_dry_run_touches_nothing():
-    logic = Logic(dry_run=True, run_script=lambda s: pytest.fail("no script in a dry run"))
+def test_dry_run_touches_nothing(tmp_path):
+    # an empty Performance folder: on the Mac the real one holds 005-MY CHAIN CONSOLE! (live 2026-11-04)
+    logic = Logic(dry_run=True, run_script=lambda s: pytest.fail("no script in a dry run"), preset_dir=tmp_path)
     assert logic.do(Command("new_track")) == "dry run: new track"
     assert 'keystroke "a" using {option down, command down}' in logic.planned[0]
 
