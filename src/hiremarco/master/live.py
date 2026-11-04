@@ -82,7 +82,7 @@ def run_live(song: str | None = None, end_bar: int | None = None, *, purpose: st
             # own server, over the tunnel, good for a day, with the numbers in the text and a button that opens it
             from hiremarco.master import share
 
-            url = share.link(share.offer(path, title=song, note=caption))
+            url = share.link(share.offer(path, title=song, note=caption, slug=share.slug_for(song)))
             # a plain link with the preview on: WhatsApp draws the card from the page's title, line and cover (Owner
             # 2026-11-03: a card, not text); the client's own send puts the bubble on Marco Live, so the job adds none
             wa.send_text(owner, f"{song}: the master.\n{url}", idempotency_key=f"master:{path.name}", exact=True, preview=True)

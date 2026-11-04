@@ -11,6 +11,7 @@ reads for the card it shows under the link.
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import time
 from pathlib import Path
@@ -27,12 +28,26 @@ def folder() -> Path:
     return Path(config.STATE_DIR) / "shares"
 
 
-def offer(path: Path, *, title: str, note: str, now: float | None = None) -> str:
-    """One link's record: the file, its words, its waveform and its cover, and when the link dies. Returns the id."""
-    share_id = secrets.token_urlsafe(24)
+def slug_for(title: str) -> str:
+    """A link's readable name from the song's title: the first letter of each word, lowercase, a version tag such as
+    V2 left out ("menos mal se siente bien V2" is mmssb; Owner 2026-11-03: hiremarco.ai/master/mmssb)."""
+    words = [w for w in re.findall(r"[A-Za-z0-9]+", title) if not re.fullmatch(r"[vV]\d+", w)]
+    return "".join(w[0].lower() for w in words) or secrets.token_urlsafe(6).lower()
+
+
+def offer(path: Path, *, title: str, note: str, now: float | None = None, slug: str | None = None) -> str:
+    """One link's record: the file, its words, its waveform and its cover, and when the link dies. Returns the id:
+    the readable slug when one is given (a taken, living slug gets -2, -3), else an unguessable key."""
     folder().mkdir(parents=True, exist_ok=True)
+    if slug:
+        base = re.sub(r"[^a-z0-9-]", "", slug.lower()) or secrets.token_urlsafe(6).lower()
+        share_id, k = base, 2
+        while lookup(share_id, now=now) is not None:
+            share_id, k = f"{base}-{k}", k + 1
+    else:
+        share_id = secrets.token_urlsafe(24)
     made = now if now is not None else time.time()
-    record = {"path": str(Path(path).expanduser().resolve()), "name": Path(path).name, "title": title, "note": note,
+    record = {"id": share_id, "path": str(Path(path).expanduser().resolve()), "name": Path(path).name, "title": title, "note": note,
               "made": made, "expires": made + TTL_S}
     try:
         record["peaks"], record["seconds"] = peaks(Path(path))
@@ -57,6 +72,8 @@ def lookup(share_id: str, now: float | None = None) -> dict | None:
     except (OSError, ValueError):
         return None
     if (now if now is not None else time.time()) > float(record.get("expires", 0)) or not Path(record["path"]).exists():
+        return None
+    if record.get("id", share_id) != share_id:   # the Mac's disk ignores case; a link does not
         return None
     return record
 

@@ -57,3 +57,17 @@ def test_the_link_goes_through_the_tunnel_when_there_is_one(monkeypatch):
     monkeypatch.setattr(config, "get", lambda key, default=None: {"SHARE_URL": "https://quiet.trycloudflare.com/share/", "CALL_RELAY_URL": "https://x/llm/v1"}.get(key, default))
     assert share.link("abc") == "https://quiet.trycloudflare.com/share/abc" and share.base_url() == "https://x"   # the public address stands for /share
     assert share.link("abc").endswith("/share/abc")
+
+
+def test_a_link_can_carry_the_songs_initials_and_a_living_name_is_not_taken_twice(tmp_path, monkeypatch):
+    # Owner 2026-11-03: hiremarco.ai/master/mmssb
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+    assert share.slug_for("menos mal se siente bien V2") == "mmssb" and share.slug_for("Best Part - Nana") == "bpn"
+    path = wav(tmp_path)
+    first = share.offer(path, title="menos mal se siente bien V2", note="n", slug=share.slug_for("menos mal se siente bien V2"))
+    second = share.offer(path, title="menos mal se siente bien V2", note="n", slug="mmssb")
+    assert first == "mmssb" and second == "mmssb-2" and share.lookup("mmssb")["title"].startswith("menos")
+    monkeypatch.setattr(config, "get", lambda key, default=None: "https://hiremarco.ai/master" if key == "SHARE_URL" else default)
+    assert share.link("mmssb") == "https://hiremarco.ai/master/mmssb"
+    client = TestClient(Starlette(routes=share.routes()))
+    assert client.get("/share/mmssb").status_code == 200 and client.get("/share/MMSSB").status_code == 404
