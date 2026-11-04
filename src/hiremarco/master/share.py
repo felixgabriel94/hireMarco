@@ -179,7 +179,7 @@ def poster(title: str, width: int = 1200, height: int = 630) -> bytes:
 
 def live_poster(width: int = 1200, height: int = 630) -> bytes:
     """The picture Marco sends with the live view's link: the same card, the window with the red dot in place of
-    the wave mark, LIVE under the name, and the one thing to know, that it opens on the same Wi-Fi as the Mac."""
+    the wave mark, LIVE under the name, Engineered by Marco at the foot."""
     import io
 
     from PIL import Image, ImageDraw
@@ -191,10 +191,11 @@ def live_poster(width: int = 1200, height: int = 630) -> bytes:
     d.rounded_rectangle([x0, y0, x1, y1], radius=18, fill=(92, 155, 255))
     d.rounded_rectangle([x0 + 14, y0 + 14, x1 - 14, y1 - 14], radius=10, fill=(10, 10, 14))
     d.ellipse([x1 - 18, y0 - 12, x1 + 12, y0 + 18], fill=(226, 75, 74))
-    d.text((300, 290), "Marco Live View", font=_font(58), fill=(255, 255, 255), anchor="lm")
+    # the Owner's words (2026-11-03): each word once, no Wi-Fi note anywhere, the master card's twin
+    d.text((300, 290), "Studio Session View", font=_font(58), fill=(255, 255, 255), anchor="lm")
     d.text((300, 360), "LIVE", font=_font(26, mono=True), fill=(226, 75, 74), anchor="lm")
     d.line([(80, 470), (width - 80, 470)], fill=(40, 40, 40), width=2)
-    d.text((80, 520), "Marco at work in Logic. Opens on the same Wi-Fi as the Mac.", font=_font(26), fill=(138, 138, 138), anchor="lm")
+    d.text((80, 520), "Engineered by Marco", font=_font(26), fill=(138, 138, 138), anchor="lm")
     return _jpeg(im)
 
 
