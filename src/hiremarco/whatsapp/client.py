@@ -180,11 +180,13 @@ class WhatsApp:
         return out
 
     def send_text(self, to: str, body: str, *, idempotency_key: str, critic=None,
-                  now: datetime | None = None, exact: bool = False, quote: str | None = None) -> str:
+                  now: datetime | None = None, exact: bool = False, quote: str | None = None, preview: bool = False) -> str:
         """``exact`` leaves the words alone: an email's preview has to read as the email will. ``quote`` is the message
-        of his this text answers, when that is not plain from where it lands."""
+        of his this text answers, when that is not plain from where it lands. ``preview`` asks WhatsApp to draw the
+        card for a link in the body, from the page's own title, line and picture (Owner 2026-11-03: a card, not text)."""
         body = body if exact else written(self._plain(body))
-        sent = self._send_quoted(to, {"type": "text", "text": {"body": body}}, self._quote(to, quote), text_for_gate=body,
+        text = {"body": body, "preview_url": True} if preview else {"body": body}
+        sent = self._send_quoted(to, {"type": "text", "text": text}, self._quote(to, quote), text_for_gate=body,
                                  idempotency_key=idempotency_key, capability="send_message", critic=critic, now=now)
         remember(self.conn, "marco", body)
         note_sent(self.conn, sent, body)

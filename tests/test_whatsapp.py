@@ -190,3 +190,20 @@ def test_a_message_and_a_status_in_one_post_are_both_handled_and_a_broken_status
     assert post(client, broken).status_code == 200
     assert [m.id for m in seen] == ["wamid.both", "wamid.broken"]
     assert '"status_errors": 1' in client.get("/health").text
+
+
+def test_a_text_with_a_link_can_ask_for_the_card(tmp_path, monkeypatch):
+    # Owner 2026-11-03: the master's link arrives as a card with our cover, not as text; WhatsApp draws it when asked
+    from hiremarco.whatsapp import client as wa_client
+
+    seen = []
+    monkeypatch.setattr(wa_client.WhatsApp, "_send_quoted", lambda self, to, payload, quote, **k: seen.append(payload) or {"messages": [{"id": "m1"}]})
+    monkeypatch.setattr(wa_client.WhatsApp, "_quote", lambda self, to, quote: None)
+    monkeypatch.setattr(wa_client, "remember", lambda *a, **k: None)
+    monkeypatch.setattr(wa_client, "note_sent", lambda *a, **k: None)
+    wa = wa_client.WhatsApp.__new__(wa_client.WhatsApp)
+    wa.conn = None
+    wa.send_text("+15550000000", "song: the master.\nhttps://marco.example/share/abc", idempotency_key="k", exact=True, preview=True)
+    assert seen[-1] == {"type": "text", "text": {"body": "song: the master.\nhttps://marco.example/share/abc", "preview_url": True}}
+    wa.send_text("+15550000000", "plain words", idempotency_key="k2", exact=True)
+    assert seen[-1]["text"] == {"body": "plain words"}
