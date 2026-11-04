@@ -156,3 +156,30 @@ def test_logic_behind_another_app_is_brought_back_not_stopped(tmp_path, monkeypa
     quiet = []
     stereo_out.front_is_logic(osa=lambda s: quiet.append(s) or "Logic Pro", sleep=lambda s: None)
     assert quiet == [stereo_out.FRONT]   # Logic already in front: no call, no line on the screen
+
+
+def test_a_plugin_window_is_moved_inside_the_main_window_so_all_of_it_shows():
+    # Owner 2026-11-03: Logic opens a plug-in where it last sat, often off the bottom; Marco moves it where the audience sees it
+    main = (0.0, 33.0, 1512.0, 874.0)
+    assert stereo_out.fit_inside((350.0, 300.0, 460.0, 560.0), main) == (350.0, 300.0)              # already inside: left alone
+    assert stereo_out.fit_inside((350.0, 800.0, 460.0, 560.0), main) == (350.0, 33.0 + 874.0 - 24.0 - 560.0)   # off the bottom: up
+    assert stereo_out.fit_inside((1300.0, 300.0, 460.0, 560.0), main) == (1512.0 - 24.0 - 460.0, 300.0)   # off the right: left
+    assert stereo_out.fit_inside((100.0, 500.0, 460.0, 900.0), main) == (100.0, 33.0 + 24.0)          # taller than the window: top-aligned
+    assert stereo_out.plugin_window("Stereo Out") and stereo_out.plugin_window("Pro-Q 3")
+    assert not stereo_out.plugin_window("song - Tracks") and not stereo_out.plugin_window("song - Mixer: Single") and not stereo_out.plugin_window("")
+
+    scripts = []
+
+    def osa(script):
+        scripts.append(script)
+        if "repeat with w in (every window)" in script:
+            return "song - Mixer: Single|20,33,1024,874\nsong - Tracks|0,33,1512,874\nStereo Out|420,760,470,610\n"
+        return ""
+
+    strip = stereo_out.StereoOut(jxa=lambda *a: "", osa=osa, click=lambda *a, **k: None, sleep=lambda s: None)
+    assert strip.place_inside() is True
+    assert scripts[-1].endswith('set position of (first window whose name is "Stereo Out") to {420, 273}')
+    quiet = []
+    strip = stereo_out.StereoOut(jxa=lambda *a: "", osa=lambda s: quiet.append(s) or "song - Tracks|0,33,1512,874\nStereo Out|300,200,470,610\n",
+                                 click=lambda *a, **k: None, sleep=lambda s: None)
+    assert strip.place_inside() is False and len(quiet) == 1   # inside already: read once, nothing moved

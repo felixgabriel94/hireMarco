@@ -93,6 +93,27 @@ def same_plugin(wanted: str, shown: str) -> bool:
     return n > 0 and (a[:n] in b or b[:n] in a)
 
 
+def plugin_window(name: str) -> bool:
+    """A plug-in's own window, as Logic names it: after the strip ("Stereo Out") or the plug-in, never the Tracks, the
+    Mixer or another editor of the project."""
+    return not any(name.endswith(tail) for tail in (" - Tracks", " - Mixer", " - Mixer: Single", " - Mixer: Tracks", " - Mixer: All")) \
+        and "Mixer" not in name and name.strip() != ""
+
+
+def fit_inside(window: tuple[float, float, float, float], main: tuple[float, float, float, float],
+               margin: float = 24.0) -> tuple[float, float]:
+    """Where a plug-in window goes so the whole of it sits inside the main window: left as it is when it already does;
+    otherwise moved up and left just enough, and top-aligned to the main window when it is taller than that."""
+    x, y, w, h = window
+    mx, my, mw, mh = main
+    right, bottom = mx + mw - margin, my + mh - margin
+    nx = x if x + w <= right else max(mx + margin, right - w)
+    ny = y if y + h <= bottom else max(my + margin, bottom - h)
+    if h > mh - 2 * margin:
+        ny = my + margin
+    return nx, ny
+
+
 FRONT = 'tell application "System Events" to get name of first process whose frontmost is true'
 ACTIVATE = 'tell application "Logic Pro" to activate'
 
@@ -256,6 +277,7 @@ class StereoOut:
             self.close_windows()
             self.bypass(True, rows=[landed[-1].y])
             raise RuntimeError(f"{landed[-1].name} landed on the Stereo Out instead of {name} and was bypassed")
+        self.place_inside()   # the window Logic opened on the insert, where the audience can see all of it
         if look is not None:
             try:
                 look()
@@ -310,6 +332,44 @@ class StereoOut:
         self.close_windows()
         self.jxa("stereo_out_open.js", name, f"{row:g}")
         self.sleep(0.5)
+        self.place_inside()
+
+    def place_inside(self, margin: float = 24.0) -> bool:
+        """A plug-in window moved inside the main window so the whole of it is on screen (Owner 2026-11-03: Logic opens
+        each one where it last sat, often off the bottom, and the audience cannot see what Marco does). The plug-in
+        windows on the Stereo Out are named after the strip; each is read and, when it reaches past the main window's
+        right or bottom edge, moved up and left to fit, top-aligned when it is taller than the main window. A move of
+        a window, not a change to the session, so not gated. Returns whether any window moved."""
+        try:
+            raw = self.osa('tell application "System Events" to tell process "Logic Pro"\n'
+                           'set out to ""\nrepeat with w in (every window)\n'
+                           'set out to out & (name of w) & "|" & (item 1 of (position of w)) & "," & (item 2 of (position of w)) & ","'
+                           ' & (item 1 of (size of w)) & "," & (item 2 of (size of w)) & linefeed\nend repeat\nreturn out\nend tell')
+        except Exception:   # noqa: BLE001  (no windows to read is not a failure of the insert)
+            return False
+        windows = []
+        for line in raw.splitlines():
+            name, _, numbers = line.rpartition("|")
+            try:
+                x, y, w, h = (float(v) for v in numbers.split(","))
+            except ValueError:
+                continue
+            windows.append((name, x, y, w, h))
+        main = next((win for win in windows if win[0].endswith(" - Tracks")), None)
+        if main is None:
+            return False
+        moved = False
+        for name, x, y, w, h in windows:
+            if not plugin_window(name) or name == main[0]:
+                continue
+            nx, ny = fit_inside((x, y, w, h), main[1:], margin)
+            if (nx, ny) != (x, y):
+                self.osa('tell application "System Events" to tell process "Logic Pro" to set position of '
+                         f'(first window whose name is "{name}") to {{{nx:g}, {ny:g}}}')
+                moved = True
+        if moved:
+            self.sleep(0.3)
+        return moved
 
     def remove(self, name: str, row: float) -> Strip:
         """One insert taken off the output strip, by its short name and row: the slot's own menu opened from its
