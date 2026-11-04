@@ -77,8 +77,7 @@ def test_a_yes_places_one_call_and_reports_the_result(world, monkeypatch):
                                 now=datetime.now(timezone.utc))
     line = yes(world)
     assert line == f"offer {offer.id}: asked the fallback questions before dialing" and world["dialed"] == []
-    assert world["texts"][-1].lower().startswith("before i call, a few quick ones")
-    assert "if thursday at 8pm is gone" in world["texts"][-1].lower()
+    assert world["texts"][-1] == "Before I call: If Thursday at 8pm is gone, what other time works? Indoor, outdoor or either?"
     line = yes(world, said="Friday at 8 is fine, patio ok, link is fine", mid="m1b")
     assert line.startswith(f"offer {offer.id}: calling Test Kitchen")
     assert len(world["dialed"]) == 1 and world["dialed"][0]["to_number"] == "+15557770000"
@@ -113,7 +112,7 @@ def test_one_reply_fills_what_the_profile_leaves_open(world, monkeypatch):
     briefs.save_profile({**PROFILE, "time_window": "", "seating": "", "special_requests": ""})
     offers.record_offer(world["conn"], KITCHEN, weekday="thursday", day="2026-11-05", hour=20, party_size=4)
     assert yes(world).endswith("asked the fallback questions before dialing")
-    assert "4. any allergies, an occasion" in world["texts"][-1].lower()
+    assert world["texts"][-1].startswith("Before I call: ")
     line = yes(world, said="1. Friday at 8 or Thursday 7:30 to 8:30. 2. Either. 3. Yes. 4. No allergies.", mid="m5")
     assert "calling Test Kitchen" in line and len(world["dialed"]) == 1
     brief = world["dialed"][0]["conversation_initiation_client_data"]["dynamic_variables"]["brief"]
@@ -265,19 +264,24 @@ def test_his_seating_answer_outranks_the_profile(world):
     offer = offers.record_offer(world["conn"], KITCHEN, weekday="thursday", day="2026-11-05", hour=20, party_size=4)
     said = replace(offer, fallbacks="If 8 isn't open, ask for 7:30 or 8:30. No voicemail, outdoor, a link is fine, 4: none")
     assert briefs.build("reservation", offers.brief_for(said))["seating"] == "outdoor"   # the profile says indoor
-    assert briefs.build("reservation", offers.brief_for(replace(offer, fallbacks="7:30 is fine")))["seating"] == "indoor"
+    # with no seating in his answer the call asks him for it through the fallbacks, never the profile's standing choice
+    assert briefs.build("reservation", offers.brief_for(replace(offer, fallbacks="7:30 is fine")))["seating"] == "see Felix's fallbacks below"
 
 
-def test_with_his_preferences_standing_a_yes_dials_at_once(world, monkeypatch):
-    # Owner 2026-11-04: "he shouldn't have to ask me every time if I have allergies"
+def test_an_offer_that_already_carries_his_answer_dials_on_his_yes(world, monkeypatch):
+    # Owner 2026-11-04: the standing facts are never asked again; the per-booking line is asked only when the request
+    # does not already say the seating and a time to fall back on
     monkeypatch.setattr("hiremarco.critic.Critic.__call__", lambda self, d: (True, "ok"))
-    briefs.save_profile({**PROFILE, "seating": "outdoor", "time_window": "up to 30 minutes either side",
-                         "special_requests": "none"})
     offer = offers.record_offer(world["conn"], KITCHEN, weekday="thursday", day="2026-11-05", hour=20, party_size=4,
                                 now=datetime.now(timezone.utc))
+    offers.record_fallbacks(world["conn"], offer, "outdoor, 7:30 or 8:30 is fine")
     assert yes(world).startswith(f"offer {offer.id}: calling Test Kitchen") and len(world["dialed"]) == 1
     brief = world["dialed"][0]["conversation_initiation_client_data"]["dynamic_variables"]["brief"]
-    assert "outdoor" in brief and "up to 30 minutes either side" in brief
+    assert "- seating (indoor, outdoor, any): outdoor\n" in brief
+    assert "- acceptable window around that time: see Felix's fallbacks below" in brief   # never the profile's
+    assert "- special requests or allergies: " in brief and "allerg" not in world["texts"][-1].lower()
+    assert offers.answered_already(offer) is False                                      # before his answer
+    assert offers.answered_already(offers.get(world["conn"], offer.id)) is True
 
 
 def test_call_again_during_the_questions_is_not_taken_as_his_answers(world, monkeypatch):

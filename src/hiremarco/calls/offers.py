@@ -318,16 +318,14 @@ def asking(conn: sqlite3.Connection, now: datetime | None = None) -> CallOffer |
     return offer if now - offer.offered_at <= YES_WINDOW else None
 
 
-QUESTIONS = ("1. If Thursday at 8pm is gone, what other day or time works?",
-             "2. Indoor or patio, or either?",
-             "3. If they want a card to hold it, is a link to you OK?",
-             "4. Any allergies, an occasion, or anything else to tell them?")
+# Owner 2026-11-04: the standing facts (name, email, callback, requests, a card hold is always a link) live in the
+# profile and are never asked again; what changes with every booking is asked once, in one line
+QUESTIONS = ("If Thursday at 8pm is gone, what other time works? Indoor, outdoor or either?",)
 FLEXIBLE = re.compile(r"\b(whatever works|anything works|either|flexible|up to you|you decide|any)\b", re.I)
 
 
 def questions_text(offer: CallOffer) -> str:
-    first = QUESTIONS[0].replace("Thursday at 8pm", f"{offer.weekday.capitalize()} at {offer.clock()}")
-    return "Before I call, a few quick ones (one reply is fine):\n" + "\n".join((first,) + QUESTIONS[1:])
+    return "Before I call: " + QUESTIONS[0].replace("Thursday at 8pm", f"{offer.weekday.capitalize()} at {offer.clock()}")
 
 
 def ask_fallbacks(conn: sqlite3.Connection, offer: CallOffer) -> None:
@@ -352,11 +350,12 @@ def accept(conn: sqlite3.Connection, offer: CallOffer, now: datetime | None = No
     return get(conn, offer.id) if cur.rowcount == 1 else None
 
 
-def preferences_known(profile: dict | None = None) -> bool:
-    """True when his profile already answers the fallback questions (window, seating, requests; the card is always
-    a link), so a yes dials at once (Owner 2026-11-04: "he shouldn't have to ask me every time")."""
-    profile = briefs.load_profile() if profile is None else profile
-    return all(str(profile.get(k) or "").strip() for k in ("time_window", "seating", "special_requests"))
+def answered_already(offer: CallOffer) -> bool:
+    """True when the offer already carries his answer for this booking (a time to fall back on and the seating), so
+    his yes dials at once (Owner 2026-11-04: ask only what the request does not already say)."""
+    words = offer.fallbacks or ""
+    return bool(seating_in(words)) and bool(re.search(r"\d|noon|midnight|flexible|whatever works|any time|anytime",
+                                                     words, re.I))
 
 
 def held_to_retry(conn: sqlite3.Connection, now: datetime | None = None) -> CallOffer | None:
@@ -392,13 +391,12 @@ def brief_for(offer: CallOffer) -> dict[str, str]:
         # his one reply answers the window, the seating and the requests the profile leaves open (live 2026-10-31:
         # the profile had none of them, Marco asked for them first, and the answer went to plain chat)
         standing = briefs.load_profile()
-        for field in ("time_window", "seating", "special_requests"):
-            if not standing.get(field):
-                given[field] = "see Felix's fallbacks below"
-        # live 2026-11-04: he answered "outdoor" and the call asked for indoor, the profile's standing choice
-        seating = seating_in(offer.fallbacks)
-        if seating:
-            given["seating"] = seating
+        if not standing.get("special_requests"):
+            given["special_requests"] = "see Felix's fallbacks below"
+        # the window and the seating change with every booking: his answer for this one, never a standing choice
+        # (live 2026-11-04: he answered "outdoor" and the call asked for indoor, the profile's)
+        given["time_window"] = "see Felix's fallbacks below"
+        given["seating"] = seating_in(offer.fallbacks) or "see Felix's fallbacks below"
     return given
 
 

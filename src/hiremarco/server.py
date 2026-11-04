@@ -652,8 +652,8 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
         offers.set_status(conn, offer.id, "no such place")
         reply("I can't find that place in your list anymore, so I'm holding off on the call.", "offer-place")
         return f"offer {offer.id}: place {offer.place_id} not in the places file"
-    # Owner 2026-11-04: he answers once; with his window, seating and requests standing in his profile, his yes dials
-    if answered is None and not retry and not offers.preferences_known():  # the questions fill what the profile leaves open
+    # Owner 2026-11-04: one line asks what changes per booking, unless the offer already carries his answer
+    if answered is None and not retry and not offers.answered_already(offer):
         offers.ask_fallbacks(conn, offer)
         offers.add_message(conn, offer.id, reply(offers.questions_text(offer), "offer-questions"))
         return f"offer {offer.id}: asked the fallback questions before dialing"
