@@ -1063,6 +1063,42 @@ def dress_me(photo, said: str, sender: str, message_id: str, wa: WhatsApp, marco
     return said_back
 
 
+def save_6176(photo, sender: str, message_id: str, wa: WhatsApp, marco=None) -> str:
+    """"Marco, save my 6176": what SAM sees on the unit, then the reading in one line, kept as the recall (Owner
+    2026-11-04). A knob he can't read is left out and said, never guessed."""
+    from hiremarco.sam import SamError
+    from hiremarco.studio import six176
+
+    six176.done_waiting()
+
+    def send(picture: bytes, caption: str, step: str) -> None:
+        wa.send_image(sender, picture, caption, idempotency_key=f"6176-{step}:{message_id}", mime="image/jpeg")
+
+    plain = lambda text, tag: wa.send_text(sender, text, idempotency_key=f"6176-{tag}:{message_id}")  # noqa: E731
+    reactions.react(wa, sender, message_id, reactions.ON_IT)
+    try:
+        saved = six176.save(photo.path, send=send, client=getattr(marco, "client", None))
+    except six176.NoKnobsFound:
+        plain("I couldn't find the knobs in that one. Get a little closer to the 6176 and send another?", "none")
+        return "6176: no knob found in the photo"
+    except SamError as failed:
+        plain("I couldn't read the photo just now. Send it again?", "sam")
+        return f"6176: {failed}"
+    except ValueError as failed:  # the reading came back unreadable
+        plain("I couldn't read the knobs just now. Send it again?", "read")
+        return f"6176: {failed}"
+    if not saved.readings:
+        plain(f"I see {saved.found} knobs but can't read any of them for sure. Send a closer, straight-on one?", "unread")
+        return f"6176: {saved.found} knobs found, none read; nothing saved"
+    left = saved.found - len(saved.readings)
+    skipped = f" {left} I couldn't read for sure, so I left {'it' if left == 1 else 'them'} out." if left > 0 else ""
+    plain(f"{saved.note}.{skipped} Saved as your recall.", "note")
+    reactions.react(wa, sender, message_id, reactions.RESULT)
+    said_back = f"6176 saved: {saved.note} ({len(saved.readings)} of {saved.found} knobs read)"
+    stream.say(stream.MARCO, said_back)
+    return said_back
+
+
 def selects_me(said: str, sender: str, message_id: str, wa: WhatsApp, marco=None, sleep=None) -> str:
     """"Marco, pick my selects": once the burst has landed, what SAM sees across the shoot, then his three, one picture
     at a time (Owner 2026-11-01)."""
@@ -1123,6 +1159,7 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
     import time
 
     from hiremarco import dress, selects
+    from hiremarco.studio import six176
     from hiremarco.whatsapp import photos
     from hiremarco.whatsapp.client import WhatsAppError
 
@@ -1171,6 +1208,8 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
                 return trace.done(dress_me(photo, said, message.sender, message.id, wa, marco))
             if selects.wants(said):
                 return trace.done(selects_me(said, message.sender, message.id, wa, marco, sleep=settle))
+            if six176.wants(said) or (not said and six176.waiting() is not None):
+                return trace.done(save_6176(photo, message.sender, message.id, wa, marco))
             asked = dress.waiting(wa.conn) if not said else None
             if asked is not None:  # "dress me" came first; this is the photo it waited for
                 return trace.done(dress_me(photo, asked[1], message.sender, message.id, wa, marco, asked[0]))
@@ -1215,6 +1254,14 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
                 return trace.done(dress_me(photo, said, message.sender, message.id, wa, marco))
             if selects.wants(said):
                 return trace.done(selects_me(said, message.sender, message.id, wa, marco, sleep=settle))
+            if six176.wants(said):
+                photo = photos.wait_for(wa.conn, message.sender)  # it may still be downloading
+                if photo is None:
+                    six176.wait_for_photo(said)
+                    wa.send_text(message.sender, "Send me a photo of the 6176 and I'll save the settings.",
+                                 idempotency_key=f"6176-photo:{message.id}")
+                    return trace.done("6176: waiting for the photo")
+                return trace.done(save_6176(photo, message.sender, message.id, wa, marco))
             letter = dress.picked(said)
             if letter and dress.open_board(wa.conn) is not None:
                 text, did = dress.lock_in(wa.conn, letter, client=getattr(marco, "client", None))
