@@ -22,7 +22,7 @@ ACTIONS = (
     "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
     "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "live_view", "hearing", "reference",
     "kill", "summon", "dismiss", "chat", "play_take", "play_from_lyric", "solo", "unsolo", "play_from",
-    "go_again", "next_part", "a_cappella", "read_beat", "accept", "tune_take", "tune_console", "autotune", "flex_pass",
+    "go_again", "next_part", "a_cappella", "read_beat", "accept", "tune_take", "tune_console", "autotune", "plugin_set", "flex_pass",
     "insert_plugin", "stage_beat", "arrange", "copy_section", "list_sections", "bookmark", "go_to_bookmark", "lift",
     "clean_breaths", "harmony", "timing", "split_stems", "generate_sound",
     "unknown",
@@ -119,6 +119,9 @@ class Command:
 
     def describe(self) -> str:
         """The middle of Marco's log line: 'reverb +1 step', 'punch bar 5 on second harmony'."""
+        if self.action == "plugin_set":
+            spec, _, hint = self.text.partition("@")
+            return f"set {spec.replace('=', ' to ', 1)}" + (f" on {hint}" if hint else "")
         if self.action == "autotune":
             name, _, value = self.text.partition("=")
             if self.direction == "read":
@@ -354,6 +357,45 @@ def autotune_said(said: str) -> Command | None:
     return None
 
 
+# A Logic plug-in's control set to an exact value by its name (Owner 2026-11-04: "exact values by name on Valhalla
+# too"): "set the decay to 2 seconds", "predelay 30", "mix 25 percent", "set the high cut on the valhalla to 6k".
+# The text is "<control>=<number> <unit>" (the unit empty when none was said), then "@<plug-in>" when one was named.
+# Lines for the Console's Auto-Tune, the knob steps and the session's own words are read before this one.
+_UNIT_WORDS = {"ms": "ms", "millisecond": "ms", "milliseconds": "ms", "millis": "ms", "s": "s", "sec": "s", "secs": "s",
+               "second": "s", "seconds": "s", "hz": "Hz", "hertz": "Hz", "k": "kHz", "khz": "kHz", "kilohertz": "kHz",
+               "kilo hertz": "kHz", "db": "dB", "decibel": "dB", "decibels": "dB", "percent": "%", "%": "%",
+               "x": "X", "times": "X"}
+_UNITS = "|".join(sorted((re.escape(u) for u in _UNIT_WORDS), key=len, reverse=True))
+_NUMBER = r"(?P<value>(?:minus |negative |-)?(?:\d+(?:\.\d+)?|[a-z]+(?: [a-z]+)??))"
+PLUGIN_SET_SAID = re.compile(
+    r"^(?:set|put|turn|bring|make|change|move) (?:the |my )?(?P<name>[a-z][a-z -]{0,30}?)"
+    r"(?: on (?:the |my )?(?P<hint>[a-z0-9][a-z0-9 -]{0,30}?))? (?:to|at) " + _NUMBER + r"(?: ?(?P<unit>" + _UNITS + r"))?$|"
+    r"^(?P<bare>[a-z][a-z -]{0,30}?) " + _NUMBER.replace("value", "value2") + r"(?: ?(?P<unit2>" + _UNITS + r"))?$")
+# words that start other lines (sections, takes, the knobs, the speakers): never a plug-in control
+NOT_A_CONTROL = {"bar", "bars", "take", "verse", "chorus", "bridge", "intro", "outro", "hook", "pre-chorus", "track",
+                 "harmony", "adlib", "ad-lib", "double", "lead", "slot", "insert", "bus", "part", "section", "bookmark",
+                 "marker", "tempo", "bpm", "key", "tune", "tuning", "auto-tune", "autotune", "reverb", "verb", "delay",
+                 "volume", "level", "levels", "speakers", "speaker", "monitor", "monitors", "headphones", "go", "play",
+                 "record", "punch", "it", "this", "that", "me", "everything", "the", "my", "one", "number"}
+
+
+def plugin_set_said(said: str) -> Command | None:
+    m = PLUGIN_SET_SAID.match(said.replace("%", " percent"))
+    if not m:
+        return None
+    name = (m.group("name") or m.group("bare") or "").strip()
+    if not name or name.split()[0] in NOT_A_CONTROL or name in NOT_A_CONTROL:
+        return None
+    value = _autotune_value(m.group("value") or m.group("value2"))
+    try:
+        float(value)
+    except ValueError:
+        return None
+    unit = _UNIT_WORDS.get((m.group("unit") or m.group("unit2") or "").strip(), "")
+    hint = (m.group("hint") or "").strip()
+    return Command("plugin_set", text=f"{name}={value} {unit}".strip() + (f"@{hint}" if hint else ""), direction="set")
+
+
 def tune_to_said(said: str) -> Command | None:
     m = TUNE_TO_SAID.match(said)
     if not m:
@@ -542,6 +584,9 @@ def understand(line: str, client: MuseSpark | None = None, context: list[str] | 
     key = KEY_SAID.match(said)
     if key:
         return Command("set_key", text=key.group("key").strip())
+    exact = plugin_set_said(said)  # last of the plain lines: anything named before it keeps its meaning
+    if exact:
+        return exact
     client = client or MuseSpark()
     gate.check_model_call(TENANT, model=client.model, system=INSTRUCTIONS, prompt=said, joblog=client.joblog)
     # 120 tokens was hit exactly on 2026-10-28 and 600 on 2026-10-29 ("note: ..." came back unknown, 600 of 600

@@ -88,7 +88,8 @@ def control_named(said: str, names: list[str]) -> str | None:
     want = flat(said)
     if not want:
         return None
-    for test in (lambda n: flat(n) == want, lambda n: flat(n).startswith(want), lambda n: want in flat(n)):
+    for test in (lambda n: flat(n) == want, lambda n: flat(n).startswith(want), lambda n: want in flat(n),
+                 lambda n: bool(flat(n)) and want.startswith(flat(n))):  # "early diffusion" -> "EarlyDiff"
         found = [n for n in names if test(n)]
         if len(found) == 1:
             return found[0]
@@ -964,6 +965,77 @@ class Booth:
                   f"{match}'s at {shown or 0}.")
         return f"Auto-Tune {match}: {now or 0} -> {shown or 0}"
 
+    def _plugin_set(self, command: Command) -> str:
+        """One control on a plug-in of the selected track set to the value he named, in its own unit, and read back
+        (Owner 2026-11-04: "exact values by name on Valhalla too"). The chain is the one "make it spacey" works on,
+        so "put it back" undoes this as well; menus and switches (Valhalla's Mode and Color) stay as they are."""
+        from hiremarco.studio.plugins import PROTECTED
+
+        if self.rolling:
+            return "holding the plug-in change until the take stops"
+        if self.plugin is None or not hasattr(self.plugin, "apply_changes"):
+            return "no plug-in control in this booth"
+        spec, _, hint = command.text.partition("@")
+        name, _, value_unit = spec.partition("=")
+        number, _, unit = value_unit.partition(" ")
+        value = float(number)
+        try:
+            chain = self.plugin.read(fresh=False)
+        except Exception as exc:  # no track selected, no plug-ins on it, Logic not answering
+            self._say("could not read the selected track's plug-ins", {"why": str(exc)[-160:]},
+                      "I can't read the plug-ins on this track. Select the track it's on and ask me again.")
+            return f"plug-ins not read: {type(exc).__name__}: {str(exc)[-120:]}"
+
+        def flat(words: str) -> str:
+            return re.sub(r"[^a-z0-9]", "", words.lower())
+
+        found = []
+        for slot in chain.active():
+            if slot.state is None:
+                continue
+            if hint and flat(hint) not in flat(slot.state.plugin) and flat(hint) not in flat(slot.name):
+                continue
+            control = control_named(name, slot.state.changeable())
+            if control is not None:
+                found.append((slot, control))
+        if not found:
+            # a menu or switch (Mode, Color) or a protected control (bypass, pan): there, but left alone on purpose
+            held = any(control_named(name, [*slot.state.fixed, *(n for n in slot.state.params if PROTECTED.search(n))])
+                       for slot in chain.active() if slot.state is not None)
+            plain = (f"I leave {name} as it is; it changes what the plug-in is, not how much." if held
+                     else f"I don't see {name} on this track's plug-ins.")
+            self._say("no movable control by that name on the selected track's plug-ins",
+                      {"asked": name, "plugin": hint, "plugins": [s.name for s in chain.active()]}, plain)
+            return f"no control {name!r} to set" + (f" on {hint}" if hint else "")
+        if len(found) > 1:
+            where = " and ".join(f"{slot.state.plugin}" for slot, _ in found[:3])
+            self._say("more than one plug-in has that control; ask which", {"asked": name, "on": where},
+                      f"{found[0][1]} is on {where}. Which one?")
+            return f"{name!r} is on {where}; asked which"
+        slot, control = found[0]
+        now = slot.state.units_of(control)
+        unit = unit or (now[1] if now and now[1] else "%")
+        if unit != "%" and not slot.state.in_shown_unit(control, unit):
+            shown_unit = now[1] if now else "percent"
+            self._say("the control reads in another unit", {"control": control, "asked_unit": unit, "reads": shown_unit},
+                      f"{control} reads in {shown_unit}. Give it to me in that.")
+            return f"{control} reads in {shown_unit}, not {unit}"
+        change = {"slot": slot.number, "parameter": control, "value": value, "unit": unit, "choice": "",
+                  "why": "asked for by name"}
+        try:
+            results = self.plugin.apply_changes([change], chain=chain, max_changes=1)
+        except Exception as exc:  # refused by the rules, or the slider did not land on the value
+            self._say("could not set the plug-in control", {"control": control, "wanted": f"{value:g} {unit}",
+                                                             "why": str(exc)[-160:]},
+                      f"{control} wouldn't go to {value:g} {unit}.")
+            return f"{slot.state.plugin} {control} not set: {type(exc).__name__}: {str(exc)[-120:]}"
+        after = results.get(slot.number)
+        shown = (after.shown.get(control) if after else "") or (f"{after.percent(control):g} percent"
+                                                                 if after and control in after.ranges else "")
+        self._say("set one plug-in control to the value asked and read it back",
+                  {"plugin": slot.state.plugin, "control": control, "now": shown}, f"{control}'s at {shown}.")
+        return f"{slot.state.plugin} {control}: {shown}"
+
     def _flex_pass(self) -> str:
         """Flex Pitch's first pass on the take in the editor: the session key and Pitch Correction 80."""
         if self.flex is None:
@@ -1635,6 +1707,8 @@ class Booth:
             return self._tune_console(command.text)
         if a == "autotune":
             return self._autotune(command)
+        if a == "plugin_set":
+            return self._plugin_set(command)
         if a == "flex_pass":
             return self._flex_pass()
         if a == "insert_plugin":
