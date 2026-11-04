@@ -53,7 +53,7 @@ INSTRUCTIONS = (
     "booth. Map it to exactly one action from the schema. 'Tighten the auto-tune' or 'more tune' means knob "
     "tuning up; 'less verb' means knob reverb down; 'more delay' means knob delay up. 'Punch the second "
     "harmony, bar five' means punch with track 'second harmony' and bar 5. 'Note: take three is the one' "
-    "means note. 'How was that?' means take_feedback. 'Send it to mix' means export. 'Use my adlib preset' or "
+    "means note. 'How was that?' means take_feedback. 'Send it to mix' or 'mix and master the track' means export. 'Use my adlib preset' or "
     "'give me my chain' means preset with text 'adlib' or 'my chain'. 'How's the run on love you' or 'check the "
     "pitch on love you' means run_check with text 'love you'. 'We're in F minor' means set_key with text 'F minor'. "
     "'Make it more spacey' or 'I want my voice a bit more metallic' means sound with text describing the sound; "
@@ -314,6 +314,7 @@ SHOW_SAID = re.compile(r"^(?:show me|show me the (?:session|screen|logic)|send m
 NEW_SESSION_SAID = re.compile(r"^(?:(?:open|start|set up|make|create|give me)(?: up)? (?:a |the )?(?:new |fresh |blank |empty )?"
                               r"(?:session|project|logic(?: pro)?(?: session)?)|new session|open (?:up )?logic(?: pro)?)"
                               r"(?: for me)?(?:,? ?(?:and|then)? ?(?:wait|hold)(?: for me| there| up)?)?$")
+MIX_AND_MASTER_SAID = re.compile(r"\bmix and master\b|\bmaster (?:it|this|the track|the song|my song)\b")
 OPEN_SONG_SAID = re.compile(r"^(?:open|pull up|bring up|load|set up) (?:my|the) song(?: for me)?$")
 LIVE_SAID = re.compile(r"^(?:(?:give me|open|start|turn on|put up) (?:the )?live(?: view| video)?|live view|"
                        r"(?:put|stream) (?:it|the session|logic) (?:on|to) my phone|stream (?:it|the session|logic))$")
@@ -386,12 +387,19 @@ def fast_match(said: str) -> Command | None:
     return None
 
 
+def asks_to_master(said: str) -> bool:
+    """"Mix and master the track" anywhere in what he said, and no no in it ("don't master it yet")."""
+    return bool(MIX_AND_MASTER_SAID.search(said)) and not re.search(r"\b(?:don'?t|do not|not yet|never|wait|hold off)\b", said)
+
+
 def understand(line: str, client: MuseSpark | None = None, context: list[str] | None = None) -> Command | None:
     said = strip_wake(line)
     if said is None:
         return None
     if not said:
         return Command("summon")  # "Marco." or "Hey Marco" alone: he answers and waits, like a name called in a room
+    if asks_to_master(said):   # anywhere in his sentence (Owner 2026-11-04: "we're good for today, mix and master the track")
+        return Command("export")
     if STAGE_SAID.match(said):
         return Command("stage_beat")
     if FLEX_SAID.match(said):

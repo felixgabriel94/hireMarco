@@ -138,7 +138,7 @@ def on_strip(plugin: str, names: list[str]) -> bool:
 
 CHECK_RANGE = (2, 10)   # bars, until the mix print is read: then the loudest eight bars (Owner 2026-11-02)
 CHECK_BARS = 8
-STAGES = ["Listen", "Think", "Build", "Test", "Print", "Check", "Deliver"]   # the path on the live view
+STAGES = ["Balance", "Think", "Build", "Test", "Print", "Check", "Deliver"]   # the path on the live view; the mix is checked, then mastered (Owner 2026-11-04: two jobs, shown as two, in everyday words)
 
 
 def check_range_of(job: Job) -> tuple[int, int]:
@@ -650,7 +650,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
                     plain="Marco is out of time for more tests. He goes with what he has.")
         return True
 
-    events.emit("job_started", source="marco", operation="Mastering the song", status="ok", stages=STAGES, stage="Listen",
+    events.emit("job_started", source="marco", operation="Mastering the song", status="ok", stages=STAGES, stage="Balance",
                 plain="Marco is finishing this song so it is ready for release.", pid=os.getpid())
     select_track()   # a plain track first: a stack selected makes the Mixer's Single view too wide to click
     strip.open_mixer()
@@ -691,7 +691,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
 
     # 2. the audit, against the references the artist owns
     log("2. the audit")
-    events.stage("Listen", "Marco is measuring the song before he touches it.")
+    events.stage("Balance", "Marco checks the balance of your song before he finishes it.")
     with events.step("Measure volume, tone and width", tool="Marco's ears", motif="vu") as line:
         result.audit_mix = auditing.audit_file(mix.path)
         line["summary"] = "Measured."
@@ -719,7 +719,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
 
     # 3. the plan, from the deepest brain, judged by the critic
     log("3. the plan")
-    events.stage("Think", "Marco is deciding what this song needs.")
+    events.stage("Think", "Balance checked. Marco plans the finish.")
     result.plan = planning.roles_for(result.audit_mix, deltas, room, purpose=job.purpose, direction=job.direction,
                                      stock_only=job.stock_only, client=client, critic=critic, hearing=result.hearing)
     for r in result.plan.roles:
