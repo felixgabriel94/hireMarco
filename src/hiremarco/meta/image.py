@@ -32,7 +32,8 @@ def painting_words(job: str, what: str | None = None) -> tuple[str, str]:
     thing = (what or WHAT.get(job) or "").strip()
     if not thing:
         return "Painting a picture", "Picture painted."
-    return f"Painting {thing}", f"{thing[0].upper()}{thing[1:]} painted."
+    done = thing[4:] if thing.lower().startswith("the ") else thing  # "Dress me backdrop painted.", not "The ..."
+    return f"Painting {thing}", f"{done[0].upper()}{done[1:]} painted."
 
 
 class MuseImageError(RuntimeError):

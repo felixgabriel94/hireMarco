@@ -137,7 +137,7 @@ def test_muse_image_reaches_the_stream(tmp_path, monkeypatch):
 
 def test_muse_image_says_what_it_painted():
     assert image.painting_words("cover") == ("Painting FEGA's cover art", "FEGA's cover art painted.")
-    assert image.painting_words("image", "the poster for Friday") == ("Painting the poster for Friday", "The poster for Friday painted.")
+    assert image.painting_words("image", "the poster for Friday") == ("Painting the poster for Friday", "Poster for Friday painted.")
     assert image.painting_words("image") == ("Painting a picture", "Picture painted.")
 
 
