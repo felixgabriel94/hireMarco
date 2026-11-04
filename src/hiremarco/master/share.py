@@ -22,6 +22,15 @@ TTL_S = 24 * 3600
 CHUNK = 1 << 18
 PEAKS = 240            # bars across the waveform; enough to find the chorus by eye, light enough for a phone
 LOGO = Path(__file__).resolve().parents[1] / "studio" / "assets" / "tie-160.png"
+# a song's own cover on its player page, found by the song's words in the title (Owner 2026-11-04: option 2, inverted,
+# painted by Muse Image 1.0 from his Notes design); any other song keeps the wave mark. The WhatsApp card stays the
+# wave mark either way: a faint face turns to fuzz in its thumbnail.
+COVERS = {"menos mal se siente bien": LOGO.parent / "cover-menos-mal-se-siente-bien.png"}
+
+
+def cover_art(title: str) -> Path | None:
+    words = " ".join(re.findall(r"[a-z0-9]+", (title or "").lower()))
+    return next((path for song, path in COVERS.items() if song in words and path.exists()), None)
 
 
 def folder() -> Path:
@@ -105,11 +114,20 @@ def _mark(d, x: int, y: int, s: int, width: int, color=(255, 255, 255)) -> None:
 
 
 def cover(title: str, size: int = 1000) -> bytes:
-    """The player's art: black, the wave mark alone (Owner 2026-11-03: the page names the song once, under the mark)."""
+    """The player's art: the song's own cover when it has one, square at ``size``; else black, the wave mark alone
+    (Owner 2026-11-03: the page names the song once, under the mark)."""
     import io
 
     from PIL import Image, ImageDraw
 
+    art = cover_art(title)
+    if art is not None:
+        im = Image.open(art).convert("RGB")
+        side = min(im.size)
+        im = im.crop(((im.width - side) // 2, (im.height - side) // 2, (im.width + side) // 2, (im.height + side) // 2))
+        out = io.BytesIO()
+        im.resize((size, size), Image.LANCZOS).save(out, format="PNG", optimize=True)
+        return out.getvalue()
     im = Image.new("RGB", (size, size), (0, 0, 0))
     d = ImageDraw.Draw(im)
     s = int(size * 0.5)
