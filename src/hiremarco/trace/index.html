@@ -446,6 +446,8 @@ function typeNow(text){const el=$('nowText');if(text===typedFor)return;typedFor=
  const chars=el.querySelectorAll('.c'),caret=el.querySelector('.caret');let i=0;el.classList.add('typing');
  (function step(){if(i>=chars.length){el.classList.remove('typing');return;}const ch=chars[i];ch.classList.add('on');ch.after(caret);i++;const c=ch.textContent;typeTimer=setTimeout(step,c===' '?55:/[.,]/.test(c)?140:22+Math.random()*26);})();
  fitText($('now'));}
+function wordsOf(l){return new Set(String([l.summary,l.text,l.task].filter(Boolean).join(' ')).toLowerCase().replace(/[^a-z0-9' ]+/g,' ').split(/\s+/).filter(w=>w.length>2));}
+function similar(a,b){if(a.kind==='call'&&b.kind==='call'&&a.key&&a.key===b.key&&a.task&&a.task===b.task)return true;const A=wordsOf(a),B=wordsOf(b);if(A.size<3||B.size<3)return false;let n=0;A.forEach(w=>{if(B.has(w))n++;});return n>=2&&n/Math.min(A.size,B.size)>=0.5;}
 function earBars(n){return Array.from({length:n},(_,k)=>'<i style="animation-delay:'+((k*0.07)%0.9).toFixed(2)+'s;animation-duration:'+(0.8+(k%5)*0.12).toFixed(2)+'s"></i>').join('');}
 function typeInto(el,text){if(!el)return;el.innerHTML=[...text].map(ch=>'<span class="c">'+esc(ch)+'</span>').join('')+'<span class="caret"></span>';const chars=el.querySelectorAll('.c'),caret=el.querySelector('.caret');let i=0;el.classList.add('typing');(function step(){if(i>=chars.length){el.classList.remove('typing');return;}const ch=chars[i];ch.classList.add('on');ch.after(caret);i++;const c=ch.textContent;setTimeout(step,c===' '?55:/[.,]/.test(c)?140:22+Math.random()*26);})();}
 function renderNow(){const n=$('now');n.classList.toggle('flag',!!S.plainKind);n.classList.toggle('fail',S.plainKind==='fail');
@@ -562,6 +564,7 @@ function renderStream(cur,prev){prev.innerHTML='';cur.style.visibility='visible'
  for(let i=0;i<2;i++)if(slots[i]&&!S.lines.includes(slots[i]))slots[i]=null;
  const protectedLine=l=>l&&((l.kind==='call'&&l.status==='running')||(l.kind==='msg'&&l.dir==='in'&&/email|mail/i.test(l.via||'')&&now-l.ts<HOLD));
  for(const l of S.lines){if(l.seen)continue;l.seen=true;l.placedAt=++uidN;
+  const dup=[0,1].find(k=>slots[k]&&similar(slots[k],l));if(dup!==undefined)slots[dup]=null;
   let i=slots.indexOf(null);
   if(i<0){const cand=[0,1].filter(k=>!protectedLine(slots[k]));const pool=cand.length?cand:[0,1];i=pool.sort((a,b)=>slots[a].placedAt-slots[b].placedAt)[0];}
   slots[i]=l;l.fresh=true;}

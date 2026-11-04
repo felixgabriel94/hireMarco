@@ -269,3 +269,18 @@ def test_logic_window_up_reads_the_window_server_through_the_glows_rule():
                                                 "kCGWindowBounds": {"X": 0, "Y": 33, "Width": 1512, "Height": 874}}])
     assert up is True
     assert halo.logic_window_up(now=1e9, windows=lambda: []) is False
+
+
+def test_once_logic_has_shown_a_window_the_halo_holds_away_until_the_work_ends():
+    # Owner 2026-11-03: the halo popped back up while plug-ins loaded between Logic's banner and its window
+    from types import SimpleNamespace
+
+    audio = SimpleNamespace(speaking=False, out_level=0.05, in_level=0.02)
+    booth = SimpleNamespace(rolling=False, busy=True, in_logic=True, operating=True)
+    assert halo.booth_state(booth, audio, window_up=lambda: False) == ("operating", 0.0)
+    assert halo.booth_state(booth, audio, window_up=lambda: True) == ("working", 0.0)
+    assert halo.booth_state(booth, audio, window_up=lambda: False) == ("working", 0.0)   # Logic shows nothing for a moment: still his
+    booth.in_logic, booth.operating, booth.busy = False, False, False
+    assert halo.booth_state(booth, audio, window_up=lambda: False) == ("listening", 0.16)
+    booth.in_logic, booth.busy = True, True
+    assert halo.booth_state(booth, audio, window_up=lambda: False) == ("thinking", 0.0)   # a new work: the latch is off again

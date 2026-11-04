@@ -88,3 +88,12 @@ def test_work_rows_are_the_glows_cue_and_not_a_page_line(tmp_path):
     row = events.emit("work_started", source="marco", operation="arrange", pid=7, at=tmp_path / "e.jsonl")
     assert row["kind"] == "work_started" and row["pid"] == 7
     assert events.for_page(row) is None and events.for_page({"kind": "work_ended", "status": "ok"}) is None
+
+
+def test_the_words_heard_carry_his_name_with_its_comma_and_as_his_name():
+    # Owner 2026-11-03: "Marco open a new session" on screen is bad grammar; "Michael" is what the transcriber made of him
+    assert events.heard_line("Marco open a new session and wait for me.") == "Marco, open a new session and wait for me."
+    assert events.heard_line("Michael, open a new session") == "Marco, open a new session"
+    assert events.heard_line("Marco, go to sleep.") == "Marco, go to sleep."
+    assert events.heard_line("Open a new session") == "Open a new session"
+    assert events.heard_line("Marco") == "Marco."

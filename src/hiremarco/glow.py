@@ -228,7 +228,7 @@ def show(*, at: Path | None = None) -> None:
         def drawRect_(self, dirty):
             if self.alpha <= 0.0 or self.target is None or self.shown <= 0.0:
                 return
-            if self.phase < 1.0:   # the orb flowing into the frame, or back into the orb: one shape, no trail, no lines
+            if self.phase < 1.0 and self.shown >= 0.99:   # the orb flowing into the frame, or back into the orb: one shape, no trail, no lines
                 rect, radius = birth(self.phase, centre_of(self.rect or self.target), self.target)
                 outline(rect, radius, self.alpha * self.shown * smooth(self.phase), self.drift, softness(self.phase))
                 return
@@ -276,12 +276,15 @@ def show(*, at: Path | None = None) -> None:
                 feed["polled"] = now
                 found = front_logic_window(windows())
                 if found is not None:
-                    if feed.get("lost") and state.working(now):   # Logic had nothing to frame: the orb is born again
-                        state.began_at = now
+                    if view.target is None and state.working(now) and not feed.get("born"):
+                        state.began_at = now   # the first window of this work: the orb flows into it from the halo
+                    feed["born"] = True
                     feed["lost"] = False
                     view.target = view_rect(found, screen_h)
                 else:
                     feed["lost"] = True   # no window of Logic's to frame right now: the light fades, the frame stays put
+            if not state.working(now) and state.phase(now) <= 0.0:
+                feed["born"] = False
             want = 1.0 if (view.target is not None and not feed.get("lost")) else 0.0
             view.shown += (want - view.shown) * min(1.0, (1 / 30.0) / LOST_S * 3)
             if view.shown < 0.01:
@@ -290,7 +293,7 @@ def show(*, at: Path | None = None) -> None:
             view.phase = state.phase(now)
             view.drift = ((now - feed["t0"]) / DRIFT_S) % 1.0
             if view.target is not None:
-                view.rect = ease(view.rect, view.target)
+                view.rect = view.target   # window to window the light jumps, no travel (Owner 2026-11-03); only the birth flows
             if view.alpha > 0 and view.shown > 0 and not panel.isVisible():
                 panel.orderFrontRegardless()
             elif (view.alpha <= 0 or view.shown <= 0) and panel.isVisible():

@@ -77,8 +77,16 @@ def build(design: str) -> str:
     stream_end = "return streamLine(l,isNew,l===lastDone);}).join('');tick();}"
     stream_typed = ("return streamLine(l,isNew,l===lastDone);}).join('');"
                     "S.typedHeard=S.typedHeard||new Set();cur.querySelectorAll('.st[data-heard]').forEach(el=>{const id=el.dataset.heard;if(S.typedHeard.has(id))return;S.typedHeard.add(id);typeInto(el,el.textContent);});tick();}")
+    # Owner 2026-11-03: no redundancies. A new line whose words mostly match a line already in a slot replaces that line,
+    # so the two slots never say the same thing; a lone moment sits in the centre by the design's own layout
+    place = "for(const l of S.lines){if(l.seen)continue;l.seen=true;l.placedAt=++uidN;\n  let i=slots.indexOf(null);"
+    place_once = ("for(const l of S.lines){if(l.seen)continue;l.seen=true;l.placedAt=++uidN;\n"
+                  "  const dup=[0,1].find(k=>slots[k]&&similar(slots[k],l));if(dup!==undefined)slots[dup]=null;\n  let i=slots.indexOf(null);")
     type_now = "function renderNow(){"
-    type_into = ("function earBars(n){return Array.from({length:n},(_,k)=>'<i style=\"animation-delay:'+((k*0.07)%0.9).toFixed(2)+'s;animation-duration:'+(0.8+(k%5)*0.12).toFixed(2)+'s\"></i>').join('');}\n"
+    type_into = ("function wordsOf(l){return new Set(String([l.summary,l.text,l.task].filter(Boolean).join(' ')).toLowerCase().replace(/[^a-z0-9' ]+/g,' ').split(/\\s+/).filter(w=>w.length>2));}\n"
+                 "function similar(a,b){if(a.kind==='call'&&b.kind==='call'&&a.key&&a.key===b.key&&a.task&&a.task===b.task)return true;"
+                 "const A=wordsOf(a),B=wordsOf(b);if(A.size<3||B.size<3)return false;let n=0;A.forEach(w=>{if(B.has(w))n++;});return n>=2&&n/Math.min(A.size,B.size)>=0.5;}\n"
+                 "function earBars(n){return Array.from({length:n},(_,k)=>'<i style=\"animation-delay:'+((k*0.07)%0.9).toFixed(2)+'s;animation-duration:'+(0.8+(k%5)*0.12).toFixed(2)+'s\"></i>').join('');}\n"
                  "function typeInto(el,text){if(!el)return;el.innerHTML=[...text].map(ch=>'<span class=\"c\">'+esc(ch)+'</span>').join('')+'<span class=\"caret\"></span>';"
                  "const chars=el.querySelectorAll('.c'),caret=el.querySelector('.caret');let i=0;el.classList.add('typing');"
                  "(function step(){if(i>=chars.length){el.classList.remove('typing');return;}const ch=chars[i];ch.classList.add('on');ch.after(caret);i++;const c=ch.textContent;setTimeout(step,c===' '?55:/[.,]/.test(c)?140:22+Math.random()*26);})();}\n"
@@ -92,6 +100,7 @@ def build(design: str) -> str:
     if not (sample and links and styled and icon and tally in page and decided in page and using in page and shown in page
             and page.count(calling) == 1 and page.count(decided_line) == 1 and page.count(type_now) == 1 and page.count(decided_focus) == 1
             and page.count(slot_word) == 1 and page.count(slot_task) == 1 and page.count(slot_sum) == 1 and page.count(stream_end) == 1
+            and page.count(place) == 1
             and page.count(run_start) == 1 and page.count(eq_mark) == 1 and page.count(motifs) == 1 and page.count(family) == 1
             and page.count(rec_route) == 1 and page.count(vu_css) == 1):
         raise SystemExit(f"the design changed shape: sample {sample}, fonts {links}, style {styled}, icon {icon}, tally {tally in page}, "
@@ -104,7 +113,7 @@ def build(design: str) -> str:
             .replace(run_start, run_reset).replace(eq_mark, wavefile_mark, 1).replace(motifs, motifs_more, 1)
             .replace(family, family_more, 1).replace(rec_route, file_route, 1).replace(vu_css, wavefile_css, 1)
             .replace(calling, listening, 1).replace(decided_line, heard_line, 1).replace(type_now, type_into, 1)
-            .replace(slot_task, slot_strip, 1).replace(slot_sum, slot_heard, 1).replace(stream_end, stream_typed, 1)
+            .replace(slot_task, slot_strip, 1).replace(slot_sum, slot_heard, 1).replace(stream_end, stream_typed, 1).replace(place, place_once, 1)
             .replace("</style>", extra + "</style>", 1))
 
 

@@ -108,7 +108,7 @@ def transcribe(audio: np.ndarray, rate: int, *, diarize: bool = True, keywords: 
     heard = " ".join(t.text for t in turns if t.text).strip()
     events.emit("model_call_completed", source="meta", model=MODEL, operation="listening", status="ok",
                 # the words themselves, as the booth's listener shows them (Owner 2026-11-03: the page shows what he said)
-                summary=f"\u201c{heard}\u201d" if heard else "Wrote down nothing.", latency_ms=int((time.monotonic() - started) * 1000),
+                summary=f"\u201c{events.heard_line(heard)}\u201d" if heard else "Wrote down nothing.", latency_ms=int((time.monotonic() - started) * 1000),
                 request_id=request_id, call_id=call_id)
     return turns
 
@@ -202,7 +202,7 @@ class Listener:
                                 events.emit("model_call_started", source="meta", model=MODEL, operation="listening", status="running",
                                             summary="listening", task=events.task_words("listen"), call_id=heard_call)
                             events.emit("model_call_completed", source="meta", model=MODEL, operation="listening", status="ok",
-                                        summary=f"\u201c{heard}\u201d", call_id=heard_call)
+                                        summary=f"\u201c{events.heard_line(heard)}\u201d", call_id=heard_call)
                         elif heard_call is not None:
                             # it opened with his name and turned out not to be for him: closed without the room's words
                             events.emit("model_call_completed", source="meta", model=MODEL, operation="listening", status="ok",

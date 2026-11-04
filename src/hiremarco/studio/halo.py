@@ -76,8 +76,14 @@ def booth_state(booth, audio, window_up: Callable[[], bool] = logic_window_up) -
         return "recording", 0.0
     if audio.speaking:
         return "speaking", level_of(audio.out_level, 10)
-    if getattr(booth, "in_logic", False) and window_up():
-        return "working", 0.0
+    if getattr(booth, "in_logic", False):
+        # Owner 2026-11-03: once Logic's window has come up the glow has him for the rest of the work, through the
+        # moments Logic shows nothing (plug-ins loading between its banner and the Tracks window); no halo in between
+        if _LOGIC_WINDOW.get("taken") or window_up():
+            _LOGIC_WINDOW["taken"] = True
+            return "working", 0.0
+    else:
+        _LOGIC_WINDOW["taken"] = False
     if getattr(booth, "operating", False):  # he is setting the session up: shown before Logic is even open
         return "operating", 0.0
     if getattr(booth, "asleep", False):  # dismissed: gone as soon as his last line ends

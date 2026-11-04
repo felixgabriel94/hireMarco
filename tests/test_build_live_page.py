@@ -13,6 +13,7 @@ def test_the_page_builds_from_the_design_with_the_listening_moment():
     page = build_live_page.build((ROOT / "src" / "hiremarco" / "trace" / "design.html").read_text())
     assert "function typeInto(" in page and "typeInto(cur.querySelector('.big'),sum)" in page
     assert "?'listening':'calling'" in page and '"big ear"' in page and "@keyframes ear" in page
+    assert "function similar(" in page and "similar(slots[k],l)" in page
     assert "wd('listening','use')" in page and '"st ear"' in page and "data-heard" in page and "S.typedHeard" in page and "function earBars(" in page
     assert page.count("heardKey") >= 3 and "https://" not in page.replace("http://www.w3.org", "")
     import re

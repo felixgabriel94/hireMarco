@@ -216,8 +216,11 @@ class Booth:
         if self.tracks is not None:
             self.session = self.tracks.scan()
         self.last_setup = {}
-        self._say("the fresh session is open and empty; say so in a line and that you are ready", {"session": opened},
-                  "Session's open. Ready when you are.")
+        # a new fact for the second moment (Owner 2026-11-03: no two moments saying the same thing): the session by its
+        # name, open in Logic, and what comes next, the beat
+        self._say("Logic now shows the session named here, empty; say its name and that you are waiting for the beat, "
+                  "without the words fresh, new or open", {"session": opened},
+                  f"{opened.split(' is open', 1)[0]} is up in Logic. Send the beat when you have it.")
         return opened
 
     def beat_arrived(self, path: Path, name: str | None = None) -> str:
@@ -1908,8 +1911,10 @@ def run_booth(*, dry_run: bool = False) -> int:
                     async for line in Listener(on_partial=heard_name, addressed=for_marco).sentences(mic()):
                         await asyncio.to_thread(booth.hear, line)
                     break  # the mic closed
-                except RuntimeError as dropped:
-                    print(f"   (hearing dropped: {dropped}; reconnecting)")
+                except Exception as dropped:   # noqa: BLE001
+                    # the transcriber's own errors, and a socket gone under it (BrokenPipeError when serve was restarted
+                    # under the booth, 2026-11-03): the booth keeps listening either way, it never ends on a dropped line
+                    print(f"   (hearing dropped: {type(dropped).__name__}: {str(dropped)[-160:]}; reconnecting)")
                     while not chunks.empty():  # audio from the dead session would arrive out of context
                         chunks.get_nowait()
                     await asyncio.sleep(0.5)

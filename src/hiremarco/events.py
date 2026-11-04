@@ -38,6 +38,20 @@ LINE_CHARS = 120      # task, thought, a text, the design's hard limit
 SUBJECT_CHARS = 40
 MAIL_FLAG = "trace.mail"
 VOICE_MODEL = "muse-voice-transcribe-1.0"
+NAME_HEARD = re.compile(r"^(?:hey |hi |ok |okay )?(marco|michael|marko|margo|mark|marcos|marco's)\b[,:!]?\s*", re.I)
+
+
+def heard_line(text: str) -> str:
+    """What was said, written as a line: his name at the start gets its comma, and what the transcriber made of it
+    (Michael, Marko) is written as his name (Owner 2026-11-03: "Marco open a new session" on screen is bad grammar)."""
+    text = " ".join((text or "").split())
+    m = NAME_HEARD.match(text)
+    if not m:
+        return text
+    rest = text[m.end():]
+    if not rest:
+        return "Marco."
+    return "Marco, " + rest[0].lower() + rest[1:] if rest[0].isupper() and not rest.split()[0].isupper() else "Marco, " + rest
 # Words a judge who has never been in a studio would not follow (Owner, 2026-11-02: nobody gets lost). The sentence on
 # the screen says it in everyday words; the trade's words and numbers stay in the proof and the raw events.
 JARGON = re.compile(r"(?:\b|(?<=\d))(lufs|lu|dbtp|db|hz|khz|crest|limiter|compressors?|plug-?ins?|chain|mix|mixes|master|mastering|print|prints|printed|printing|"
