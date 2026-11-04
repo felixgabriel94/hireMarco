@@ -472,6 +472,10 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
     folder = inbox or INBOX
     earlier = earlier or {}
     text, did = decision.reply, "replied"
+    if decision.action == "reply" and not text.strip():  # a reaction alone while an offer waits is silence to him
+        waiting = still_waiting_line()
+        if waiting:
+            text, did = waiting, "replied: still waiting on his yes"
     name = title(decision.title) if decision.title else None
     if decision.action == "start" or decision.action == "retry":
         if decision.action == "retry" and pending(folder):
@@ -625,6 +629,40 @@ def digest_unsubscribe(said: str, sender: str, message_id: str, wa: WhatsApp, *,
         lines.append("There's no list to unsubscribe from right now. New promotion senders show up in your morning digest.")
     wa.send_text(sender, "\n".join(lines), idempotency_key=f"digest-unsubscribe:{message_id}")
     return f"digest unsubscribe: {len(senders)} senders, {len(missing)} numbers not on the list"
+
+
+def waiting_on_him(conn=None, places=None, now=None):
+    """The table offer still waiting for his yes, with its place; (None, None) when nothing waits."""
+    from hiremarco.calls import offers
+
+    conn = conn or offers.connect()
+    offer = offers.pending(conn, now)
+    if offer is None or offer.kind != "table":
+        return None, None
+    return offer, offers.place_for(offer, places)
+
+
+def unsure_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=None, places=None, now=None) -> str | None:
+    """A short reply that is neither a yes nor a no while an offer waits: one question back, never silence
+    (Owner 2026-11-04: "if he has a specific doubt he should ask for clarification ... he should never stay silent").
+    None when nothing waits, or the words are long enough for the brain to read, or they are a clear yes or no."""
+    from hiremarco.studio.beat_in import wants_session
+
+    words = (said or "").strip()
+    if not words or len(words.split()) > 3 or AFFIRM.search(words) or YES_LIKE.match(words) or AGAIN.search(words) \
+            or NEVER_MIND.match(words) or wants_session(words) or STATUS.search(words):
+        return None
+    offer, place = waiting_on_him(conn, places, now)
+    if offer is None or place is None:
+        return None
+    wa.send_text(sender, f"Taking that as a yes to call {place.name}, right?", idempotency_key=f"offer-unsure:{message_id}")
+    return f"offer {offer.id}: asked whether his words were a yes"
+
+
+def still_waiting_line(conn=None, places=None, now=None) -> str:
+    """What he hears instead of nothing while an offer waits on him; empty when nothing waits."""
+    offer, place = waiting_on_him(conn, places, now)
+    return f"Still waiting on your yes to call {place.name}." if offer is not None and place is not None else ""
 
 
 def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=None, calls=None, places=None,
@@ -1339,6 +1377,9 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         fresh = fresh_session(said, message.sender, message.id, wa, inbox, booth=booth) if words else None
         if fresh is not None:
             return trace.done(fresh)
+        unsure = unsure_yes(said, message.sender, message.id, wa) if words and not message.quoted else None
+        if unsure is not None:
+            return trace.done(unsure)
         if said:
             try:
                 marco = marco or Marco()
@@ -1373,9 +1414,10 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         if not said:
             return trace.done("nothing heard in the voice note")
         reply = (marco or Marco()).answer(said, job="whatsapp-reply", instructions=ENGLISH)
-        if not reply.text.strip():  # Meta refuses an empty text; nothing is sent and the log says why
+        text = reply.text.strip() or still_waiting_line()  # never nothing while an offer waits on him
+        if not text:  # Meta refuses an empty text; nothing is sent and the log says why
             return trace.done("no reply: the model returned no text")
-        wa.send_text(message.sender, reply.text.strip(), idempotency_key=f"reply:{message.id}")
+        wa.send_text(message.sender, text, idempotency_key=f"reply:{message.id}")
         return trace.done("replied")
     except gate.Refused as refused:
         return trace.done(f"held: {refused.reason}")

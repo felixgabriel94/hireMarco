@@ -303,3 +303,18 @@ def test_a_near_yes_from_his_thumb_is_a_yes(world, monkeypatch):
     from hiremarco.server import YES_LIKE
     assert all(YES_LIKE.match(w) for w in ("Yew", "Yee", "yess", "Ya", "Yes."))
     assert not any(YES_LIKE.match(w) for w in ("Yesterday", "yellow", "no", "y"))
+
+
+def test_a_short_unclear_reply_while_an_offer_waits_gets_one_question_never_silence(world):
+    # Owner 2026-11-04: a real doubt gets one short question; he never stays silent
+    from hiremarco.server import still_waiting_line, unsure_yes
+
+    assert unsure_yes("hm ok?", OWNER, "u0", world["wa"], conn=world["conn"], places=[KITCHEN]) is None   # nothing waits
+    offer = offers.record_offer(world["conn"], KITCHEN, weekday="thursday", day="2026-11-05", hour=20, party_size=4,
+                                now=datetime.now(timezone.utc))
+    line = unsure_yes("hm ok?", OWNER, "u1", world["wa"], conn=world["conn"], places=[KITCHEN])
+    assert line == f"offer {offer.id}: asked whether his words were a yes"
+    assert world["texts"][-1] == "Taking that as a yes to call Test Kitchen, right?"
+    for clear in ("yes", "Yee", "no", "call again", "set up my session", "what time works for everyone this week"):
+        assert unsure_yes(clear, OWNER, "u2", world["wa"], conn=world["conn"], places=[KITCHEN]) is None
+    assert still_waiting_line(conn=world["conn"], places=[KITCHEN]) == "Still waiting on your yes to call Test Kitchen."
