@@ -41,6 +41,7 @@ class Clip:
         self.seconds = len(stereo) / float(rate)
         self.played = 0
         self._stop = threading.Event()
+        self._fade: tuple[int, int] | None = None   # (the frame the fade began at, its length in frames)
         self.thread = threading.Thread(target=self._run, name="aloud", daemon=True)
 
     def _run(self) -> None:
@@ -54,11 +55,23 @@ class Clip:
             for i in range(0, len(self.block), step):
                 if self._stop.is_set():
                     break
-                out.write(self.block[i:i + step])
+                block = self.block[i:i + step]
+                if self._fade is not None:   # a gain ramp to silence over the fade, then the end
+                    start, length = self._fade
+                    if i - start >= length:
+                        break
+                    gain = np.clip(1.0 - (np.arange(i, i + len(block)) - start) / float(length), 0.0, 1.0)
+                    block = block * gain[:, None].astype(np.float32)
+                out.write(block)
                 self.played = min(i + step, len(self.block))
 
     def stop(self) -> None:
         self._stop.set()
+
+    def fade(self, seconds: float) -> None:
+        """Out over ``seconds`` from where it is now, then stopped; a second call keeps the first fade."""
+        if self._fade is None:
+            self._fade = (self.played, max(int(seconds * self.rate), 1))
 
     @property
     def done(self) -> bool:
@@ -87,6 +100,13 @@ def play(pcm: np.ndarray, rate: int, *, stream=None) -> Clip | None:
             return None
         _current = clip
         return clip
+
+
+def fade(seconds: float = 1.0) -> None:
+    """Whatever is playing goes out over ``seconds``; nothing playing is nothing to do."""
+    with _lock:
+        if _current is not None:
+            _current.fade(seconds)
 
 
 def stop() -> None:

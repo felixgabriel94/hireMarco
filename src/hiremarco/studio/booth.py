@@ -219,17 +219,21 @@ class Booth:
             return "holding the new session until the take stops"
         self.operating = True   # the halo shows him setting up before Logic is even open
         self._work("started", "new_session")
-        time.sleep(1.2)   # the halo fades in first, then his voice, then Logic (Owner 2026-11-04: he appears before anything)
-        self._say("the artist asked for a fresh session with no beat; opening one from the template; say so in a line",
-                  {"song": name or ""}, "Opening a fresh session. I'll wait for you.")
+        time.sleep(1.2)   # the halo fades in first, then the pad, then Logic (Owner 2026-11-04: he appears before anything)
+        from hiremarco.studio import pad
+
+        pad.start()   # his arrival is a sound, not a line (Owner 2026-11-04): the pad holds until the session is up
         try:
             opened = self.open_empty(name) if name else self.open_empty()
         except Exception as exc:
+            pad.stop()
             self._say("could not open the session", {"why": str(exc)[-160:]}, "I couldn't open the session.")
             return f"session not opened: {type(exc).__name__}: {str(exc)[-160:]}"
         finally:
             self.operating = False
             self._work("ended", "new_session")
+        pad.stop(1.0)
+        time.sleep(1.0)
         if self.tracks is not None:
             self.session = self.tracks.scan()
         self.last_setup = {}
@@ -1886,6 +1890,9 @@ def run_booth(*, dry_run: bool = False) -> int:
                   f"{fresh.out_pair[0]}-{fresh.out_pair[1]})")
 
         booth.on_place = move
+        from hiremarco.studio import pad as arrival_pad
+
+        threading.Thread(target=arrival_pad.prepare, name="pad", daemon=True).start()   # his arrival pad, rendered ahead
         halo = None
         if (config.get("HIREMARCO_HALO") or "on") != "off":
             from hiremarco.studio.halo import Halo, booth_state

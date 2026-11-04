@@ -52,3 +52,19 @@ def test_no_pair_or_switched_off_means_silence_not_a_stop(monkeypatch):
     monkeypatch.setattr(aloud, "where", lambda: ("Universal Audio Thunderbolt", [5, 6]))
     monkeypatch.setenv("HIREMARCO_ALOUD", "off")
     assert aloud.play(np.zeros((10, 2), dtype="float32"), 1000, stream=FakeStream()) is None
+
+
+def test_a_fade_takes_the_clip_out_over_its_seconds_and_ends_it(monkeypatch):
+    # Owner 2026-11-04: the arrival pad goes out over a second when the session is up
+    import time
+
+    rate = 1000
+    stream = FakeStream()
+    clip = aloud.Clip(np.ones((rate * 5, 2), dtype="float32"), rate, None, [1, 2], stream=stream)
+    clip.fade(0.5)                       # from frame 0: half a second of ramp, then the end
+    clip.thread.start()
+    clip.thread.join(5)
+    assert clip.done
+    written = np.concatenate(stream.writes) if stream.writes else np.zeros((0, 2))
+    assert 400 <= len(written) <= 700    # the ramp's length, in blocks of 100 frames
+    assert written[0, 0] == 1.0 and written[-1, 0] < 0.25

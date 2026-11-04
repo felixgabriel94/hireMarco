@@ -571,14 +571,20 @@ def test_a_session_opens_from_the_template_with_no_beat_and_waits(tmp_path):
 def test_the_booth_opens_an_empty_session_with_the_halo_first_and_the_glow_rows_around_it(monkeypatch):
     from hiremarco import events
 
-    rows, seen = [], []
+    from hiremarco.studio import pad
+
+    rows, seen, played = [], [], []
     monkeypatch.setattr(events, "emit", lambda kind, **k: rows.append((kind, k.get("operation"))) or {})
+    monkeypatch.setattr(pad, "start", lambda: played.append("start"))
+    monkeypatch.setattr(pad, "stop", lambda fade=1.0: played.append(("fade", fade)))
+    monkeypatch.setattr("time.sleep", lambda s: None)
     b, said = booth_with(lambda p: "unused")
     b.open_empty = lambda: seen.append(b.operating) or "Session 2026-11-03.logicx is open from the template, nothing on it yet"
     assert b.new_session().startswith("Session 2026-11-03.logicx is open")
     assert seen == [True] and b.operating is False
-    assert said == ["Opening a fresh session. I'll wait for you.", "The session's up in Logic. Send the beat when you have it."]
+    assert said == ["The session's up in Logic. Send the beat when you have it."]   # his arrival is the pad, not a line (2026-11-04)
     assert rows == [("work_started", "new_session"), ("stage", "new session"), ("work_ended", "new_session"), ("stage", "waiting")]   # the stage rows are the page's Now line
+    assert played == ["start", ("fade", 1.0)]   # the pad from the halo to the open session, then out over a second
 
 
 def test_open_a_new_session_by_text_with_no_beat_asks_the_booth_for_a_fresh_one(tmp_path, monkeypatch):
