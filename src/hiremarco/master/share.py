@@ -41,6 +41,7 @@ def offer(path: Path, *, title: str, note: str, now: float | None = None) -> str
     (folder() / f"{share_id}.json").write_text(json.dumps(record))
     try:
         (folder() / f"{share_id}.png").write_bytes(cover(title))
+        (folder() / f"{share_id}.card.png").write_bytes(card(title))
     except Exception:   # noqa: BLE001
         pass
     return share_id
@@ -61,41 +62,64 @@ def lookup(share_id: str, now: float | None = None) -> dict | None:
 
 
 def peaks(path: Path, bars: int = PEAKS) -> tuple[list[float], float]:
-    """The waveform as ``bars`` peak levels in 0 to 1, and the length in seconds, read once from the file."""
+    """The waveform as ``bars`` levels in 0 to 1, and the length in seconds, read once from the file. Each bar is the
+    loudness of its stretch (its RMS), not its tallest sample, scaled so the loud parts sit near the top and the rest
+    breathes under them: a master drawn by its peaks reads as a squashed brick (Owner 2026-11-03)."""
     import numpy as np
     import soundfile as sf
 
     audio, rate = sf.read(str(path), dtype="float32", always_2d=True)
-    mono = np.abs(audio.mean(axis=1))
+    mono = audio.mean(axis=1)
     if not mono.size:
         return [], 0.0
     edges = np.linspace(0, mono.size, bars + 1, dtype=int)
-    levels = [float(mono[a:b].max()) if b > a else 0.0 for a, b in zip(edges[:-1], edges[1:])]
-    top = max(levels) or 1.0
-    return [round(v / top, 3) for v in levels], round(mono.size / rate, 2)
+    levels = np.array([float(np.sqrt(np.mean(np.square(mono[a:b])))) if b > a else 0.0 for a, b in zip(edges[:-1], edges[1:])])
+    top = float(np.percentile(levels[levels > 0], 97)) if (levels > 0).any() else 1.0
+    scaled = np.clip(levels / (top or 1.0), 0.0, 1.0) * 0.82
+    return [round(float(v), 3) for v in scaled], round(mono.size / rate, 2)
+
+
+WAVE_MARK = [(0.14, 0.5), (0.26, 0.5), (0.31, 0.31), (0.39, 0.73), (0.47, 0.4), (0.54, 0.64), (0.61, 0.46), (0.68, 0.58), (0.75, 0.5), (0.86, 0.5)]
+
+
+def _mark(d, x: int, y: int, s: int, width: int, color=(255, 255, 255)) -> None:
+    d.rounded_rectangle([x, y, x + s, y + s], radius=int(s * 0.19), outline=color, width=width)
+    d.line([(x + px * s, y + py * s) for px, py in WAVE_MARK], fill=color, width=width, joint="curve")
 
 
 def cover(title: str, size: int = 1000) -> bytes:
-    """The cover: black, the wave mark large, the song's name and MASTER under it, the tie and the name top-left; the
-    same picture is the player's art and the card WhatsApp shows under the link."""
+    """The player's art: black, the wave mark alone (Owner 2026-11-03: the page names the song once, under the mark)."""
     import io
 
-    from PIL import Image, ImageDraw, ImageFont
+    from PIL import Image, ImageDraw
 
-    im = Image.new("RGBA", (size, size), (0, 0, 0, 255))
+    im = Image.new("RGB", (size, size), (0, 0, 0))
+    d = ImageDraw.Draw(im)
+    s = int(size * 0.5)
+    _mark(d, (size - s) // 2, (size - s) // 2, s, max(4, int(size * 0.02)))
+    out = io.BytesIO()
+    im.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+def card(title: str, width: int = 1200, height: int = 630) -> bytes:
+    """The card WhatsApp shows under the link: black, the tie and the name top-left, the wave mark, the song's name and
+    MASTER; a wide picture, the shape link cards take."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    im = Image.new("RGBA", (width, height), (0, 0, 0, 255))
     d = ImageDraw.Draw(im)
     try:
-        tie = Image.open(LOGO).convert("RGBA").resize((int(size * 0.056), int(size * 0.056)))
-        im.alpha_composite(tie, (int(size * 0.05), int(size * 0.045)))
+        tie = Image.open(LOGO).convert("RGBA").resize((56, 56))
+        im.alpha_composite(tie, (48, 40))
     except OSError:
         pass
-    d.text((int(size * 0.122), int(size * 0.073)), "hireMarco", font=_font(int(size * 0.03)), fill=(255, 255, 255), anchor="lm")
-    s, x, y, w = int(size * 0.3), int(size * 0.35), int(size * 0.24), max(4, int(size * 0.012))
-    d.rounded_rectangle([x, y, x + s, y + s], radius=int(s * 0.19), outline=(255, 255, 255), width=w)
-    pts = [(0.14, 0.5), (0.26, 0.5), (0.31, 0.31), (0.39, 0.73), (0.47, 0.4), (0.54, 0.64), (0.61, 0.46), (0.68, 0.58), (0.75, 0.5), (0.86, 0.5)]
-    d.line([(x + px * s, y + py * s) for px, py in pts], fill=(255, 255, 255), width=w, joint="curve")
-    d.text((size / 2, int(size * 0.68)), title, font=_font(int(size * 0.052)), fill=(255, 255, 255), anchor="mm")
-    d.text((size / 2, int(size * 0.76)), "MASTER", font=_font(int(size * 0.026), mono=True), fill=(138, 138, 138), anchor="mm")
+    d.text((116, 68), "hireMarco", font=_font(30), fill=(255, 255, 255), anchor="lm")
+    _mark(d, width // 2 - 110, 150, 220, 11)
+    d.text((width / 2, 455), title, font=_font(50), fill=(255, 255, 255), anchor="mm")
+    d.text((width / 2, 520), "MASTER", font=_font(24, mono=True), fill=(138, 138, 138), anchor="mm")
     out = io.BytesIO()
     im.convert("RGB").save(out, format="PNG", optimize=True)
     return out.getvalue()
@@ -132,7 +156,9 @@ def link(share_id: str) -> str:
 
 
 def page_html(record: dict, share_id: str, base: str) -> str:
-    title, note, name = _esc(record["title"]), _esc(record["note"]), _esc(record["name"])
+    """The player, minimal and centred (Owner 2026-11-03): the brand once, the mark, the song's name once, MASTER, the
+    waveform to drag, the time, back, one play-and-pause button, forward, and Download the WAV. Nothing else."""
+    title, name = _esc(record["title"]), _esc(record["name"])
     here = f"{base}/share/{share_id}"
     peaks_json = json.dumps(record.get("peaks") or [])
     seconds = json.dumps(record.get("seconds") or 0)
@@ -141,34 +167,35 @@ def page_html(record: dict, share_id: str, base: str) -> str:
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#000000">
 <meta property="og:title" content="{title}">
-<meta property="og:description" content="Master. {note}">
-<meta property="og:image" content="{here}/cover.png">
+<meta property="og:description" content="Master, by Marco at hireMarco.">
+<meta property="og:image" content="{here}/card.png">
 <meta property="og:type" content="music.song">
 <title>{title}</title>
 <style>
-html, body {{ margin: 0; min-height: 100%; background: #000; color: #fff; font: 16px/1.5 -apple-system, "Inter", sans-serif; -webkit-tap-highlight-color: transparent; }}
-body {{ padding: calc(env(safe-area-inset-top) + 16px) 20px calc(env(safe-area-inset-bottom) + 24px); box-sizing: border-box; max-width: 560px; margin: 0 auto; }}
-#brand {{ display: flex; align-items: center; gap: 10px; }}
-#brand img {{ width: 36px; height: 36px; }} #brand span {{ font-weight: 600; letter-spacing: .02em; }}
-#art {{ display: block; width: 100%; max-width: 420px; margin: 28px auto 0; border-radius: 18px; }}
-h1 {{ font-size: 22px; line-height: 1.25; margin: 22px 0 2px; font-weight: 600; text-align: center; }}
-.by {{ color: #8a8a8a; margin: 0 0 18px; text-align: center; font-size: 14px; letter-spacing: .08em; }}
-#wave {{ display: block; width: 100%; height: 72px; touch-action: none; }}
-#time {{ color: #8a8a8a; font: 14px "JetBrains Mono", Menlo, monospace; text-align: center; margin: 8px 0 10px; }}
-#ctl {{ display: flex; justify-content: center; align-items: center; gap: 34px; margin-bottom: 26px; }}
-#ctl button {{ background: none; border: 0; color: #fff; padding: 8px; }}
-#ctl svg {{ width: 30px; height: 30px; fill: #fff; display: block; }} #play svg {{ width: 42px; height: 42px; }}
-.note {{ color: #bdbdbd; font-size: 14px; margin: 0 0 24px; text-align: center; }}
-a.get {{ display: block; width: max-content; margin: 0 auto; background: #fff; color: #000; text-decoration: none; padding: 12px 22px; border-radius: 999px; font-weight: 600; }}
-.file {{ color: #666; font-size: 12px; margin-top: 16px; text-align: center; word-break: break-all; }}
-@media (orientation: landscape) {{ #art {{ max-width: 240px; margin-top: 12px; }} }}
+html, body {{ margin: 0; height: 100%; background: #000; color: #fff; font: 16px/1.5 -apple-system, "Inter", sans-serif; -webkit-tap-highlight-color: transparent; }}
+body {{ display: flex; flex-direction: column; align-items: center; box-sizing: border-box; min-height: 100%; padding: calc(env(safe-area-inset-top) + 14px) 20px calc(env(safe-area-inset-bottom) + 24px); }}
+#brand {{ align-self: flex-start; display: flex; align-items: center; gap: 10px; }}
+#brand img {{ width: 32px; height: 32px; }} #brand span {{ font-weight: 600; letter-spacing: .02em; font-size: 15px; }}
+#stage {{ flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; width: 100%; max-width: 420px; gap: 0; }}
+#art {{ width: 112px; height: 112px; display: block; }}
+h1 {{ font-size: 20px; line-height: 1.25; margin: 26px 0 2px; font-weight: 600; text-align: center; }}
+.by {{ color: #8a8a8a; margin: 0 0 26px; font: 12px "JetBrains Mono", Menlo, monospace; letter-spacing: .14em; }}
+#wave {{ display: block; width: 100%; height: 56px; touch-action: none; }}
+#time {{ color: #8a8a8a; font: 13px "JetBrains Mono", Menlo, monospace; margin: 10px 0 14px; }}
+#ctl {{ display: flex; justify-content: center; align-items: center; gap: 38px; }}
+#ctl button {{ background: none; border: 0; color: #fff; padding: 6px; }}
+#ctl svg {{ width: 26px; height: 26px; fill: #fff; display: block; }} #play svg {{ width: 40px; height: 40px; }}
+[hidden] {{ display: none !important; }}
+a.get {{ display: inline-block; margin-top: 34px; color: #fff; text-decoration: none; border: 1px solid #333; padding: 10px 20px; border-radius: 999px; font-size: 14px; }}
+@media (orientation: landscape) {{ #art {{ width: 72px; height: 72px; }} h1 {{ margin-top: 12px; }} .by {{ margin-bottom: 12px; }} a.get {{ margin-top: 16px; }} }}
 </style></head>
 <body>
 <div id="brand"><img src="{here}/tie.png" alt=""><span>hireMarco</span></div>
+<div id="stage">
 <img id="art" src="{here}/cover.png" alt="">
 <h1>{title}</h1>
 <p class="by">MASTER</p>
-<canvas id="wave" width="1000" height="144"></canvas>
+<canvas id="wave" width="1000" height="112"></canvas>
 <div id="time">0:00 / 0:00</div>
 <div id="ctl">
 <button id="back" aria-label="Back ten seconds"><svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/></svg></button>
@@ -176,9 +203,8 @@ a.get {{ display: block; width: max-content; margin: 0 auto; background: #fff; c
 <button id="fwd" aria-label="Forward ten seconds"><svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg></button>
 </div>
 <audio id="audio" preload="metadata" src="{here}/file"></audio>
-<p class="note">{note}</p>
 <a class="get" href="{here}/file" download="{name}">Download the WAV</a>
-<p class="file">{name}</p>
+</div>
 <script>
 const peaks = {peaks_json}, length = {seconds};
 const audio = document.getElementById("audio"), wave = document.getElementById("wave"), ctx = wave.getContext("2d");
@@ -187,16 +213,16 @@ let dragging = false, dragAt = 0;
 function fmt(s) {{ s = Math.max(0, Math.floor(s || 0)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); }}
 function total() {{ return (isFinite(audio.duration) && audio.duration) || length || 0; }}
 function draw() {{
-  const w = wave.width, h = wave.height, n = peaks.length || 1, gap = w / n, bw = Math.max(2, gap * 0.62);
+  const w = wave.width, h = wave.height, n = peaks.length || 1, gap = w / n, bw = Math.max(1.5, gap * 0.4);
   const at = dragging ? dragAt : (total() ? audio.currentTime / total() : 0);
   ctx.clearRect(0, 0, w, h);
   for (let i = 0; i < n; i++) {{
-    const p = peaks[i] || 0.02, bh = Math.max(4, Math.pow(p, 0.7) * (h - 8));
+    const p = Math.max(peaks[i] || 0, 0.03), bh = Math.max(3, p * (h - 6));
     ctx.fillStyle = (i / n) <= at ? "#5c9bff" : "#ffffff";
-    ctx.globalAlpha = (i / n) <= at ? 1 : 0.55;
-    ctx.beginPath(); ctx.roundRect(i * gap + (gap - bw) / 2, (h - bh) / 2, bw, bh, 1.5); ctx.fill();
+    ctx.globalAlpha = (i / n) <= at ? 1 : 0.5;
+    ctx.beginPath(); ctx.roundRect(i * gap + (gap - bw) / 2, (h - bh) / 2, bw, bh, 1); ctx.fill();
   }}
-  ctx.globalAlpha = 1; ctx.fillStyle = "#5c9bff"; ctx.fillRect(at * w - 1.5, 0, 3, h);
+  ctx.globalAlpha = 1; ctx.fillStyle = "#5c9bff"; ctx.fillRect(at * w - 1, 0, 2, h);
   timeEl.textContent = fmt((dragging ? dragAt * total() : audio.currentTime)) + " / " + fmt(total());
 }}
 function seekTo(clientX) {{ const r = wave.getBoundingClientRect(); dragAt = Math.min(1, Math.max(0, (clientX - r.left) / r.width)); draw(); }}
@@ -278,10 +304,19 @@ def routes() -> list:
         data = at.read_bytes() if at.exists() else cover(record["title"])
         return Response(data, media_type="image/png", headers={"Cache-Control": "max-age=86400"})
 
+    async def card_png(request):
+        share_id = request.path_params["share_id"]
+        record = lookup(share_id)
+        if record is None:
+            return Response(status_code=404)
+        at = folder() / f"{share_id}.card.png"
+        data = at.read_bytes() if at.exists() else card(record["title"])
+        return Response(data, media_type="image/png", headers={"Cache-Control": "max-age=86400"})
+
     async def tie(request):
         if lookup(request.path_params["share_id"]) is None:
             return Response(status_code=404)
         return Response(LOGO.read_bytes(), media_type="image/png", headers={"Cache-Control": "max-age=86400"})
 
     return [Route("/share/{share_id}", page), Route("/share/{share_id}/file", file), Route("/share/{share_id}/cover.png", art),
-            Route("/share/{share_id}/tie.png", tie)]
+            Route("/share/{share_id}/card.png", card_png), Route("/share/{share_id}/tie.png", tie)]
