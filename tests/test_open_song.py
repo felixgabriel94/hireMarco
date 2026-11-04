@@ -123,3 +123,80 @@ def test_set_up_my_session_with_no_song_set_still_asks_for_the_beat(tmp_path, mo
     wa, sent = whatsapp_line(tmp_path, monkeypatch)
     line = handle(inbound(wa, "w1", kind="text", text="Set up my session"), wa=wa, inbox=tmp_path / "inbox")
     assert "none is waiting" in line and b"Send me the beat first" in sent[-1]
+
+
+def old_beat(tmp_path, hours=2.0, name="Old Beat.wav"):
+    import os
+    import time
+
+    beat = tmp_path / "inbox" / "received" / name
+    beat.parent.mkdir(parents=True, exist_ok=True)
+    beat.write_bytes(b"RIFF-beat")
+    then = time.time() - hours * 3600
+    os.utime(beat, (then, then))
+    return beat
+
+
+def three_jobs(tmp_path, monkeypatch):
+    from hiremarco import server
+
+    wa, sent = whatsapp_line(tmp_path, monkeypatch)
+    config.set_value("HIREMARCO_SONG", str(song_at(tmp_path)), config.env_path())
+    words, brain = [], []
+    monkeypatch.setattr(server, "nudge_booth", lambda word, **k: words.append(word))
+    monkeypatch.setattr(server, "decide", lambda *a, **k: brain.append(a) or (_ for _ in ()).throw(RuntimeError("no brain")))
+    return wa, sent, words, brain
+
+
+def test_an_older_beat_waiting_gets_one_question_and_song_opens_his_song(tmp_path, monkeypatch):
+    # Owner 2026-11-04: three jobs, open and wait / open and organize / open with a beat; he asks when unsure
+    from hiremarco.server import handle
+
+    wa, sent, words, brain = three_jobs(tmp_path, monkeypatch)
+    beat = old_beat(tmp_path)
+    line = handle(inbound(wa, "w1", kind="text", text="Marco, set up my session"), wa=wa, inbox=tmp_path / "inbox")
+    assert "asked: the beat" in line and b"Is this for the beat you sent at " in sent[-1]
+    assert b", or your song?" in sent[-1] and words == [] and brain == []
+    line = handle(inbound(wa, "w2", kind="text", text="Song"), wa=wa, inbox=tmp_path / "inbox")
+    assert "his song asked of the booth" in line and words == [b"song"] and beat.exists() and brain == []
+
+
+def test_the_beat_answer_starts_the_beat(tmp_path, monkeypatch):
+    from hiremarco.server import handle
+
+    wa, sent, words, brain = three_jobs(tmp_path, monkeypatch)
+    old_beat(tmp_path)
+    handle(inbound(wa, "w1", kind="text", text="Set up my session"), wa=wa, inbox=tmp_path / "inbox")
+    line = handle(inbound(wa, "w2", kind="text", text="The beat"), wa=wa, inbox=tmp_path / "inbox")
+    assert "session started for Old Beat.wav" in line and words == []
+    assert (tmp_path / "inbox" / "Old Beat.wav").exists()
+
+
+def test_organize_is_always_his_song_and_a_named_beat_is_the_beat(tmp_path, monkeypatch):
+    from hiremarco.server import handle
+
+    wa, sent, words, brain = three_jobs(tmp_path, monkeypatch)
+    old_beat(tmp_path)
+    line = handle(inbound(wa, "w1", kind="text", text="Marco, set up my session and organize it please"), wa=wa,
+                  inbox=tmp_path / "inbox")
+    assert "his song asked of the booth" in line and words == [b"song organize"]
+    assert b"labeling everything" in sent[-1]
+    line = handle(inbound(wa, "w2", kind="text", text="Set up my session with the beat"), wa=wa, inbox=tmp_path / "inbox")
+    assert "session started for Old Beat.wav" in line and brain == []
+
+
+def test_a_beat_that_just_came_is_the_beat_without_a_question(tmp_path, monkeypatch):
+    from hiremarco.server import handle
+
+    wa, sent, words, brain = three_jobs(tmp_path, monkeypatch)
+    old_beat(tmp_path, hours=0.1, name="New Beat.wav")
+    line = handle(inbound(wa, "w1", kind="text", text="Set up my session"), wa=wa, inbox=tmp_path / "inbox")
+    assert "session started for New Beat.wav" in line and words == []
+
+
+def test_set_up_my_session_never_reaches_the_brain_that_only_knows_beats(tmp_path, monkeypatch):
+    from hiremarco.server import handle
+
+    wa, sent, words, brain = three_jobs(tmp_path, monkeypatch)
+    line = handle(inbound(wa, "w1", kind="text", text="Marco, set up my session pls"), wa=wa, inbox=tmp_path / "inbox")
+    assert "his song asked of the booth" in line and words == [b"song"] and brain == []

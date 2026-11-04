@@ -252,6 +252,61 @@ def fresh_session(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: 
     return f"fresh session asked of the booth; {started}"
 
 
+FRESH_BEAT_SECONDS = 30 * 60   # a beat sent this recently is the beat "set up my session" means
+BEAT_WORDS = re.compile(r"\b(?:beats?|instrumental)\b", re.I)
+ORGANIZE_WORDS = re.compile(r"\b(?:organi[sz]e|label)", re.I)
+SONG_ANSWER = re.compile(r"^(?:no|nope|nah|not the beat|no beat|(?:the |my )?(?:song|session)|your song|song please)\b", re.I)
+BEAT_ANSWER = re.compile(r"^(?:(?:the |that )?beat|beat please|the one i sent)\b", re.I)
+BEAT_QUESTION = "beat-or-song.json"
+BEAT_QUESTION_SECONDS = 30 * 60
+
+
+def beat_question(inbox: Path, *, clear: bool = False, **asked) -> dict | None:
+    """The one question Marco asked when an older beat waits and he said "set up my session": kept beside the
+    received beats for half an hour so his "song" or "beat" can answer it. With asked, writes it; clear removes it."""
+    import json
+
+    path = inbox / "received" / BEAT_QUESTION
+    if clear:
+        path.unlink(missing_ok=True)
+        return None
+    if asked:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps({**asked, "at": time.time()}))
+        return asked
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return None
+    return data if time.time() - float(data.get("at", 0)) <= BEAT_QUESTION_SECONDS else None
+
+
+def clock(when: float) -> str:
+    """'3:12 pm' in the Mac's own time."""
+    from datetime import datetime
+
+    t = datetime.fromtimestamp(when)
+    return f"{t.hour % 12 or 12}:{t.minute:02d} {'am' if t.hour < 12 else 'pm'}"
+
+
+def session_words(said: str, inbox: Path | None) -> bool:
+    """Words about setting up a session go to the session rules before the brain, which only knows beats: "set up
+    my session" with no beat was answered "Send me a beat" (found 2026-11-04 before the shoot)."""
+    from hiremarco.studio.beat_in import INBOX, wants_session
+
+    said = (said or "").strip()
+    if not said or "?" in said:
+        return False
+    answer = unnamed(said)
+    return wants_session(said) or beat_question(inbox or INBOX) is not None and bool(SONG_ANSWER.match(answer)
+                                                                                   or BEAT_ANSWER.match(answer))
+
+
+def unnamed(said: str) -> str:
+    """'Marco, song.' -> 'song.': his name off the front of a short answer."""
+    return re.sub(r"^(?:hey |ok |okay )?marco[,:!.]?\s*", "", (said or "").strip(), flags=re.I)
+
+
 def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None,
                 booth=ensure_booth, running=booth_running, nudge=None, saved_song=None) -> str | None:
     """His words about a session, answered from the real state: start the beat he sent (on "start a session",
@@ -271,6 +326,25 @@ def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Pa
     fresh = fresh_session(said, sender, message_id, wa, folder, booth=booth, nudge=nudge)
     if fresh is not None:
         return fresh
+
+    def open_song(organize: bool) -> str:
+        started = booth()
+        (nudge or nudge_booth)(b"song organize" if organize else b"song")
+        reply("On it. Setting up your session." if not organize else "On it. Opening your session and labeling everything.", "song")
+        return f"his song asked of the booth; {started}"
+
+    asked = beat_question(folder)
+    answer = unnamed(said)
+    if asked is not None and kept is not None and "?" not in said:  # his answer to "the beat you sent, or your song?"
+        if SONG_ANSWER.match(answer):
+            beat_question(folder, clear=True)
+            return open_song(bool(asked.get("organize")))
+        if BEAT_ANSWER.match(answer) or AFFIRM.search(answer) or YES_LIKE.match(answer):
+            beat_question(folder, clear=True)
+            started = start_session(folder, asked.get("song") or None, asked=message_id)
+            if started is not None:
+                reply(f"On it. Setting up {asked.get('song') or started.stem}.", "start")
+                return f"session started for {started.name} (he said the beat); {booth()}"
     if STATUS.search(said) and ("?" in said or not wants_session(said)):
         line = status(folder, running)
         if pending(folder):
@@ -279,6 +353,16 @@ def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Pa
         return f"status: {line}"
     if wants_session(said) or (kept is not None and AFFIRM.search(said)):
         song = session_name(said)
+        organize = ORGANIZE_WORDS.search(said) is not None
+        if kept is not None and wants_session(said) and not BEAT_WORDS.search(said) and saved_song() is not None:
+            # three jobs (Owner 2026-11-04): open and wait, open and organize, open with a beat. A beat that just came
+            # is the beat; organizing is always his song; an older beat waiting gets one question, never a guess
+            if organize:
+                return open_song(True)
+            if time.time() - kept.stat().st_mtime > FRESH_BEAT_SECONDS:
+                beat_question(folder, organize=False, song=song or "", beat=kept.name)
+                reply(f"Is this for the beat you sent at {clock(kept.stat().st_mtime)}, or your song?", "beat-or-song")
+                return f"asked: the beat {kept.name} or his song"
         if kept is not None:
             started = start_session(folder, song, asked=message_id)
             reply(f"On it. Setting up {song or started.stem}.", "start")
@@ -291,11 +375,7 @@ def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Pa
             reply(line, "start")
             return f"already started; {booth()}"
         if saved_song() is not None:   # no beat: the session starts on his song, a fresh copy (Owner 2026-11-04)
-            started = booth()
-            organize = re.search(r"\b(?:organi[sz]e|label)", said, re.I) is not None
-            (nudge or nudge_booth)(b"song organize" if organize else b"song")
-            reply("On it. Setting up your session." if not organize else "On it. Opening your session and labeling everything.", "song")
-            return f"his song asked of the booth; {started}"
+            return open_song(organize)
         reply("Send me the beat first, then tell me to start.", "nobeat")
         return "asked for the beat: none is waiting"
     if waiting and short and not AFFIRM.search(said):
@@ -1380,6 +1460,10 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         unsure = unsure_yes(said, message.sender, message.id, wa) if words and not message.quoted else None
         if unsure is not None:
             return trace.done(unsure)
+        if words and session_words(said, inbox):
+            started = instruction(said, message.sender, message.id, wa, inbox, booth=booth, running=running)
+            if started is not None:
+                return trace.done(started)
         if said:
             try:
                 marco = marco or Marco()
