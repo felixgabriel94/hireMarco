@@ -87,7 +87,7 @@ OPERATIONS = {
 TASKS = {
     "master_audit": "Decide what this song needs, from the measurements", "master_settings": "Set every control, and say why",
     "critic": "Second opinion: approve or hold", "plugin_face": "Read the tool's window: is it licensed?", "segment": "Find the pieces in the photo",
-    "dress-looks": "Build three looks from the pieces", "dress-pick": "Pick the look", "dress-backdrop": "Paint the paper of the look board",
+    "dress-looks": "Build three looks from the pieces", "dress-pick": "Pick the look", "dress-backdrop": "Paint the paper of the look board", "cover": "Paint FEGA's cover art",
     "selects-pick": "Pick the frames", "organize": "Organize the session", "taste": "Read the artist's taste",
     "mix_pass": "Decide how the parts of the song sit together", "mix_hearing": "Say how the song sounds", "chain_design": "Design the sound from a description",
     "take_feedback": "Listen to the take and give a note", "hours_check": "Check the hours", "call-relay": "Talk on the phone call",

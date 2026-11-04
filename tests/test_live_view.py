@@ -131,6 +131,14 @@ def test_muse_image_reaches_the_stream(tmp_path, monkeypatch):
     assert [r["kind"] for r in rows][-2:] == ["model_call_started", "model_call_completed"]
     assert rows[-1]["model"] == "muse-image-1.0" and rows[-1]["call_id"] == rows[-2]["call_id"]
     assert rows[-2]["task"] == "Paint the paper of the look board"
+    assert rows[-2]["summary"] == "Painting the Dress me backdrop"
+    assert rows[-1]["summary"] == "Dress me backdrop painted."
+
+
+def test_muse_image_says_what_it_painted():
+    assert image.painting_words("cover") == ("Painting FEGA's cover art", "FEGA's cover art painted.")
+    assert image.painting_words("image", "the poster for Friday") == ("Painting the poster for Friday", "The poster for Friday painted.")
+    assert image.painting_words("image") == ("Painting a picture", "Picture painted.")
 
 
 SOURCES = ("master/job.py", "master/ladder.py", "mix/verify.py", "critic.py", "studio/face.py")
