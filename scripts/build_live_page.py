@@ -85,7 +85,9 @@ def build(design: str) -> str:
     # Owner 2026-11-03: no redundancies. A new line whose words mostly match a line already in a slot replaces that line,
     # so the two slots never say the same thing; a lone moment sits in the centre by the design's own layout
     place = "for(const l of S.lines){if(l.seen)continue;l.seen=true;l.placedAt=++uidN;\n  let i=slots.indexOf(null);"
+    # and a moment never echoes the headline: the Now line is the macro, a moment is its detail (Owner 2026-11-04)
     place_once = ("for(const l of S.lines){if(l.seen)continue;l.seen=true;l.placedAt=++uidN;\n"
+                  "  if(S.plain&&similar({summary:S.plain},l))continue;\n"
                   "  const dup=[0,1].find(k=>slots[k]&&similar(slots[k],l));if(dup!==undefined)slots[dup]=null;\n  let i=slots.indexOf(null);")
     # Owner 2026-11-03: the Now section is never blank; with nothing running it says he is waiting for the next task
     now_blank = "typeNow(S.plain);n.style.visibility=S.plain?'visible':'hidden';}"

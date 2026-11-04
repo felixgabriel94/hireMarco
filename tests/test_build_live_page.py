@@ -16,7 +16,7 @@ def test_the_page_builds_from_the_design_with_the_listening_moment():
     assert "sl.classList.add('ear')" in page and "bars.style.width" in page and ".sl .sh b{overflow:visible" in page
     assert "typeNow(S.plain||'Marco is on standby.')" in page
     assert "\u2026" not in page and "*{text-overflow:clip!important}" in page and "function midTrunc(s,n){return String(s);}" in page
-    assert "function similar(" in page and "similar(slots[k],l)" in page
+    assert "function similar(" in page and "similar(slots[k],l)" in page and "similar({summary:S.plain},l)" in page
     assert "wd('listening','use')" in page and '"st ear"' in page and "data-heard" in page and "S.typedHeard" in page and "function earBars(" in page
     assert page.count("heardKey") >= 3 and "https://" not in page.replace("http://www.w3.org", "")
     import re

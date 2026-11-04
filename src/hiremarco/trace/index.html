@@ -564,6 +564,7 @@ function renderStream(cur,prev){prev.innerHTML='';cur.style.visibility='visible'
  for(let i=0;i<2;i++)if(slots[i]&&!S.lines.includes(slots[i]))slots[i]=null;
  const protectedLine=l=>l&&((l.kind==='call'&&l.status==='running')||(l.kind==='msg'&&l.dir==='in'&&/email|mail/i.test(l.via||'')&&now-l.ts<HOLD));
  for(const l of S.lines){if(l.seen)continue;l.seen=true;l.placedAt=++uidN;
+  if(S.plain&&similar({summary:S.plain},l))continue;
   const dup=[0,1].find(k=>slots[k]&&similar(slots[k],l));if(dup!==undefined)slots[dup]=null;
   let i=slots.indexOf(null);
   if(i<0){const cand=[0,1].filter(k=>!protectedLine(slots[k]));const pool=cand.length?cand:[0,1];i=pool.sort((a,b)=>slots[a].placedAt-slots[b].placedAt)[0];}
