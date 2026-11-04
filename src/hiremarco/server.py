@@ -79,6 +79,8 @@ def voice_text(message: Inbound, wa: WhatsApp, listen=None) -> str:
 
 ENGLISH = ("Reply in English, even when he writes a word, a name or a song title in Spanish or another language. "
            "Answer in another language only when he asks you to. " + TIME_RULE + " " + DAYS_RULE + " " + NAME_RULE)
+# live 2026-11-04: "Yew" and "Yee" (his thumb on the phone) went to the brain, which asked for the place's number
+YES_LIKE = re.compile(r"^(?:y+e+[swhp]?|ye+s+|ya+s*|si+|sí+)\W*$", re.I)
 AGAIN = re.compile(r"^(?:call (?:again|them again|back)|try again|try it again|retry|again)\b", re.I)
 
 
@@ -463,6 +465,7 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
         earlier: dict | None = None, calls=None, start=None) -> str:
     """The brain's choice carried out, then its text sent; when the studio says the choice cannot be done, the text
     says what is true instead of what the brain hoped."""
+    from hiremarco.calls import offers
     from hiremarco.studio.beat_in import INBOX, cancel_pending, name_received, pending, rename_pending, \
         requested_name, retry_pending, start_session, title
 
@@ -501,7 +504,16 @@ def act(decision, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None
         if not did.startswith("mastering"):
             text = "I can't print it right now: " + did + "."
     elif decision.action == "call":
-        text, did = call_for_him(decision.call, sender, message_id, wa, calls=calls, start=start)
+        # a call to the place Marco just offered to call is his yes to that offer, whatever his words were
+        # (live 2026-11-04: "Yee" became a brain call that asked for Test Kitchen's number)
+        waiting = offers.pending(offers.connect())
+        place = offers.place_for(waiting) if waiting is not None and waiting.kind == "table" else None
+        who = (decision.call.get("who") or "").strip().lower()
+        if place is not None and who and (who in place.name.lower() or place.name.lower() in who):
+            did = offer_yes("yes", sender, message_id, wa, calls=calls, start=start) or "offer: not taken"
+            text = ""
+        else:
+            text, did = call_for_him(decision.call, sender, message_id, wa, calls=calls, start=start)
     elif promises_send(text):  # a reply sends nothing: a line that says it does is not sent (live 2026-11-03)
         text, did = no_send_line(wa.conn), "a reply that promised a send, replaced"
     kept = [f for f in decision.remember if keep(wa.conn, f)]
@@ -636,7 +648,7 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
         offer = answered if AGAIN.search((said or "").strip()) else offers.record_fallbacks(conn, answered, said)
     elif offer is None:
         words = (said or "").strip()
-        if not (AFFIRM.search(words) or AGAIN.search(words)):
+        if not (AFFIRM.search(words) or AGAIN.search(words) or YES_LIKE.match(words)):
             return None
         offer = offers.pending(conn, now)
         if offer is None:  # his yes or "call again" after a held call dials it again at once (Owner 2026-11-04)

@@ -291,3 +291,15 @@ def test_call_again_during_the_questions_is_not_taken_as_his_answers(world, monk
     yes(world)
     yes(world, said="Call again", mid="m2")
     assert offers.get(world["conn"], offer.id).fallbacks != "Call again"
+
+
+def test_a_near_yes_from_his_thumb_is_a_yes(world, monkeypatch):
+    # live 2026-11-04: "Yew" and "Yee" went to the brain, which asked for Test Kitchen's number
+    monkeypatch.setattr("hiremarco.critic.Critic.__call__", lambda self, d: (True, "ok"))
+    offer = offers.record_offer(world["conn"], KITCHEN, weekday="thursday", day="2026-11-05", hour=20, party_size=4,
+                                now=datetime.now(timezone.utc))
+    assert yes(world, said="Yee").startswith(f"offer {offer.id}: asked")
+    assert yes(world, said="7:30 or 8:30, outdoor", mid="m2").startswith(f"offer {offer.id}: calling")
+    from hiremarco.server import YES_LIKE
+    assert all(YES_LIKE.match(w) for w in ("Yew", "Yee", "yess", "Ya", "Yes."))
+    assert not any(YES_LIKE.match(w) for w in ("Yesterday", "yellow", "no", "y"))
