@@ -119,29 +119,40 @@ def cover(title: str, size: int = 1000) -> bytes:
     return out.getvalue()
 
 
-def card(title: str, size: int = 1000) -> bytes:
-    """The card WhatsApp shows under the link, square so its small thumbnail is the whole picture and not a slice of it
-    (Owner 2026-11-03, option A): black, the tie and the name top-left, the wave mark, the song's name, MASTER, a quiet
-    line and Mastered by Marco."""
+def card(title: str, size: int = 800) -> bytes:
+    """The card WhatsApp shows under the link: a perfect square with the wave mark alone, large and thick, so it
+    stays crisp at the chat's thumbnail size, where no words survive anyway (Owner 2026-11-03: simplicity wins)."""
     import io
 
     from PIL import Image, ImageDraw
 
-    im = Image.new("RGBA", (size, size), (0, 0, 0, 255))
+    im = Image.new("RGB", (size, size), (0, 0, 0))
     d = ImageDraw.Draw(im)
-    try:
-        tie = Image.open(LOGO).convert("RGBA").resize((52, 52))
-        im.alpha_composite(tie, (48, 44))
-    except OSError:
-        pass
-    d.text((112, 70), "hireMarco", font=_font(30), fill=(255, 255, 255), anchor="lm")
-    _mark(d, size // 2 - 130, 250, 260, 12)
-    d.text((size / 2, 620), title, font=_font(50), fill=(255, 255, 255), anchor="mm")
-    d.text((size / 2, 690), "MASTER", font=_font(24, mono=True), fill=(138, 138, 138), anchor="mm")
-    d.line([(80, 820), (size - 80, 820)], fill=(40, 40, 40), width=2)
-    d.text((size / 2, 880), "Mastered by Marco", font=_font(26), fill=(138, 138, 138), anchor="mm")
+    s = int(size * 0.72)
+    _mark(d, (size - s) // 2, (size - s) // 2, s, max(6, int(size * 0.045)))
     out = io.BytesIO()
-    im.convert("RGB").save(out, format="PNG", optimize=True)
+    im.save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+def live_card(size: int = 800) -> bytes:
+    """The card for the Live View doorway: a perfect square with the window frame in the brand blue and the red dot
+    on its corner, large and thick, nothing else."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    im = Image.new("RGB", (size, size), (0, 0, 0))
+    d = ImageDraw.Draw(im)
+    w = max(6, int(size * 0.045))
+    x0, y0, x1, y1 = int(size * 0.14), int(size * 0.2), int(size * 0.86), int(size * 0.8)
+    d.rounded_rectangle([x0, y0, x1, y1], radius=int(size * 0.07), outline=(92, 155, 255), width=w)
+    inset = w + int(size * 0.02)
+    d.rounded_rectangle([x0 + inset, y0 + inset, x1 - inset, y1 - inset], radius=int(size * 0.04), outline=(60, 60, 60), width=max(2, w // 4))
+    r = int(size * 0.045)
+    d.ellipse([x1 - r - w // 2, y0 - r - w // 2, x1 + r - w // 2, y0 + r - w // 2], fill=(226, 75, 74))
+    out = io.BytesIO()
+    im.save(out, format="PNG", optimize=True)
     return out.getvalue()
 
 

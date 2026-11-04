@@ -31,7 +31,7 @@ def test_the_link_serves_a_branded_page_the_file_and_the_tie_until_it_dies(tmp_p
     from PIL import Image
     import io
     card_png = client.get(f"/share/{share_id}/card.png").content
-    assert Image.open(io.BytesIO(card_png)).size == (1000, 1000)   # square: the chat's thumbnail is the whole picture
+    assert Image.open(io.BytesIO(card_png)).size == (800, 800) and Image.open(io.BytesIO(share.live_card())).size == (800, 800)   # perfect squares
     assert f'property="og:image" content="http://testserver/share/{share_id}/card.png"' in page.text
     monkeypatch.setattr(config, "get", lambda key, default=None: "https://hiremarco.ai/m/" if key == "SHARE_URL" else default)
     branded = client.get(f"/share/{share_id}").text
