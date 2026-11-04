@@ -225,8 +225,10 @@ def fresh_session(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: 
     from hiremarco.studio.beat_in import INBOX, latest_received, pending
 
     folder = inbox or INBOX
-    plain = re.sub(r"^(?:hey |hi |ok |okay )?marco[,:!]?\s*", "", (said or "").lower().strip(" .!")).strip()
-    if not NEW_SESSION_SAID.match(plain) or latest_received(folder) is not None or pending(folder):
+    plain = (said or "").lower().strip(" .!")
+    # his name, or what the transcriber made of it ("Michael, open a new session", live 2026-11-03), comes off first
+    named = re.sub(r"^(?:hey |hi |ok |okay )?[a-z]+[,:!]\s+", "", plain).strip()
+    if not (NEW_SESSION_SAID.match(plain) or NEW_SESSION_SAID.match(named)) or latest_received(folder) is not None or pending(folder):
         return None
     started = booth()
     (nudge or nudge_booth)(b"session")
