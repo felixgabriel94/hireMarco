@@ -61,10 +61,10 @@ img, video { max-width: 100%; max-height: 100%; object-fit: contain; background:
 #bar { padding: 8px 16px 10px; display: flex; justify-content: space-between; align-items: center; }
 #full { background: none; border: 1px solid #333; color: #fff; border-radius: 999px; padding: 6px 14px; font: inherit; }
 @media (orientation: landscape) {
-  /* lying flat, Logic is the whole picture: no brand, no bar, no button over the window (Owner 2026-11-03);
-     a tap on the picture goes full screen, a pinch zooms in */
-  #brand, #bar { display: none; }
-  body { padding: 0; }
+  #brand { position: absolute; top: env(safe-area-inset-top); left: env(safe-area-inset-left); padding: 8px 10px; }
+  #brand img { width: 22px; height: 22px; } #brand span { display: none; }
+  #bar { position: absolute; right: env(safe-area-inset-right); bottom: env(safe-area-inset-bottom); background: none; }
+  #bar #mode { display: none; }
 }
 </style></head>
 <body><div id="brand"><img src="{logo}" alt=""><span>hireMarco</span></div>
