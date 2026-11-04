@@ -71,3 +71,29 @@ def test_critic_refuses_when_kill_switch_on(tmp_path, monkeypatch):
                        transport=httpx.MockTransport(lambda r: httpx.Response(500)))
     with pytest.raises(gate.Refused):
         Critic(client)("anything")
+
+
+def test_the_critic_tries_once_more_with_more_room_before_holding():
+    # live 2026-11-04: at 600 tokens Muse Wonder reasoned to the end and the Owner's yes was held with no answer
+    from types import SimpleNamespace
+
+    from hiremarco.critic import Critic
+
+    rooms = []
+
+    class Client:
+        joblog = None
+
+        def ask(self, description, **kw):
+            rooms.append(kw["max_completion_tokens"])
+            if len(rooms) == 1:
+                return SimpleNamespace(text="", finish_reason="length")
+            return SimpleNamespace(text="APPROVE: the Owner asked", finish_reason="stop")
+
+    import hiremarco.critic as critic_mod
+    critic_mod.gate.check_model_call, saved = (lambda *a, **k: None), critic_mod.gate.check_model_call
+    try:
+        Critic(client=Client())("call via voice to Test Kitchen")
+    finally:
+        critic_mod.gate.check_model_call = saved
+    assert rooms == [1500, 3000]

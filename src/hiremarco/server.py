@@ -79,6 +79,18 @@ def voice_text(message: Inbound, wa: WhatsApp, listen=None) -> str:
 
 ENGLISH = ("Reply in English, even when he writes a word, a name or a song title in Spanish or another language. "
            "Answer in another language only when he asks you to. " + TIME_RULE + " " + DAYS_RULE + " " + NAME_RULE)
+AGAIN = re.compile(r"^(?:call (?:again|them again|back)|try again|try it again|retry|again)\b", re.I)
+
+
+def held_line(who: str, now=None) -> str:
+    """What he hears when a call could not start: when it happened, so a second one is never taken for a repeat
+    and swallowed, and the words that dial it again (Owner 2026-11-04: he says when something is held)."""
+    from datetime import datetime
+
+    at = (now or datetime.now()).strftime("%I:%M %p").lstrip("0")
+    return f"I couldn't get the call to {who} going at {at}. Say \"call again\" and I'll try right away."
+
+
 AFFIRM = re.compile(r"^(?:yes|yeah|yep|yup|sure|ok|okay|go|go ahead|do it|please do|let'?s go|start it|si|sí|dale)\b",
                     re.I)
 STATUS = re.compile(r"\b(?:did|have|has|is|are|was)\b.*\b(?:session|start(?:ed)?|set ?up|ready|done|loaded|logic)\b"
@@ -425,7 +437,7 @@ def call_for_him(call: dict, sender: str, message_id: str, wa: WhatsApp, *, call
             reactions.take_off(wa, sender, message_id)
         if not isinstance(held, (gate.Refused, CallError)):
             raise
-        return (f"I couldn't get the call to {who} going just now. Want me to try again?",
+        return (held_line(who),
                 f"call to {who}: held: {getattr(held, 'reason', held)}")
 
     def report() -> None:
@@ -616,15 +628,21 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
     from hiremarco.critic import Critic
 
     conn = conn or offers.connect()
+    retry = False
     reply = lambda text, tag: wa.send_text(sender, text, idempotency_key=f"{tag}:{message_id}")  # noqa: E731
     answered = offer if offer is not None and offer.status == "questions" else \
         (None if offer is not None else offers.asking(conn, now))
     if answered is not None:  # his one reply to the fallback questions: it goes into the brief, then the call
         offer = offers.record_fallbacks(conn, answered, said)
     elif offer is None:
-        if not AFFIRM.search((said or "").strip()):
+        words = (said or "").strip()
+        if not (AFFIRM.search(words) or AGAIN.search(words)):
             return None
         offer = offers.pending(conn, now)
+        if offer is None:  # his yes or "call again" after a held call dials it again at once (Owner 2026-11-04)
+            again = offers.held_to_retry(conn, now)
+            if again is not None:
+                offer, retry = again, True
         if offer is None or offer.kind != "table":  # a reply or a heads-up has its own words (email_offer_words)
             return None
     if not message_id.startswith("booth-"):  # a spoken yes has no message of his to quote
@@ -634,7 +652,7 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
         offers.set_status(conn, offer.id, "no such place")
         reply("I can't find that place in your list anymore, so I'm holding off on the call.", "offer-place")
         return f"offer {offer.id}: place {offer.place_id} not in the places file"
-    if answered is None:  # the questions come first, so one reply can fill what the profile leaves open
+    if answered is None and not retry:  # the questions come first, so one reply can fill what the profile leaves open
         offers.ask_fallbacks(conn, offer)
         offers.add_message(conn, offer.id, reply(offers.questions_text(offer), "offer-questions"))
         return f"offer {offer.id}: asked the fallback questions before dialing"
@@ -661,7 +679,7 @@ def offer_yes(said: str, sender: str, message_id: str, wa: WhatsApp, *, conn=Non
             raise
         offers.set_status(conn, offer.id, "held")
         # the reason stays in the log line; he hears what happened and the one thing to decide
-        reply(f"I couldn't get the call to {place.name} going just now. Want me to try again?", "offer-held")
+        reply(held_line(place.name), "offer-held")
         return f"offer {offer.id}: held: {getattr(held, 'reason', held)}"
     offers.set_status(conn, offer.id, "called")
     reply(f"Calling {place.name} now. I'll tell you how it goes.", "offer-calling")

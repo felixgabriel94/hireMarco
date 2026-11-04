@@ -182,7 +182,8 @@ def test_a_held_call_takes_the_phone_off_and_says_so_plainly(world):
     line = ask(world, "m1", LUCIE, call())
     assert world["dialed"] == [] and "held" in line
     assert world["reacted"][-1] == ""                                 # taken back off
-    assert world["texts"][-1] == "I couldn't get the call to Lucie going just now. Want me to try again?"
+    assert world["texts"][-1].startswith("I couldn't get the call to Lucie going at ")
+    assert world["texts"][-1].endswith('Say "call again" and I\'ll try right away.')
 
 
 def test_a_voicemail_or_no_answer_is_said_as_it_is(world):

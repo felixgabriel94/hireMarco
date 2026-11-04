@@ -352,6 +352,20 @@ def accept(conn: sqlite3.Connection, offer: CallOffer, now: datetime | None = No
     return get(conn, offer.id) if cur.rowcount == 1 else None
 
 
+def held_to_retry(conn: sqlite3.Connection, now: datetime | None = None) -> CallOffer | None:
+    """The newest table offer held inside the yes window, put back to pending so his yes or "call again" dials it."""
+    now = now or datetime.now(timezone.utc)
+    r = conn.execute("select * from offers where status = 'held' and kind = 'table' order by id desc limit 1").fetchone()
+    if r is None:
+        return None
+    offer = _row(r)
+    if offer.offered_at is None or now - offer.offered_at > YES_WINDOW:
+        return None
+    conn.execute("update offers set status = 'pending' where id = ? and status = 'held'", (offer.id,))
+    conn.commit()
+    return get(conn, offer.id)
+
+
 def set_status(conn: sqlite3.Connection, offer_id: int, status: str) -> None:
     conn.execute("update offers set status = ? where id = ?", (status, offer_id))
     conn.commit()

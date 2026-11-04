@@ -211,3 +211,34 @@ def test_written_output_keeps_the_real_spelling(world):
     assert "Zorrilla" in text and "Zor-illa" not in text
     assert transcript_lines(data) == ["   9s agent: It's under Felix Zorrilla. See you Thursday."]
     assert off_brief(data) == "Asked how to spell Zorrilla"
+
+
+def test_a_held_call_says_when_and_his_call_again_dials_it(world, monkeypatch):
+    # live 2026-11-04 15:53 ET: the critic held his Test Kitchen yes, and the second held line was swallowed as a repeat
+    verdicts = iter([(False, "the critic ran out of room before answering"), (True, "ok")])
+    monkeypatch.setattr("hiremarco.critic.Critic.__call__", lambda self, d: next(verdicts))
+    offer = offers.record_offer(world["conn"], KITCHEN, weekday="thursday", day="2026-11-05", hour=20, party_size=4,
+                                now=datetime.now(timezone.utc))
+    yes(world)
+    assert "held" in yes(world, said="7:30 or 8:30, outdoor, a link is fine", mid="m2") and world["dialed"] == []
+    assert world["texts"][-1].startswith("I couldn't get the call to Test Kitchen going at ")
+    assert 'Say "call again"' in world["texts"][-1] and "critic" not in world["texts"][-1]
+    line = yes(world, said="Call again", mid="m3")
+    assert line.startswith(f"offer {offer.id}: calling Test Kitchen") and len(world["dialed"]) == 1
+    brief = world["dialed"][0]["conversation_initiation_client_data"]["dynamic_variables"]["brief"]
+    assert "- fallbacks: 7:30 or 8:30, outdoor, a link is fine" in brief
+
+
+def test_the_owners_word_is_never_held_as_a_repeat_but_a_clients_is(world):
+    conn = gate.connect(":memory:")
+    now = datetime.now(timezone.utc)
+    good = {"offer_id": 1, "place_name": "Test Kitchen", "place_phone": "15557770000", "offered_at": now,
+            "accepted_at": now}
+    fields = dict(capability="call", channel="voice", target="15557770000",
+                  message=gate.RECORDING_OPENING + " I'm calling to book a table for Felix.", department="assistant",
+                  rules_path=world["rules"])
+    gate.record_effect(conn, tenant_id="owner", idempotency_key="first", **{k: v for k, v in fields.items()
+                                                                           if k != "rules_path"})
+    gate.check_outbound(conn, tenant_id="owner", idempotency_key="again", offer=good, **fields)   # his yes goes
+    with pytest.raises(gate.Refused):                                    # anyone else's repeat is still held
+        gate.check_outbound(conn, tenant_id="client-1", idempotency_key="again", offer=good, **fields)

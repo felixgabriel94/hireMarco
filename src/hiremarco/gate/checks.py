@@ -49,6 +49,7 @@ RECORDING_NOTICE = RECORDING_OPENING + " I'm calling to book a table for Felix G
 DAILY_LIMITS = {"voice": 30, "whatsapp": 100, "mail": 25}
 MAIL_WORD_WINDOW = timedelta(hours=24)  # a preview older than this can't be sent on a word
 DUPLICATE_WINDOW_S = 600
+OWNER_TENANT = "owner"
 DAILY_MODEL_CAP_USD = 5.0
 
 
@@ -176,7 +177,10 @@ def check_outbound(
             raise Refused("already done (same idempotency key)")
         since = datetime.fromtimestamp(time.time() - DUPLICATE_WINDOW_S, timezone.utc).isoformat()
         # Repeating "record" in the studio is normal; repeating a message to a person is not.
-        row = channel in PERSON_CHANNELS and conn.execute(
+        # The Owner's own word (his number in his words, or his yes to an offer) is never made to wait
+        # (Owner 2026-11-04: "what I say goes"); a client's calls and every text keep the rule.
+        owners_word = tenant_id == OWNER_TENANT and channel == "voice" and (named or offered)
+        row = channel in PERSON_CHANNELS and not owners_word and conn.execute(
             "select 1 from effects where ok = 1 and channel = ? and target = ? and message_hash = ? and ts >= ?",
             (channel, target, _hash(message), since),
         ).fetchone()

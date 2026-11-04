@@ -46,7 +46,7 @@ def verdict_line(text: str) -> tuple[str, str]:
 
 class Critic:
     def __init__(self, client: MuseSpark | None = None, rules_path: Path | None = None, model: str = CRITIC_MODEL,
-                 effort: str = "low", tokens: int = 600, timeout: float = 60.0):
+                 effort: str = "low", tokens: int = 1500, timeout: float = 60.0):
         """``effort`` low for the sends that happen all day; ``max`` where the critic judges a mix or a master plan
         (Owner 2026-11-02: deep thinking on every mix and master decision), with ``tokens`` and ``timeout`` raised
         to match."""
@@ -61,8 +61,13 @@ class Critic:
         gate.check_model_call(TENANT, model=self.model, system=system, prompt=description, joblog=client.joblog)
         # Muse Wonder reasons before it answers: at 40 tokens (live 2026-10-31) 38 went to reasoning, the answer was
         # empty and the first call was held as unreadable. Room for both, and still a hold on anything unreadable.
-        reply = client.ask(description, developer=system, job="critic", model=self.model,
-                           max_completion_tokens=self.tokens, reasoning_effort=self.effort, summarize=verdict_line)
+        # live 2026-11-04 15:53 ET: at 600 the Owner's Test Kitchen yes was held with no answer; 1500, then once
+        # more at double the room before a hold
+        for room in (self.tokens, self.tokens * 2):
+            reply = client.ask(description, developer=system, job="critic", model=self.model,
+                               max_completion_tokens=room, reasoning_effort=self.effort, summarize=verdict_line)
+            if reply.text.strip() or reply.finish_reason != "length":
+                break
         if not reply.text.strip() and reply.finish_reason == "length":
             return False, "the critic ran out of room before answering"
         return parse(reply.text)
