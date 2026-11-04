@@ -43,14 +43,43 @@ def level_of(rms: float, gain: float) -> float:
     return max(0.0, min(1.0, rms * gain))
 
 
-def booth_state(booth, audio) -> tuple[str, float]:
-    """What the halo shows for the booth right now: away for a take, and his voice, his thinking or yours otherwise."""
-    if getattr(booth, "operating", False):  # he is setting the session up: shown before Logic is even open
-        return "operating", 0.0
+_LOGIC_WINDOW = {"at": 0.0, "up": False}
+
+
+def logic_window_up(now: float | None = None, windows: Callable[[], list] | None = None) -> bool:
+    """A Logic window of working size is on screen (the glow's own rule), read from the window server at most four
+    times a second; False when the server cannot be asked."""
+    now = time.monotonic() if now is None else now
+    if now - _LOGIC_WINDOW["at"] < 0.25 and windows is None:
+        return _LOGIC_WINDOW["up"]
+    try:
+        if windows is None:
+            import Quartz
+
+            def windows():
+                return list(Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
+                                                              Quartz.kCGNullWindowID) or [])
+        from hiremarco.glow import front_logic_window
+
+        up = front_logic_window(windows()) is not None
+    except Exception:
+        up = False
+    _LOGIC_WINDOW["at"], _LOGIC_WINDOW["up"] = now, up
+    return up
+
+
+def booth_state(booth, audio, window_up: Callable[[], bool] = logic_window_up) -> tuple[str, float]:
+    """What the halo shows for the booth right now: away for a take, and his voice, his thinking or yours otherwise.
+    Owner 2026-11-03: the halo is for talking; once he works in Logic and its window is up, the glow on that window
+    has him and the halo steps away, until he speaks."""
     if booth.rolling:  # the take belongs to the artist: the halo steps out of the way
         return "recording", 0.0
     if audio.speaking:
         return "speaking", level_of(audio.out_level, 10)
+    if getattr(booth, "in_logic", False) and window_up():
+        return "working", 0.0
+    if getattr(booth, "operating", False):  # he is setting the session up: shown before Logic is even open
+        return "operating", 0.0
     if getattr(booth, "asleep", False):  # dismissed: gone as soon as his last line ends
         return "asleep", 0.0
     if booth.busy or time.monotonic() - getattr(booth, "called_at", 0.0) < 3.0:

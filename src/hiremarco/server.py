@@ -23,6 +23,7 @@ from hiremarco.livelog import Trace
 from hiremarco.marco import Marco
 from hiremarco.style import DAYS_RULE, NAME_RULE, TIME_RULE, days_span
 from hiremarco.whatsapp import Inbound, WhatsApp, make_app, reactions
+from hiremarco.studio.commands import NEW_SESSION_SAID
 from hiremarco.whatsapp.brain import context, decide, history
 from hiremarco.whatsapp.facts import forget, keep
 from hiremarco.whatsapp.memory import earlier_words, note_words, quoted_words, remember
@@ -188,8 +189,53 @@ def status(inbox: Path, running=booth_running) -> str:
     return "No beat yet. Send me one and tell me when to start."
 
 
+def nudge_booth(word: bytes, running=booth_running, port: int = 8790, wait_s: float = 30.0) -> None:
+    """One word to the booth's own socket, the way the menu-bar app speaks to it; a booth still starting gets it
+    once its port is up, from a thread, so his text is not lost to the seconds the booth takes."""
+    import socket
+
+    def send() -> None:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            sock.sendto(word, ("127.0.0.1", port))
+        finally:
+            sock.close()
+
+    if running():
+        send()
+        return
+
+    def later() -> None:
+        waited = 0.0
+        while waited < wait_s and not running():
+            time.sleep(0.5)
+            waited += 0.5
+        if running():
+            time.sleep(1.0)   # the port is bound before the booth listens
+            send()
+
+    threading.Thread(target=later, daemon=True).start()
+
+
+def fresh_session(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None,
+                  booth=ensure_booth, nudge=None) -> str | None:
+    """"Open a new session and wait for me" by text, as by voice (Owner 2026-11-03): with no beat kept or waiting,
+    the booth opens Logic from the template and waits. Asked before the brain, so the words act, not get answered.
+    None for any other words, or when a beat is there (then the session is set up with it, the usual way)."""
+    from hiremarco.studio.beat_in import INBOX, latest_received, pending
+
+    folder = inbox or INBOX
+    plain = re.sub(r"^(?:hey |hi |ok |okay )?marco[,:!]?\s*", "", (said or "").lower().strip(" .!")).strip()
+    if not NEW_SESSION_SAID.match(plain) or latest_received(folder) is not None or pending(folder):
+        return None
+    started = booth()
+    (nudge or nudge_booth)(b"session")
+    wa.send_text(sender, "Opening a fresh session. I'll wait for you.", idempotency_key=f"fresh:{message_id}")
+    return f"fresh session asked of the booth; {started}"
+
+
 def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Path | None,
-                booth=ensure_booth, running=booth_running) -> str | None:
+                booth=ensure_booth, running=booth_running, nudge=None) -> str | None:
     """His words about a session, answered from the real state: start the beat he sent (on "start a session",
     "set it up", or a yes to Marco's question), take a corrected title, or say where things stand. None when the
     words are about something else (Owner 2026-10-30, after a live test where Marco missed all three)."""
@@ -201,6 +247,9 @@ def instruction(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: Pa
     reply = lambda text, tag: wa.send_text(sender, text, idempotency_key=f"{tag}:{message_id}")  # noqa: E731
     short = 2 <= len(said.split()) <= 6 and "?" not in said and not re.match(r"(?i)(?:hey|hi|hello|yo|thanks|thank you|ok|okay|cool|nice|great)\b", said)
     kept, waiting = latest_received(folder), pending(folder)
+    fresh = fresh_session(said, sender, message_id, wa, folder, booth=booth, nudge=nudge)
+    if fresh is not None:
+        return fresh
     if STATUS.search(said) and ("?" in said or not wants_session(said)):
         line = status(folder, running)
         if pending(folder):
@@ -1105,6 +1154,9 @@ def handle(message: Inbound, *, marco: Marco | None = None, wa: WhatsApp | None 
         called = offer_yes(said, message.sender, message.id, wa) if words and not message.quoted else None
         if called is not None:
             return trace.done(called)
+        fresh = fresh_session(said, message.sender, message.id, wa, inbox, booth=booth) if words else None
+        if fresh is not None:
+            return trace.done(fresh)
         if said:
             try:
                 marco = marco or Marco()

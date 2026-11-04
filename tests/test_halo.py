@@ -248,3 +248,24 @@ def test_during_a_take_stop_on_its_own_ends_it_and_a_lyric_with_stop_does_not():
     assert "stop" in b.hear("Stop.") and not b.rolling
     b.hear("Marco, record.")
     assert "stop" in b.hear("Okay, stop.") and not b.rolling
+
+
+def test_the_halo_steps_away_while_he_works_in_logic_and_comes_back_when_he_speaks():
+    # Owner 2026-11-03: the halo is for talking; the glow on Logic's window has him while he works
+    from types import SimpleNamespace
+
+    audio = SimpleNamespace(speaking=False, out_level=0.05, in_level=0.02)
+    booth = SimpleNamespace(rolling=False, busy=True, in_logic=True, operating=True)
+    assert halo.booth_state(booth, audio, window_up=lambda: False) == ("operating", 0.0)   # Logic not open yet: the halo announces him
+    assert halo.booth_state(booth, audio, window_up=lambda: True) == ("working", 0.0)      # Logic's window is up: the glow has him
+    audio.speaking = True
+    assert halo.booth_state(booth, audio, window_up=lambda: True) == ("speaking", 0.5)     # his voice shows him wherever he is
+    audio.speaking, booth.in_logic, booth.operating = False, False, False
+    assert halo.booth_state(booth, audio, window_up=lambda: True) == ("thinking", 0.0)
+
+
+def test_logic_window_up_reads_the_window_server_through_the_glows_rule():
+    up = halo.logic_window_up(windows=lambda: [{"kCGWindowOwnerName": "Logic Pro", "kCGWindowLayer": 0,
+                                                "kCGWindowBounds": {"X": 0, "Y": 33, "Width": 1512, "Height": 874}}])
+    assert up is True
+    assert halo.logic_window_up(now=1e9, windows=lambda: []) is False

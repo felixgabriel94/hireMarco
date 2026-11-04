@@ -181,10 +181,12 @@ class Booth:
     last_setup: dict = field(default_factory=dict)    # the key, tempo and beat gain the session was last set to
     master: Callable[[str], str] | None = None        # master.live.run_live on this session, the WAVs texted; its summary
     open_empty: Callable[[], str] | None = None       # studio.beat_in.BeatLoader.open_empty: a session from the template, no beat
+    in_logic: bool = False                            # he is at work in Logic: the glow has him, the halo steps away
 
     def _work(self, what: str, action: str) -> None:
         """One row for the glow: the booth is at work in Logic, or done (Owner 2026-11-03: wherever he goes, the
         audience sees where he is). The master job writes its own job rows inside; the glow keeps the first light."""
+        self.in_logic = what == "started"
         try:
             from hiremarco import events as stream
 
@@ -459,7 +461,7 @@ class Booth:
             self._say("an action failed", {"asked": line, "what_failed": result}, FAILED)
         finally:
             self.busy = False
-            if working:
+            if working and command.action != "export":   # the master runs on in its own thread, which ends its work
                 self._work("ended", command.action)
         if self.writer is not None:
             self.writer.heard(line, self.last_said)
@@ -965,6 +967,7 @@ class Booth:
                         pass
             finally:
                 self.busy = False
+                self._work("ended", "export")
         threading.Thread(target=run, daemon=True).start()
         return "mastering started"
 
@@ -1548,6 +1551,8 @@ def _shortcut_listener(booth: "Booth", sock) -> None:
             os.kill(os.getpid(), signal.SIGINT)
         elif data.strip() == b"live":  # the menu bar's "Text me the live view"
             booth.hear("Marco, give me the live view")
+        elif data.strip() == b"session":  # his WhatsApp: a fresh session with no beat (Owner 2026-11-03)
+            booth.hear("Marco, open a new session and wait for me")
         elif data.strip() in (b"place booth", b"place desk") and booth.on_place is not None:
             booth.on_place(data.strip().split()[1].decode())  # the menu bar's "Listen at"
 

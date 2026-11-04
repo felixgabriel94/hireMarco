@@ -579,3 +579,17 @@ def test_the_booth_opens_an_empty_session_with_the_halo_first_and_the_glow_rows_
     assert seen == [True] and b.operating is False
     assert said == ["Opening a fresh session. I'll wait for you.", "Session's open. Ready when you are."]
     assert rows == [("work_started", "new_session"), ("work_ended", "new_session")]
+
+
+def test_open_a_new_session_by_text_with_no_beat_asks_the_booth_for_a_fresh_one(tmp_path, monkeypatch):
+    # Owner 2026-11-03: he texted "open a new session and wait for me" and Marco only waited for a beat
+    from hiremarco import server
+    from hiremarco.server import handle
+
+    wa, sent = whatsapp_line(tmp_path, monkeypatch)
+    words = []
+    monkeypatch.setattr(server, "nudge_booth", lambda word, **k: words.append(word))
+    monkeypatch.setattr(server, "ensure_booth", lambda running=None: "booth running")
+    line = handle(inbound(wa, "w1", kind="text", text="Marco, open a new session and wait for me"), wa=wa, inbox=tmp_path / "inbox")
+    assert "fresh session asked of the booth" in line and "brain" not in line   # acted on before the brain is asked
+    assert words == [b"session"] and b"Opening a fresh session" in sent[-1]

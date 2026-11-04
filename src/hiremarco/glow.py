@@ -26,7 +26,10 @@ RADIUS = 14.0
 BREATH_S = 4.0         # one slow breath
 ALPHA_LOW, ALPHA_HIGH = 0.45, 0.95
 PULSE_S = 0.7          # a landed event: a quick rise that fades
-LAYERS = ((30.0, 0.07), (18.0, 0.14), (10.0, 0.30), (4.5, 1.0))   # stroke width and share of the alpha, outside in: light, not a line
+# stroke width and share of the alpha, wide and faint to narrow and fuller, with no hard core: an aura that fades
+# both ways from the edge, air, not a line (Owner 2026-11-03)
+LAYERS = ((56.0, 0.05), (40.0, 0.08), (28.0, 0.12), (18.0, 0.18), (11.0, 0.26), (6.0, 0.34))
+MAX_LAYER = 8   # the window server's layer up to which a Logic window counts: a modal panel ("Choose a Project") is 8
 DRIFT_S = 6.0          # one lap of the brighter stretch around the frame
 WINDOW_POLL_S = 0.1    # the window server read, ten a second
 EASE = 0.38            # how much of the way to a new frame each tick (30 a second): about a tenth of a second to settle
@@ -127,7 +130,7 @@ def front_logic_window(infos: list[dict]) -> Rect | None:
     """The Logic window in front, from the window server's on-screen list (front first): its bounds with the top-left
     origin the server uses. Plug-in windows count, so the light follows Marco into one; sheets and palettes do not."""
     for info in infos:
-        if info.get("kCGWindowOwnerName") != "Logic Pro" or int(info.get("kCGWindowLayer", 0) or 0) > 3:
+        if info.get("kCGWindowOwnerName") != "Logic Pro" or int(info.get("kCGWindowLayer", 0) or 0) > MAX_LAYER:
             continue
         b = info.get("kCGWindowBounds") or {}
         try:
@@ -183,8 +186,8 @@ def show(*, at: Path | None = None) -> None:
 
     def outline(rect: Rect, radius: float, alpha: float, drift: float) -> None:
         x, y, w, h = rect
-        inset = LAYERS[0][0] / 2 + 1
-        shape = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(NSMakeRect(x + inset, y + inset, max(w - 2 * inset, 1), max(h - 2 * inset, 1)), radius, radius)
+        # the stroke sits on the window's edge itself, half out and half in, not inside it (Owner 2026-11-03)
+        shape = AppKit.NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(NSMakeRect(x, y, max(w, 1), max(h, 1)), radius, radius)
         shape.setLineCapStyle_(AppKit.NSRoundLineCapStyle)
         # layered light, wide and faint outside, narrow and bright at the edge; each layer breathes on its own slow
         # phase, so the whole edge shimmers like air rather than anything travelling around it (Owner 2026-11-03:
@@ -192,7 +195,7 @@ def show(*, at: Path | None = None) -> None:
         for k, (width, share) in enumerate(LAYERS):
             sway = 0.85 + 0.15 * math.sin(2 * math.pi * (drift + 0.21 * k))
             shape.setLineWidth_(width)
-            colour(alpha * share * 0.55 * sway).setStroke()
+            colour(alpha * share * 0.8 * sway).setStroke()
             shape.stroke()
 
     class GlowView(AppKit.NSView):

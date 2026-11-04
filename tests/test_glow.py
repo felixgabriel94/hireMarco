@@ -9,7 +9,7 @@ def test_the_brand_blue_is_a_blue_and_the_breath_stays_in_its_band():
     samples = [glow.breath(t / 10) for t in range(0, 80)]
     assert min(samples) >= glow.ALPHA_LOW - 1e-9 and max(samples) <= glow.ALPHA_HIGH + 1e-9
     assert glow.pulse(None) == 0.0 and glow.pulse(0.0) > glow.pulse(glow.PULSE_S / 2) > glow.pulse(glow.PULSE_S) == 0.0
-    assert glow.LAYERS[0][0] > glow.LAYERS[-1][0] and glow.LAYERS[-1][1] == 1.0   # light outside, the edge inside
+    assert glow.LAYERS[0][0] > glow.LAYERS[-1][0] and glow.LAYERS[-1][1] < 0.5 and glow.LAYERS[-1][0] >= 6.0   # an aura, no hard core (Owner 2026-11-03)
 
 
 def test_the_glow_is_born_at_a_start_lives_while_the_job_does_and_draws_back_at_the_end():
@@ -74,3 +74,14 @@ def test_the_booth_at_work_lights_the_glow_and_a_job_inside_keeps_one_light():
     assert state.working(21.0)                                  # the command returned; the job still runs
     state.add([{"kind": "job_ended"}], 40.0)
     assert not state.working(40.0) and state.ended_at == 40.0
+
+
+def test_a_modal_panel_of_logics_is_followed_like_a_window():
+    # Owner 2026-11-03: "Choose a Project" sat at the window server's layer 8 and the light stayed on the Tracks window
+    infos = [
+        {"kCGWindowOwnerName": "Logic Pro", "kCGWindowLayer": 8, "kCGWindowBounds": {"X": 120, "Y": 140, "Width": 980, "Height": 620}},
+        {"kCGWindowOwnerName": "Logic Pro", "kCGWindowLayer": 0, "kCGWindowBounds": {"X": 0, "Y": 33, "Width": 1512, "Height": 874}},
+    ]
+    assert glow.front_logic_window(infos) == (120.0, 140.0, 980.0, 620.0)
+    infos[0]["kCGWindowLayer"] = 25   # a menu or a tooltip, not a window
+    assert glow.front_logic_window(infos) == (0.0, 33.0, 1512.0, 874.0)
