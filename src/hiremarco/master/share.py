@@ -119,27 +119,27 @@ def cover(title: str, size: int = 1000) -> bytes:
     return out.getvalue()
 
 
-def card(title: str, width: int = 1200, height: int = 630) -> bytes:
-    """The card WhatsApp shows under the link: black, the tie and the name top-left, the wave mark, the song's name and
-    MASTER; a wide picture, the shape link cards take."""
+def card(title: str, size: int = 1000) -> bytes:
+    """The card WhatsApp shows under the link, square so its small thumbnail is the whole picture and not a slice of it
+    (Owner 2026-11-03, option A): black, the tie and the name top-left, the wave mark, the song's name, MASTER, a quiet
+    line and Mastered by Marco."""
     import io
 
     from PIL import Image, ImageDraw
 
-    im = Image.new("RGBA", (width, height), (0, 0, 0, 255))
+    im = Image.new("RGBA", (size, size), (0, 0, 0, 255))
     d = ImageDraw.Draw(im)
     try:
-        tie = Image.open(LOGO).convert("RGBA").resize((56, 56))
-        im.alpha_composite(tie, (48, 40))
+        tie = Image.open(LOGO).convert("RGBA").resize((52, 52))
+        im.alpha_composite(tie, (48, 44))
     except OSError:
         pass
-    d.text((116, 68), "hireMarco", font=_font(30), fill=(255, 255, 255), anchor="lm")
-    # card C (Owner 2026-11-03): the mark at the left, the song's name beside it, MASTER under the name, a quiet line
-    _mark(d, 80, 230, 170, 9)
-    d.text((300, 290), title, font=_font(58), fill=(255, 255, 255), anchor="lm")
-    d.text((300, 360), "MASTER", font=_font(26, mono=True), fill=(138, 138, 138), anchor="lm")
-    d.line([(80, 470), (width - 80, 470)], fill=(40, 40, 40), width=2)
-    d.text((80, 520), "Mastered by Marco", font=_font(26), fill=(138, 138, 138), anchor="lm")
+    d.text((112, 70), "hireMarco", font=_font(30), fill=(255, 255, 255), anchor="lm")
+    _mark(d, size // 2 - 130, 250, 260, 12)
+    d.text((size / 2, 620), title, font=_font(50), fill=(255, 255, 255), anchor="mm")
+    d.text((size / 2, 690), "MASTER", font=_font(24, mono=True), fill=(138, 138, 138), anchor="mm")
+    d.line([(80, 820), (size - 80, 820)], fill=(40, 40, 40), width=2)
+    d.text((size / 2, 880), "Mastered by Marco", font=_font(26), fill=(138, 138, 138), anchor="mm")
     out = io.BytesIO()
     im.convert("RGB").save(out, format="PNG", optimize=True)
     return out.getvalue()
