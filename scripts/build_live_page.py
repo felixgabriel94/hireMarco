@@ -84,7 +84,7 @@ def build(design: str) -> str:
                   "  const dup=[0,1].find(k=>slots[k]&&similar(slots[k],l));if(dup!==undefined)slots[dup]=null;\n  let i=slots.indexOf(null);")
     type_now = "function renderNow(){"
     type_into = ("function wordsOf(l){return new Set(String([l.summary,l.text,l.task].filter(Boolean).join(' ')).toLowerCase().replace(/[^a-z0-9' ]+/g,' ').split(/\\s+/).filter(w=>w.length>2));}\n"
-                 "function similar(a,b){if(a.kind==='call'&&b.kind==='call'&&a.key&&a.key===b.key&&a.task&&a.task===b.task)return true;"
+                 "function similar(a,b){if(a.kind==='call'&&b.kind==='call'&&a.key&&a.key===b.key)return true;"
                  "const A=wordsOf(a),B=wordsOf(b);if(A.size<3||B.size<3)return false;let n=0;A.forEach(w=>{if(B.has(w))n++;});return n>=2&&n/Math.min(A.size,B.size)>=0.5;}\n"
                  "function earBars(n){return Array.from({length:n},(_,k)=>'<i style=\"animation-delay:'+((k*0.07)%0.9).toFixed(2)+'s;animation-duration:'+(0.8+(k%5)*0.12).toFixed(2)+'s\"></i>').join('');}\n"
                  "function typeInto(el,text){if(!el)return;el.innerHTML=[...text].map(ch=>'<span class=\"c\">'+esc(ch)+'</span>').join('')+'<span class=\"caret\"></span>';"

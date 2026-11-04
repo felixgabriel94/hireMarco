@@ -61,6 +61,16 @@ DISMISSED = "Anytime."
 # what is talk, not work in Logic: the halo alone, no glow on a window (Owner 2026-11-03); anything else lights the glow
 TALK = frozenset({"kill", "dismiss", "chat", "summon", "unknown", "note", "take_feedback", "hearing", "reference",
                   "live_view", "mode", "show", "list_sections"})
+# the Now line on Marco Live for work the booth starts (Owner 2026-11-03: the left section stays, and it says what he is on)
+NOW_LINES = {
+    "new_session": "Marco opens a fresh session in Logic and waits for the beat.",
+    "beat_arrived": "Marco sets the session up from the beat.",
+    "export": "Marco prints the mix and masters the song.",
+    "mix_pass": "Marco balances the mix.",
+    "arrange": "Marco lays out the song's sections.",
+    "flex_pass": "Marco tunes the vocal.",
+    "record": "Marco rolls a take.",
+}
 AWAKE = 20.0  # seconds after the last exchange in which a sentence needs no "Marco"; the same quiet ends the halo
 LIVE_ON = "Live view's on. The link's on the Mac."
 LIVE_TEXTED = "Live view's on. I texted you the link."
@@ -191,6 +201,8 @@ class Booth:
             from hiremarco import events as stream
 
             stream.emit(f"work_{what}", source="marco", operation=action, status="ok", pid=os.getpid())
+            if what == "started" and action in NOW_LINES:   # the page's Now line, no stream moment of its own
+                stream.emit("stage", source="marco", operation=action.replace("_", " "), plain=NOW_LINES[action])
         except Exception:   # the glow is the look, not the work
             pass
 
@@ -218,9 +230,10 @@ class Booth:
         self.last_setup = {}
         # a new fact for the second moment (Owner 2026-11-03: no two moments saying the same thing): the session by its
         # name, open in Logic, and what comes next, the beat
-        self._say("Logic now shows the session named here, empty; say its name and that you are waiting for the beat, "
-                  "without the words fresh, new or open", {"session": opened},
-                  f"{opened.split(' is open', 1)[0]} is up in Logic. Send the beat when you have it.")
+        # no file names or technical names to the room (Owner 2026-11-03): the session is up, he waits for the beat
+        self._say("Logic now shows the empty session; say it is up and that you are waiting for the beat, in plain words, "
+                  "with no name or file name, without the words fresh, new or open", {},
+                  "The session's up in Logic. Send the beat when you have it.")
         return opened
 
     def beat_arrived(self, path: Path, name: str | None = None) -> str:

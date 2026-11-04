@@ -232,7 +232,9 @@ def fresh_session(said: str, sender: str, message_id: str, wa: WhatsApp, inbox: 
         return None
     started = booth()
     (nudge or nudge_booth)(b"session")
-    wa.send_text(sender, "Opening a fresh session. I'll wait for you.", idempotency_key=f"fresh:{message_id}")
+    lines = ("Opening a fresh session. I'll wait for you.", "Fresh session coming up. I'll wait for you.",
+             "On it, a fresh session. I'll wait for you.")   # three ways to say it: the rules hold a same message within ten minutes
+    wa.send_text(sender, lines[sum(message_id.encode()) % len(lines)], idempotency_key=f"fresh:{message_id}")
     return f"fresh session asked of the booth; {started}"
 
 

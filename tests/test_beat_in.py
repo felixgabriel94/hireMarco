@@ -577,8 +577,8 @@ def test_the_booth_opens_an_empty_session_with_the_halo_first_and_the_glow_rows_
     b.open_empty = lambda: seen.append(b.operating) or "Session 2026-11-03.logicx is open from the template, nothing on it yet"
     assert b.new_session().startswith("Session 2026-11-03.logicx is open")
     assert seen == [True] and b.operating is False
-    assert said == ["Opening a fresh session. I'll wait for you.", "Session 2026-11-03.logicx is up in Logic. Send the beat when you have it."]
-    assert rows == [("work_started", "new_session"), ("work_ended", "new_session")]
+    assert said == ["Opening a fresh session. I'll wait for you.", "The session's up in Logic. Send the beat when you have it."]
+    assert rows == [("work_started", "new_session"), ("stage", "new session"), ("work_ended", "new_session")]   # the stage row is the page's Now line
 
 
 def test_open_a_new_session_by_text_with_no_beat_asks_the_booth_for_a_fresh_one(tmp_path, monkeypatch):

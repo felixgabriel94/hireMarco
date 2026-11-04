@@ -134,6 +134,8 @@ def front_logic_window(infos: list[dict]) -> Rect | None:
             continue
         if float(info.get("kCGWindowAlpha", 1.0) or 0.0) <= 0.0:   # a window Logic holds but has not shown (its launch, 2026-11-03)
             continue
+        if "kCGWindowIsOnscreen" in info and not info.get("kCGWindowIsOnscreen"):
+            continue
         b = info.get("kCGWindowBounds") or {}
         try:
             x, y, w, h = float(b["X"]), float(b["Y"]), float(b["Width"]), float(b["Height"])
@@ -224,11 +226,12 @@ def show(*, at: Path | None = None) -> None:
         drift = 0.0
 
         shown = 0.0        # eased 0 to 1: the light fading when Logic has no window for a moment
+        ending = False     # the work is over: the light fades where it is, and the halo fades in (Owner 2026-11-03)
 
         def drawRect_(self, dirty):
             if self.alpha <= 0.0 or self.target is None or self.shown <= 0.0:
                 return
-            if self.phase < 1.0 and self.shown >= 0.99:   # the orb flowing into the frame, or back into the orb: one shape, no trail, no lines
+            if self.phase < 1.0 and self.shown >= 0.99 and not self.ending:   # the orb flowing into the frame: one shape, no trail, no lines
                 rect, radius = birth(self.phase, centre_of(self.rect or self.target), self.target)
                 outline(rect, radius, self.alpha * self.shown * smooth(self.phase), self.drift, softness(self.phase))
                 return
@@ -291,6 +294,7 @@ def show(*, at: Path | None = None) -> None:
                 view.shown = 0.0
             view.alpha = state.alpha(now) if view.target is not None else 0.0
             view.phase = state.phase(now)
+            view.ending = not state.working(now) and state.ended_at is not None
             view.drift = ((now - feed["t0"]) / DRIFT_S) % 1.0
             if view.target is not None:
                 view.rect = view.target   # window to window the light jumps, no travel (Owner 2026-11-03); only the birth flows

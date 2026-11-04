@@ -178,7 +178,7 @@ def test_a_logic_command_lights_the_glow_and_talk_does_not(monkeypatch):
     monkeypatch.setattr(events, "emit", lambda kind, **k: rows.append((kind, k.get("operation"))) or {})
     b, said, did, fed = booth()
     b.hear("Marco, more reverb")
-    assert rows == [("work_started", "knob"), ("work_ended", "knob")]
+    assert rows == [("work_started", "knob"), ("work_ended", "knob")]   # a knob has no Now line of its own
     rows.clear()
     b.hear("Marco, note the bridge needs air")
     assert rows == []
