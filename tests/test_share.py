@@ -23,7 +23,7 @@ def test_the_link_serves_a_branded_page_the_file_and_the_tie_until_it_dies(tmp_p
     client = TestClient(Starlette(routes=share.routes()))
     page = client.get(f"/share/{share_id}")
     assert page.status_code == 200 and "background: #000" in page.text and "hireMarco" in page.text
-    assert page.text.split("<body>")[1].count("menos mal se siente bien V2") == 1 and "-11.0 LUFS" not in page.text and ">MASTER<" in page.text
+    assert page.text.split("<body>")[1].split("<script>")[0].count("menos mal se siente bien V2") == 1 and "-11.0 LUFS" not in page.text and ">MASTER<" in page.text
     assert f'src="{share_id}/file"' in page.text and 'download="song - master 2026-11-03.wav"' in page.text   # beside the page, whichever door it came through
     assert client.get(f"/share/{share_id}/tie.png").headers["content-type"] == "image/png"
     art = client.get(f"/share/{share_id}/cover.png")
@@ -39,6 +39,7 @@ def test_the_link_serves_a_branded_page_the_file_and_the_tie_until_it_dies(tmp_p
     monkeypatch.setattr(config, "get", lambda key, default=None: default)
     assert client.get(f"/share/{share_id}/card.png").headers["content-type"] == "image/png" and "[hidden] { display: none !important; }" in page.text
     assert 'id="wave"' in page.text and "pointerdown" in page.text and "const peaks = [" in page.text and '"MASTER"' not in page.text
+    assert "navigator.mediaSession.metadata = new MediaMetadata" in page.text and 'rel="apple-touch-icon"' in page.text   # the lock screen's cover
     record = share.lookup(share_id)
     assert len(record["peaks"]) == share.PEAKS and 0.7 < max(record["peaks"]) <= 0.82 and abs(record["seconds"] - 0.1) < 0.01
     whole = client.get(f"/share/{share_id}/file")

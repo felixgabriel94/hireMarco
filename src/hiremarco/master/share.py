@@ -204,6 +204,7 @@ def page_html(record: dict, share_id: str, base: str) -> str:
     card_url = f"{public}/{share_id}/card.png" if public else f"{base}/share/{share_id}/card.png"
     peaks_json = json.dumps(record.get("peaks") or [])
     seconds = json.dumps(record.get("seconds") or 0)
+    title_json = json.dumps(record["title"])
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -212,6 +213,8 @@ def page_html(record: dict, share_id: str, base: str) -> str:
 <meta property="og:description" content="Master, by Marco at hireMarco.">
 <meta property="og:image" content="{card_url}">
 <meta property="og:type" content="music.song">
+<link rel="icon" href="{here}/cover.png" type="image/png">
+<link rel="apple-touch-icon" href="{here}/cover.png">
 <title>{title}</title>
 <style>
 html, body {{ margin: 0; height: 100%; background: #000; color: #fff; font: 16px/1.5 -apple-system, "Inter", sans-serif; -webkit-tap-highlight-color: transparent; }}
@@ -278,6 +281,16 @@ document.getElementById("fwd").onclick = () => {{ audio.currentTime = Math.min(t
 audio.addEventListener("play", () => {{ document.getElementById("ic-play").hidden = true; document.getElementById("ic-pause").hidden = false; }});
 audio.addEventListener("pause", () => {{ document.getElementById("ic-play").hidden = false; document.getElementById("ic-pause").hidden = true; }});
 audio.addEventListener("timeupdate", draw); audio.addEventListener("loadedmetadata", draw);
+if ("mediaSession" in navigator) {{
+  // the lock screen and the earbuds: the song's name, Marco, the full-size cover, and the controls (Owner 2026-11-03)
+  navigator.mediaSession.metadata = new MediaMetadata({{ title: {title_json}, artist: "Marco at hireMarco", album: "Master",
+    artwork: [{{ src: new URL("{here}/cover.png", location.href).href, sizes: "1000x1000", type: "image/png" }}] }});
+  navigator.mediaSession.setActionHandler("play", () => audio.play());
+  navigator.mediaSession.setActionHandler("pause", () => audio.pause());
+  navigator.mediaSession.setActionHandler("seekbackward", () => {{ audio.currentTime = Math.max(0, audio.currentTime - 10); }});
+  navigator.mediaSession.setActionHandler("seekforward", () => {{ audio.currentTime = Math.min(total(), audio.currentTime + 10); }});
+  navigator.mediaSession.setActionHandler("seekto", (d) => {{ if (d.seekTime != null) audio.currentTime = d.seekTime; }});
+}}
 function tick() {{ if (!audio.paused) draw(); requestAnimationFrame(tick); }}
 draw(); requestAnimationFrame(tick);
 </script>
