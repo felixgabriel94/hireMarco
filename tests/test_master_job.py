@@ -593,3 +593,26 @@ def test_a_meter_that_cannot_be_read_says_so_and_the_master_still_ships(tmp_path
                       client=object(), payoff=lambda name, row, seconds: b"png")
     assert result.meter is None and result.master is not None and not result.stopped
     assert any(r["kind"] == "tool_completed" and r.get("summary") == "The meter could not be read." for r in _events(tmp_path))
+
+
+def test_the_payoff_takes_the_rooms_meter_when_the_plan_named_none(tmp_path, monkeypatch):
+    # run 39 (2026-11-03): the plan named no meter and the payoff was skipped; the audience's proof is not the plan's call
+    from hiremarco import config
+    from hiremarco.studio import face as faces
+
+    monkeypatch.setattr(faces, "read_meter", lambda png, client=None: {"integrated_lufs": -12.0, "true_peak_dbtp": -1.0, "range_lu": 5.0, "plugin": "Loudness Meter"})
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+    monkeypatch.setattr(jobs, "Judge", lambda client: FakeJudge({"Pro-L 2": ("keep", "I keep it.")}, heard="helps"))
+    strip, channel = FakeStrip(), FakeChannel()
+    bouncer = FakeBouncer(tmp_path, [-30.0, -20.0, -12.0])
+    plan = MasterPlan([{"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB"}], -12.0, -1.0, "ok", "demo")   # no meter named
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings([], ""))
+    played = []
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+                      toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2", "Loudness Meter"}, log=lambda s: None,
+                      client=object(), payoff=lambda name, row, seconds: played.append(name) or b"png")
+    assert played == ["Loudness Meter"] and result.meter["agree"] is True
+    assert ("remove", "Loudness Meter") in strip.log   # on for the payoff, off after: no stray for the next run
+    assert result.judged[0]["decision"] == "done"

@@ -72,3 +72,17 @@ def test_an_answer_outside_the_choices_is_an_error_not_a_verdict(tmp_path):
     brain = judging.Judge(client(tmp_path, json.dumps({"decision": "maybe", "why": "", "plain": ""}), []))
     with pytest.raises(RuntimeError, match="not one of keep, remove"):
         brain.decide("bench_verdict", ("keep", "remove"), rule="r", numbers={})
+
+
+def test_a_thin_hearing_is_asked_once_more_then_counts_as_unknown(tmp_path, monkeypatch):
+    # run 39 (2026-11-03): the ears answered "no audio?" on the finished song; a verdict is never built on that
+    from hiremarco import config
+    from hiremarco.studio import aloud
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+    monkeypatch.setattr(aloud, "play", lambda pcm, rate, **k: None)
+    a, b = two_prints(tmp_path)
+    seen = []
+    ears = judging.Judge(client(tmp_path, json.dumps({"hears": "no audio?", "note": "at plain?", "difference": "none"}), seen))
+    assert ears.hear(a, b, job="check_ear", what=("the original", "the finished version")) == {"hears": "", "note": "", "difference": "unknown"}
+    assert len(seen) == 2   # asked twice, then given up on

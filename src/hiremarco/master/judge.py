@@ -55,9 +55,10 @@ BENCH_RULE = ("Every tool on the master must earn its place. A tool whose absenc
 LADDER_RULE = ("The master is as loud as this song stays clean, and not one step past it. A step that breaks a floor is "
                "already refused by the meters; the question is whether the next step up is still worth taking, given how "
                "close the last step sits to the floors and the cap, and what the ears said.")
-CHECK_RULE = ("Done means the master is within tolerance_lu of target_lufs, its true peak is under ceiling_dbtp, it passed "
-              "its check against the mix, and it still sounds like the same song, louder and clearer. Not yet means one "
-              "more pass with a named correction.")
+CHECK_RULE = ("Done means the master still sounds like the same song, louder and clearer, with nothing new that hurts it. "
+              "The marks (loudness within tolerance of the target, the true peak at or under the ceiling, the check against "
+              "the mix) are given as facts under marks_met, measured by Marco; do not re-judge them, judge the sound. Not "
+              "yet means one more pass with a named correction to the sound.")
 
 
 @dataclass
@@ -105,9 +106,10 @@ class Judge:
     def __init__(self, client: MuseSpark | None = None):
         self.client = client or MuseSpark()
 
-    def hear(self, a: Path, b: Path, *, job: str, what: str) -> dict:
+    def hear(self, a: Path, b: Path, *, job: str, what: str, retried: bool = False) -> dict:
         """Spark 1.2 on two matched clips: what differs, in the engineer's words and in plain words, and whether it
-        helps, hurts or is nothing. Unreadable comes back as unknown, never as a verdict."""
+        helps, hurts or is nothing. Unreadable comes back as unknown, never as a verdict; an answer too thin to be a
+        hearing (run 39, 2026-11-03: "no audio?") is asked once more, then counts as unknown."""
         clip_a, clip_b, rate = matched_clips(a, b)
         from hiremarco.studio import aloud
 
@@ -124,10 +126,15 @@ class Judge:
             response_format={"type": "json_schema", "json_schema": {"name": "ears", "schema": EAR_SCHEMA, "strict": True}})
         try:
             data = json.loads(reply.text)
-            return {"hears": str(data.get("hears", "")).strip(), "note": str(data.get("note", "")).strip(),
-                    "difference": str(data.get("difference", "")).strip() or "unknown"}
+            heard = {"hears": str(data.get("hears", "")).strip(), "note": str(data.get("note", "")).strip(),
+                     "difference": str(data.get("difference", "")).strip() or "unknown"}
         except ValueError:
+            heard = {"hears": "", "note": "", "difference": "unknown"}
+        if len(heard["hears"].split()) < 4:
+            if not retried:
+                return self.hear(a, b, job=job, what=what, retried=True)
             return {"hears": "", "note": "", "difference": "unknown"}
+        return heard
 
     def decide(self, job: str, choices: tuple[str, ...], *, rule: str, numbers: dict, heard: dict | None = None) -> Call:
         """Wonder on one decision: the rule, the numbers and what the ears heard in, one of the choices out."""

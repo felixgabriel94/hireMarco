@@ -368,15 +368,17 @@ PAYOFF_SECONDS = 40.0    # the finished song plays this long through the meter o
 METER_AGREE_LU = 0.5     # the meter and the file within this much of each other count as one reading
 
 
-def play_through_meter(strip: StereoOut, master: Path, result: Result, payoff, client, log) -> dict | None:
+def play_through_meter(strip: StereoOut, master: Path, result: Result, payoff, client, log, room: set[str] = frozenset()) -> dict | None:
     """The chain's meter opened, the song played from the top through it, its window read by the eyes, and the same
     stretch of the file measured by the ears (Owner 2026-11-03: the audience sees the marks hit). ``payoff(name, row,
     seconds)`` does the Logic side and returns the meter window's picture; None when there is no meter to play through."""
     from hiremarco.studio import face as faces
 
-    meter_name = result.plan.chain.get("meter") if result.plan else None
+    # the plan's meter when it named one, else the best meter the room owns (run 39: the plan named none and the payoff
+    # was skipped); the payoff is the audience's proof, not the plan's call
+    meter_name = (result.plan.chain.get("meter") if result.plan else None) or roles.fill("meter", room)
     if not meter_name:
-        log("   no meter in the plan to play through; no payoff on screen")
+        log("   no meter in the room to play through; no payoff on screen")
         return None
     events.stage("Check", "Marco plays the finished song through the meter so you can see the marks.")
     with events.step("Play the finished song through the meter", motif="vu", word="checked") as line:
@@ -950,10 +952,15 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             with events.step("Judge the finished song against the goal", tool="Marco's ears", motif="vu", word="checked") as line:
                 try:
                     heard = judge.hear(result.mix, master.path, job="check_ear", what=("the original", "the finished version"))
+                    # the marks are Marco's arithmetic, handed over as facts (run 39: the brain read a peak of exactly the
+                    # ceiling as over it); the brain judges the sound
+                    gap_now, over_now = result.plan.target_lufs - am.base.lufs, am.base.true_peak_db - result.plan.ceiling_dbtp
                     call = judge.decide("check_verdict", ("done", "not yet"), rule=CHECK_RULE,
                                         numbers={"target_lufs": result.plan.target_lufs, "ceiling_dbtp": result.plan.ceiling_dbtp,
                                                  "tolerance_lu": LUFS_TOLERANCE, "master_lufs": am.base.lufs, "true_peak_dbtp": am.base.true_peak_db,
-                                                 "loudness_range_lu": am.loudness_range, "mix_lufs": result.audit_mix.base.lufs},
+                                                 "loudness_range_lu": am.loudness_range, "mix_lufs": result.audit_mix.base.lufs,
+                                                 "marks_met": {"loudness_on_target": bool(abs(gap_now) <= LUFS_TOLERANCE),
+                                                               "true_peak_at_or_under_ceiling": bool(over_now <= CEILING_TOLERANCE)}},
                                         heard=heard)
                     result.judged.append({"round": round_no, "heard": heard, "decision": call.decision, "why": call.why})
                     line["summary"] = events.readable(call.plain) or ("Done." if call.decision == "done" else "Not yet.")
@@ -964,7 +971,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             # the payoff on screen (Owner 2026-11-03): the finished song plays through the chain's meter, the meter's own
             # figures are read off its window, and they are set beside Marco's measurement of the same stretch of the
             # file; agreement is the proof a viewer can see, not a claim
-            result.meter = play_through_meter(strip, master.path, result, payoff, client, log)
+            result.meter = play_through_meter(strip, master.path, result, payoff, client, log, room=room)
             if result.meter is not None:
                 events.emit("decision_made", source="marco", operation="the meter", status="ok" if result.meter["agree"] else "low_confidence",
                             summary="The meter and the ears agree." if result.meter["agree"] else "The meter and the ears disagree.",
