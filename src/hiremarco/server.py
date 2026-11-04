@@ -854,6 +854,81 @@ def quoted_reply(said: str, sender: str, message_id: str, quoted: str, wa: Whats
                              outbox_conn=outbox_conn, now=when, offer=offer)
 
 
+NOTICED_EMAIL = "Marco noticed a new email."
+NOTICED_HOLD_S = 45.0   # the headline holds this long, then he is back on standby if nothing took it over
+RECENT_BYTES = 256 * 1024
+
+
+def _recent_rows(at: Path | None = None) -> list[dict]:
+    """The stream's last rows, enough to know whether a job or the booth is at work."""
+    import json
+
+    from hiremarco import events
+
+    target = at or events.path()
+    if not target.exists():
+        return []
+    with target.open("rb") as f:
+        f.seek(max(0, target.stat().st_size - RECENT_BYTES))
+        data = f.read()
+    lines = data.split(b"\n")
+    if len(data) >= RECENT_BYTES:
+        lines = lines[1:]   # the first line may be cut
+    rows = []
+    for raw in lines:
+        if not raw.strip():
+            continue
+        try:
+            rows.append(json.loads(raw))
+        except ValueError:
+            continue
+    return rows
+
+
+def on_standby(rows: list[dict], alive=None) -> bool:
+    """No job and no command at work, judged the glow's way: a start whose process still lives is work."""
+    from hiremarco import glow
+
+    state = glow.State(alive=alive)
+    state.add(rows, 0.0)
+    return not state.working(0.0)
+
+
+def _last_headline(rows: list[dict]) -> str:
+    return next((str(r["plain"]) for r in reversed(rows) if r.get("plain")), "")
+
+
+def notice_email(data: dict, *, at: Path | None = None, alive=None, later=None) -> bool:
+    """An email he found on his own is his initiative, so he is no longer on standby (Owner 2026-11-04): the Now line
+    says so, the macro; the moment under it gives who and what, never the body, only while the Owner has mail on for
+    a shot. In the middle of a task the task stays the headline and nothing of the email goes on the screen. True
+    when the headline was set."""
+    from hiremarco import events
+    from hiremarco import offer as reader
+    from hiremarco.studio.booth import WAITING
+
+    at = at or events.path()   # fixed now, so the return to standby lands where the headline did
+    if not on_standby(_recent_rows(at), alive):
+        return False
+    events.emit("stage", source="marco", operation="noticed email", plain=NOTICED_EMAIL, at=at)
+    if events.show_mail():
+        events.emit("email_received", source="marco", status="ok", via="Gmail", sender=reader.name_of(data.get("who", "")),
+                    subject=str(data.get("subject") or ""), at=at)
+
+    def back() -> None:
+        rows = _recent_rows(at)
+        if _last_headline(rows) == NOTICED_EMAIL and on_standby(rows, alive):
+            events.emit("stage", source="marco", operation="waiting", plain=WAITING, at=at)
+
+    if later is None:
+        timer = threading.Timer(NOTICED_HOLD_S, back)
+        timer.daemon = True
+        timer.start()
+    else:
+        later(NOTICED_HOLD_S, back)
+    return True
+
+
 def receive_offer(raw: bytes, headers, *, wa: WhatsApp | None = None, conn=None, places=None, now=None,
                   rules_path=None) -> tuple[int, dict]:
     """The reader's handoff: checked, recorded once, texted to the Owner only. (HTTP status, what to answer). Accepting
@@ -892,6 +967,10 @@ def receive_offer(raw: bytes, headers, *, wa: WhatsApp | None = None, conn=None,
     offer = offers.record_email_offer(conn, key, kind, line, data, when)
     if offer is None:
         return 200, {"status": "duplicate"}
+    try:
+        notice_email(data)
+    except Exception:   # the screen is the look, not the work: the offer goes on
+        pass
     sent = _text_offer(offer, owner, wa or WhatsApp(), conn, when)
     return 200, {"status": "sent" if sent is not None else "held"}
 
