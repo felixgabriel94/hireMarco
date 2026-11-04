@@ -23,7 +23,15 @@ final class HaloState: ObservableObject {
     var lastActive: Double = -100  // when he last thought or spoke
     var lastFrame: Double = 0
     var inLogic = true             // Logic is the app in front: the halo lives inside Logic only
+    var shatter: Double = 0        // 0 whole, 1 broken apart: the orb shears into bands as the glow takes him (Owner 2026-11-03)
 }
+
+// a cheap deterministic noise in 0 to 1, so the glitch re-rolls the same way every frame of a tick
+func hashNoise(_ x: Double) -> Double {
+    let s = sin(x * 12.9898) * 43758.5453
+    return s - floor(s)
+}
+let shatterIn = 0.11, shatterOut = 0.16   // time constants: apart in about half a second, back together a little slower
 
 // He is there for the conversation and gone for the take. He fades in when he answers, stays while the two of
 // you keep talking (your voice counts while he is showing), fades out as a take starts recording, and fades out
@@ -61,6 +69,10 @@ struct Orb: View {
             let wanted = t - halo.lastActive < hold && (halo.inLogic || halo.mode == "operating") ? 1.0 : 0.0
             let step = dt / (wanted > halo.shown ? fadeIn : fadeOut)
             halo.shown = wanted > halo.shown ? min(wanted, halo.shown + step) : max(wanted, halo.shown - step)
+            // the glow taking him: the orb breaks apart (a short glitch) as it fades; back together when he returns
+            let apart = halo.mode == "working" ? 1.0 : 0.0
+            halo.shatter += (apart - halo.shatter) * min(1, dt / (apart > halo.shatter ? shatterIn : shatterOut))
+            if halo.shatter < 0.004 { halo.shatter = 0 }
         }
         let shown = frozenTime == nil ? halo.shown : 1.0
         let eased = shown * shown * (3 - 2 * shown)  // smoothstep: no hard start or stop
@@ -76,7 +88,8 @@ struct Orb: View {
         let swell = speaking ? 6 + 26 * voice : 5
         let w = 180.0, h = 142.0
         let rimGlow = 0.6  // how much light the rim gives off, 0 to 1 (Owner: 1.0 was too strong)
-        return ZStack {
+        let sh = halo.shatter
+        let whole = ZStack {
             // a soft blue light under him, on whatever is behind
             Ellipse()
                 .fill(RadialGradient(colors: [sky.opacity(0.30 * light), deep.opacity(0.18 * light), .clear],
@@ -157,8 +170,36 @@ struct Orb: View {
                 .blendMode(.plusLighter)
         }
         .scaleEffect(scale * (0.92 + 0.08 * eased))
-        .opacity(eased)
         .frame(width: 300, height: 300)
+        return Group {
+            if sh <= 0 {
+                whole.opacity(eased)
+            } else {
+                // the break-apart: the orb drawn in horizontal bands, each thrown sideways by its own amount, some
+                // flickering, re-rolled 18 times a second so it reads as a glitch, not a slide (Owner 2026-11-03)
+                Canvas { ctx, size in
+                    guard let orb = ctx.resolveSymbol(id: 0) else { return }
+                    let bands = 18
+                    let bh = size.height / Double(bands)
+                    let tick = floor(t * 18)
+                    for i in 0..<bands {
+                        let r1 = hashNoise(Double(i) * 7.3 + tick * 0.37)
+                        let r2 = hashNoise(Double(i) * 3.1 + tick * 0.91 + 11)
+                        let dir = i % 2 == 0 ? 1.0 : -1.0
+                        let dx = dir * sh * (24 + 130 * r1)
+                        let dy = sh * sh * (r2 - 0.5) * 36
+                        let flicker = r2 < 0.12 + 0.55 * sh ? 0.2 : 1.0
+                        var band = ctx
+                        band.clip(to: Path(CGRect(x: 0, y: Double(i) * bh, width: size.width, height: bh + 0.6)))
+                        band.opacity = eased * max(0, 1 - sh * 0.55) * flicker
+                        band.draw(orb, at: CGPoint(x: size.width / 2 + dx, y: size.height / 2 + dy), anchor: .center)
+                    }
+                } symbols: {
+                    whole.tag(0)
+                }
+                .frame(width: 300, height: 300)
+            }
+        }
     }
 
 }
@@ -218,10 +259,11 @@ var lastHeard = Date()
 
 @MainActor
 func preview(to dir: String) {
-    for (mode, level) in [("listening", 0.15), ("thinking", 0.0), ("speaking", 0.7)] {
+    for (mode, level) in [("listening", 0.15), ("thinking", 0.0), ("speaking", 0.7), ("breaking", 0.0)] {
         let frozen = HaloState()
         frozen.mode = mode
         frozen.level = level
+        if mode == "breaking" { frozen.shatter = 0.5 }   // the break-apart, half way, for a look at it
         let renderer = ImageRenderer(content: Orb(halo: frozen, frozenTime: 1.7).background(Color(white: 0.16)))
         renderer.scale = 2
         if let image = renderer.nsImage, let tiff = image.tiffRepresentation,
