@@ -188,6 +188,8 @@ def test_the_page_is_branded_black_with_the_tie_and_a_full_screen_button():
     assert "background: #000" in page and 'src="data:image/png;base64,' in page and "hireMarco" in page
     assert 'id="full"' in page and "webkitEnterFullscreen" in page and "requestFullscreen" in page
     assert "@media (orientation: landscape)" in page and "{logo}" not in page and "{token}" not in page
+    # lying flat: nothing over Logic's window, a tap goes full screen, a pinch zooms (Owner 2026-11-03)
+    assert "#brand, #bar { display: none; }" in page and "user-scalable=yes" in page and 'document.getElementById("view").onclick' in page
     assert live.LOGO.exists() and live.LOGO.stat().st_size < 20000
 
 

@@ -45,7 +45,7 @@ def logo_data_url() -> str:
 # window filling the rest, and a full-screen button (Owner 2026-11-03: branded like the download page, landscape too).
 PAGE = """<!doctype html>
 <html><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=5, user-scalable=yes, viewport-fit=cover">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#000000">
@@ -61,10 +61,10 @@ img, video { max-width: 100%; max-height: 100%; object-fit: contain; background:
 #bar { padding: 8px 16px 10px; display: flex; justify-content: space-between; align-items: center; }
 #full { background: none; border: 1px solid #333; color: #fff; border-radius: 999px; padding: 6px 14px; font: inherit; }
 @media (orientation: landscape) {
-  #brand { position: absolute; top: env(safe-area-inset-top); left: env(safe-area-inset-left); padding: 8px 10px; }
-  #brand img { width: 22px; height: 22px; } #brand span { display: none; }
-  #bar { position: absolute; right: env(safe-area-inset-right); bottom: env(safe-area-inset-bottom); background: none; }
-  #bar #mode { display: none; }
+  /* lying flat, Logic is the whole picture: no brand, no bar, no button over the window (Owner 2026-11-03);
+     a tap on the picture goes full screen, a pinch zooms in */
+  #brand, #bar { display: none; }
+  body { padding: 0; }
 }
 </style></head>
 <body><div id="brand"><img src="{logo}" alt=""><span>hireMarco</span></div>
@@ -72,14 +72,16 @@ img, video { max-width: 100%; max-height: 100%; object-fit: contain; background:
 <img id="pictures" alt="Logic, live" hidden></div>
 <div id="bar"><span id="mode">connecting</span><button id="full" type="button">Full screen</button></div>
 <script>
-document.getElementById("full").onclick = async () => {
+async function goFull() {
   const v = document.getElementById("video");
   try {
     if (!v.hidden && v.webkitEnterFullscreen) v.webkitEnterFullscreen();           // iPhone: the video itself goes full screen
     else if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen();
     if (screen.orientation && screen.orientation.lock) await screen.orientation.lock("landscape").catch(() => {});
   } catch (e) {}
-};
+}
+document.getElementById("full").onclick = goFull;
+document.getElementById("view").onclick = () => { if (matchMedia("(orientation: landscape)").matches) goFull(); };
 const token = "{token}", video = document.getElementById("video"), mode = document.getElementById("mode");
 function pictures(why) {
   video.hidden = true;
