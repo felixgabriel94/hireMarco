@@ -1,3 +1,4 @@
+import pytest
 import time
 
 from hiremarco.studio.booth import FAILED, Booth, Tape
@@ -115,3 +116,19 @@ def test_a_fragment_with_no_name_gets_no_question_back():
     assert said == [MISSED]
     b.hear("make the thing a bit more")  # a whole thought with no name still gets his question
     assert said == [MISSED, MISSED]
+
+
+@pytest.mark.parametrize("moment, shown", [
+    ("every track in his session is labeled; say the session is labeled and ready, in one short line",
+     "Every track in FEGA's session is labeled."),
+    ("asked to organize a session that is not a copy you opened; say you'll open his song first",
+     "Asked to organize a session that is not a copy I opened."),
+    ("the artist is done talking for now; sign off", "FEGA is done talking for now."),
+    ("read the beat's key and tempo and its level; offer to set the session to it",
+     "Read the beat's key and tempo and its level."),
+])
+def test_the_trace_shows_his_thought_not_the_line_he_says_to_the_artist(moment, shown):
+    # Owner 2026-11-04: the Live trace is for the audience; "still sorting the rest out with you" was him talking to FEGA
+    from hiremarco.studio.words import thought
+
+    assert thought(moment) == shown

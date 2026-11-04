@@ -50,6 +50,24 @@ def usable(text: str) -> str | None:
     return line
 
 
+HOW_TO_SAY = re.compile(r";\s*(?:say|ask|tell|answer|offer|give|list|sign off|confirm)\b.*$", re.I | re.S)
+FOR_THE_ROOM = [(r"\bthe artist's\b", "FEGA's"), (r"\bthe artist\b", "FEGA"), (r"\bhis\b", "FEGA's"),
+                (r"\bhim\b", "FEGA"), (r"\bhe's\b", "FEGA's"), (r"\bhe\b", "FEGA"), (r"\byou'll\b", "I'll"),
+                (r"\byou're\b", "I'm"), (r"\byou've\b", "I've"), (r"\byour\b", "my"), (r"\byou\b", "I")]
+
+
+def thought(moment: str) -> str:
+    """What the Live trace shows for a booth line: his own thought about the moment, never the words he says to
+    the artist (Owner 2026-11-04: the trace is for the audience, Marco thinking out loud, never "with you").
+    "every track in his session is labeled; say ..." -> "Every track in FEGA's session is labeled."."""
+    said = HOW_TO_SAY.sub("", moment or "").strip(" ;,.")
+    for pattern, word in FOR_THE_ROOM:
+        said = re.sub(pattern, word, said, flags=re.I)
+    if not said:
+        raise ValueError("no moment to think about")
+    return said[0].upper() + said[1:] + "."
+
+
 class Writer:
     """``line(moment, facts, plain)``: his words for this moment, or ``plain`` when they do not come in time."""
 
@@ -66,8 +84,13 @@ class Writer:
     def _spark(self, prompt: str) -> str:
         gate.check_model_call(TENANT, model=MODEL, system=PERSONA, prompt=prompt)
         client = self._client or MuseSpark(timeout=self.wait + 2)
+        try:
+            moment = json.loads(prompt).get("moment", "")
+        except (ValueError, AttributeError):
+            moment = ""
         reply = client.chat([{"role": "developer", "content": PERSONA}, {"role": "user", "content": prompt}],
                             job="booth_line", model=MODEL, max_completion_tokens=600,
+                            summarize=lambda text: thought(moment),   # the trace shows his thought, not his line
                             # minimal reasoning: a line in about a second (live 2026-10-29: 1.2 s); with the default,
                             # the reasoning used the whole budget and the line came back empty
                             reasoning_effort="minimal")
