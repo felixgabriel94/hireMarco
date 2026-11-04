@@ -230,9 +230,23 @@ class Booth:
     open_song: Callable[[], str] | None = None        # studio.beat_in.BeatLoader.open_song: a fresh copy of his song
     organize: Callable[[], str] | None = None         # studio.organize.organize_now on the open session: labels every track
     place: Callable[[str], str] | None = None         # studio.placement.place: a new part's track selected inside its stack
+    monitor_takes: bool = False                       # Input Monitoring on for each take, off on stop (Owner 2026-11-04)
+    monitoring: bool = False                          # Marco turned the selected track's Input Monitoring on
     copy_open: bool = False                           # the session in Logic is a copy Marco opened: organizing may rename it
     in_logic: bool = False                            # he is at work in Logic: the glow has him, the halo steps away
     left_logic_at: float = -100.0                     # when the last work in Logic ended: the glow fades, then the halo returns
+
+    def _input_monitor(self, on: bool) -> None:
+        """The selected track's Input Monitoring on for a take and off after it; a miss is logged, never in the way."""
+        if self.tracks is None:
+            return
+        try:
+            self.log(f"   {self.tracks.monitor(on)}")
+            self.monitoring = on
+        except Exception as exc:
+            self.log(f"   (input monitoring not {'on' if on else 'off'}: {type(exc).__name__}: {str(exc)[-120:]})")
+            if not on:
+                self.monitoring = False
 
     def _work(self, what: str, action: str) -> None:
         """One row for the glow: the booth is at work in Logic, or done (Owner 2026-11-03: wherever he goes, the
@@ -1764,6 +1778,8 @@ class Booth:
             except Exception as exc:  # recording matters more than knowing where; playback will say it cannot
                 self.take_start = None
                 self.log(f"   (playhead not read: {type(exc).__name__}: {str(exc)[-100:]})")
+        if a in ("record", "punch") and not self.rolling and self.monitor_takes:
+            self._input_monitor(True)   # he hears his own chain while he records (Owner 2026-11-04)
         if a in ROLLING and not self.rolling:
             self._speak("Rolling")  # said while stopped, before the take starts
         result = self.logic(command)
@@ -1775,6 +1791,8 @@ class Booth:
                 self.tape.mark_start()
                 self.pending_punch = ""
         elif a == "stop":
+            if self.monitoring:
+                self._input_monitor(False)   # off on stop, so the take plays back
             self.rolling = False
             self.a_cappella = False  # a cappella is for that take
             self.tape.mark_stop()
@@ -2118,6 +2136,7 @@ def run_booth(*, dry_run: bool = False) -> int:
                   organize=None if dry_run else (lambda: __import__("hiremarco.studio.organize", fromlist=["organize_now"])
                                                  .organize_now(log=lambda line: print(line, flush=True))),
                   place=None if dry_run else _place,
+                  monitor_takes=not dry_run and (config.get("HIREMARCO_MONITOR_TAKES") or "on") == "on",
                   text_owner=None if dry_run else _text_owner_plain,
                   master=None if dry_run else _booth_master,
                   result_on=None if dry_run else _result_on,

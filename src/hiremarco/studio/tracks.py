@@ -223,6 +223,19 @@ class Tracks:
 
         return self._gated(run, "solo_track", message)
 
+    def monitor(self, on: bool) -> str:
+        """The selected track's Input Monitoring set on or off and read back (Owner 2026-11-04)."""
+        message = f"input monitoring {'on' if on else 'off'} on the selected track"
+
+        def run() -> str:
+            parts = self.run(["monitor", "on" if on else "off"]).strip().split("\t")
+            if len(parts) != 2 or (parts[1] == "1") != on:
+                raise RuntimeError(f"input monitoring did not take (reads {parts[-1]!r})")
+            quoted = re.search(r"“(.*)”", parts[0])
+            return f"input monitoring {'on' if on else 'off'}: {quoted.group(1) if quoted else parts[0]}"
+
+        return self._gated(run, "monitor_track", message)
+
     def color(self, color: str) -> str:
         """Planned and recorded; performed once Logic's color palette is mapped live."""
         message = f"color track {color}"

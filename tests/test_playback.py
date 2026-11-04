@@ -110,3 +110,32 @@ def test_a_region_finds_its_file_without_logics_marks():
     assert str(find_audio("Dreamy Keys 140BPM #01", search=lambda name: hits)) == "/x/Dreamy Keys 140BPM.wav"
     assert label("BOI1DA_melodic_loop_piano_4bar_90_F#min") == ("F# minor", 90.0)
     assert label("SLS_CSP_92_electric_bass_soul_needyou_Bbmin") == ("A# minor", 92.0)
+
+
+def test_input_monitoring_is_on_for_the_take_and_off_on_stop():
+    # Owner 2026-11-04: he hears his own chain while recording; once he says stop, the take must play back
+    b, did, said = booth()
+    events = []
+    b.tracks.monitor = lambda on: events.append(("monitor", on)) or f"input monitoring {'on' if on else 'off'}: Lead 1"
+    b.logic = lambda c: events.append(("logic", c.action)) or c.describe()
+    b.monitor_takes = True
+    b.hear("Marco, record.")
+    b.tape.write(np.ones(9000))
+    b.hear("Marco, stop.")
+    assert events == [("monitor", True), ("logic", "record"), ("logic", "stop"), ("monitor", False)]
+    assert not b.monitoring
+    events.clear()
+    b.hear("Marco, play it back")
+    assert ("monitor", True) not in events   # playback never turns it on
+
+
+def test_a_failed_input_monitoring_never_stops_the_take():
+    b, did, said = booth()
+    b.monitor_takes = True
+
+    def broken(on):
+        raise RuntimeError("no Input Monitoring button")
+
+    b.tracks.monitor = broken
+    b.hear("Marco, record.")
+    assert did and did[0] == Command("record") and b.rolling

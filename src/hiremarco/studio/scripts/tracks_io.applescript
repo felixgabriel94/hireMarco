@@ -564,6 +564,25 @@ on run argv
 			return (description of picked) & tab & ((value of box) as text)
 		end tell
 	end if
+	if mode is "monitor" then
+		-- the selected track's Input Monitoring button: "monitor on" or "monitor off"; read back (Owner 2026-11-04:
+		-- he hears his own chain while recording, and the take plays back once he stops)
+		set want to (item 2 of argv) is "on"
+		set header to part(main, "Tracks header")
+		tell application "System Events"
+			set picked to missing value
+			repeat with trk in (every UI element of header whose role is "AXLayoutItem")
+				try
+					if (value of (first radio button of trk whose description is "Has Focus")) is 1 then set picked to contents of trk
+				end try
+			end repeat
+			if picked is missing value then error "no track is selected"
+			set box to first checkbox of picked whose description is "Input Monitoring"
+			if ((value of box) is 1) is not want then click box
+			delay 0.2
+			return (description of picked) & tab & ((value of box) as text)
+		end tell
+	end if
 	if mode is "window" then
 		-- the open project's Tracks window title, "Name - Tracks"
 		tell application "System Events" to return name of main
