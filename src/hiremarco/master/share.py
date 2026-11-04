@@ -129,7 +129,7 @@ def card(title: str, size: int = 800) -> bytes:
 
     im = Image.new("RGB", (size, size), (0, 0, 0))
     d = ImageDraw.Draw(im)
-    s = int(size * 0.74)
+    s = int(size * 0.5)   # about half the square: the icon sits in the card, not filling it (Owner 2026-11-03)
     x = y = (size - s) // 2
     d.rounded_rectangle([x, y, x + s, y + s], radius=int(s * 0.19), fill=(255, 255, 255))
     d.line([(x + px * s, y + py * s) for px, py in WAVE_MARK], fill=(0, 0, 0), width=max(8, int(size * 0.06)), joint="curve")
@@ -147,12 +147,13 @@ def live_card(size: int = 800) -> bytes:
 
     im = Image.new("RGB", (size, size), (0, 0, 0))
     d = ImageDraw.Draw(im)
-    x0, y0, x1, y1 = int(size * 0.12), int(size * 0.19), int(size * 0.88), int(size * 0.81)
-    d.rounded_rectangle([x0, y0, x1, y1], radius=int(size * 0.08), fill=(92, 155, 255))
-    inset = int(size * 0.065)
-    d.rounded_rectangle([x0 + inset, y0 + inset, x1 - inset, y1 - inset], radius=int(size * 0.045), fill=(10, 10, 14))
-    r = int(size * 0.06)
-    d.ellipse([x1 - r - int(size * 0.02), y0 - r + int(size * 0.02), x1 + r - int(size * 0.02), y0 + r + int(size * 0.02)], fill=(226, 75, 74))
+    # about half the square wide, the same proportions as before (Owner 2026-11-03: smaller, not filling the card)
+    x0, y0, x1, y1 = int(size * 0.25), int(size * 0.295), int(size * 0.75), int(size * 0.705)
+    d.rounded_rectangle([x0, y0, x1, y1], radius=int(size * 0.055), fill=(92, 155, 255))
+    inset = int(size * 0.043)
+    d.rounded_rectangle([x0 + inset, y0 + inset, x1 - inset, y1 - inset], radius=int(size * 0.03), fill=(10, 10, 14))
+    r = int(size * 0.04)
+    d.ellipse([x1 - r - int(size * 0.013), y0 - r + int(size * 0.013), x1 + r - int(size * 0.013), y0 + r + int(size * 0.013)], fill=(226, 75, 74))
     out = io.BytesIO()
     im.save(out, format="PNG", optimize=True)
     return out.getvalue()
