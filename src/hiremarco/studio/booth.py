@@ -1266,7 +1266,7 @@ class Booth:
                 return "no live view in this booth"
             link = self.live()
             self.log(f"   live view: {link}")
-            where = self._deliver("Live view of the session. Open it on the same Wi-Fi as the Mac.", link)
+            where = self._deliver("Live now. Join in. 👨🏻‍💻", link)   # one short line in Marco's voice; the card says the rest (Owner 2026-11-03)
             self._say("live view on", {"link": "texted to the artist's phone" if where == "texted"
                                        else "on the Mac's screen, copied"}, LIVE_TEXTED if where == "texted" else LIVE_ON)
             return f"live view on, link {where}"
