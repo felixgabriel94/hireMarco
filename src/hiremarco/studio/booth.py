@@ -1746,6 +1746,8 @@ class Booth:
         if a in ROLLING and not self.rolling:
             self._speak("Rolling")  # said while stopped, before the take starts
         result = self.logic(command)
+        if a == "new_track" and isinstance(result, str) and ("did not load" in result or "preset saved)" in result):
+            self._speak("New track is up, but My Chain Console didn't load. Say \"my chain console\" and I'll try again.")
         if a in ROLLING:
             self.rolling = True
             if a in ("record", "punch"):

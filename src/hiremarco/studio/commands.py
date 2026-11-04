@@ -18,7 +18,7 @@ from hiremarco.meta.client import MuseSpark
 
 TENANT = "owner"
 ACTIONS = (
-    "play", "stop", "record", "go_to_start", "go_to_section", "go_to_bar", "new_track", "arm_track",
+    "play", "stop", "record", "go_to_start", "go_to_section", "go_to_bar", "new_track", "duplicate_track", "arm_track",
     "punch", "knob", "note", "take_feedback", "export", "preset", "run_check", "set_key", "sound", "put_back",
     "label_track", "name_track", "stack", "mix_pass", "balanced_watch", "mode", "show", "live_view", "hearing", "reference",
     "kill", "summon", "dismiss", "chat", "play_take", "play_from_lyric", "solo", "unsolo", "play_from",
@@ -60,7 +60,8 @@ INSTRUCTIONS = (
     "'put it back' or 'undo that sound' means put_back. 'Play my take back' means play_take; 'take me back to "
     "where I say let me love you' means play_from_lyric with text 'let me love you'; 'solo my vocal' means solo, "
     "'unsolo' means unsolo. 'Let's go again' or 'one more' means go_again; 'let's record a different part' means "
-    "next_part; 'I'd like to record this a cappella' means a_cappella. 'New track for harmonies' means new_track with text "
+    "next_part; 'I'd like to record this a cappella' means a_cappella. 'Create a new track' means new_track; 'duplicate this "
+    "track' means duplicate_track (a copy of the track he is on, not a new one). 'New track for harmonies' means new_track with text "
     "'harmony' (or 'lead', 'ad-lib', 'double'). 'Rename this to harmony one' or 'call it lead vox' means "
     "name_track with the name in text, written as a track name ('Harmony 1', 'Lead Vox'). 'Put an LA-2A on "
     "the vocal' or 'throw a Pro-Q on the harmony in slot 4' means insert_plugin with the plug-in in text ('LA-2A', "
@@ -147,6 +148,8 @@ class Command:
             return f"{self.action.replace('_', ' ')} {self.text}".strip()
         if self.action == "go_to_bar":
             return f"go to bar {self.bar}"
+        if self.action == "duplicate_track":
+            return "duplicate this track"
         if self.action == "arm_track":
             return f"arm {self.track}"
         if self.action == "note":
@@ -175,7 +178,14 @@ FAST = [
     (re.compile(r"^(record|roll it|rolling|let'?s go)$"), Command("record")),
     (re.compile(r"^(play|play it( back)?|playback)$"), Command("play")),
     (re.compile(r"^(stop|cut|hold on)$"), Command("stop")),
-    (re.compile(r"^(new track|another track|give me a new track)$"), Command("new_track")),
+    # "create a new track" starts on the console chain; "duplicate this track" copies the one he is on (Owner 2026-11-04)
+    (re.compile(r"^(?:(?:create|make|open|add|start|give me|get me|let'?s (?:do|get|make|open|create)|i need) )?"
+                r"(?:a |me a |an? other |another )?(?:new |fresh |another )(?:audio )?(?:track|channel)(?: please)?$"),
+     Command("new_track")),
+    (re.compile(r"^(?:another track|another channel)$"), Command("new_track")),
+    (re.compile(r"^(?:(?:can you |let'?s )?(?:duplicate|dupe|double up) (?:this|the|that|my|the current|this current|"
+                r"the selected|current) (?:track|channel)|duplicate (?:it|this|that)|duplicate track)(?: please)?$"),
+     Command("duplicate_track")),
     (re.compile(r"^(back to the top|from the top|take me to the top)$"), Command("go_to_start")),
 ]
 

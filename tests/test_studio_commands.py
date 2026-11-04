@@ -183,3 +183,67 @@ def test_conversation_is_answered_from_what_happened_and_nothing_is_done():
 
 def test_a_new_track_for_a_role_is_found_inside_a_longer_line():
     assert understand("Marco, correct, the new track for harmonies.", client=None) == Command("new_track", text="harmony")
+
+
+@pytest.mark.parametrize("line", ["Marco, create a new track.", "Marco, open a new track", "Marco, make a new track",
+                                  "Marco, new track", "Marco, add a new track please", "Marco, another track"])
+def test_create_a_new_track_skips_the_model(line):
+    assert understand(line, client=None) == Command("new_track")
+
+
+@pytest.mark.parametrize("line", ["Marco, duplicate this track.", "Marco, duplicate the track", "Marco, duplicate it",
+                                  "Marco, can you duplicate this track"])
+def test_duplicate_this_track_is_not_a_new_track(line):
+    assert understand(line, client=None) == Command("duplicate_track")
+
+
+def test_duplicate_presses_new_track_with_duplicate_setting():
+    keys = [(p.key, p.modifiers) for p in plan(Command("duplicate_track")).presses]
+    assert keys == [("d", ("command",)), ("r", ("control",))]
+
+
+def _performances(tmp_path):
+    folder = tmp_path / "Performance"
+    folder.mkdir()
+    for name in ("002-MY CHAIN!", "005-MY CHAIN CONSOLE!"):
+        (folder / f"{name}.cst").write_text("")
+    return folder
+
+
+def test_a_new_track_starts_on_my_chain_console(tmp_path, monkeypatch):
+    import hiremarco.studio.logic as logic_mod
+
+    monkeypatch.setattr(logic_mod, "NEW_TRACK_SETTLE", 0)
+    monkeypatch.setenv("HIREMARCO_STATE", str(tmp_path))
+    rules_path = tmp_path / "RULES.md"
+    rules_path.write_text("send: logic -> * ; the session ; until 2099-01-01\n")
+    scripts, loaded = [], []
+    logic = Logic(conn=gate.connect(":memory:"), run_script=scripts.append, rules_path=rules_path,
+                  preset_dir=_performances(tmp_path), load_preset=loaded.append)
+    assert logic.do(Command("new_track")) == "new track with 005-MY CHAIN CONSOLE!"
+    assert loaded == ["005-MY CHAIN CONSOLE!"]  # never 002-MY CHAIN!
+    assert logic.do(Command("duplicate_track")) == "duplicate this track"
+    assert loaded == ["005-MY CHAIN CONSOLE!"]  # a duplicate keeps the chain it copied
+    (tmp_path / "d").mkdir()
+    dry = Logic(dry_run=True, preset_dir=_performances(tmp_path / "d"))
+    assert dry.do(Command("new_track")) == "dry run: new track with 005-MY CHAIN CONSOLE!"
+
+
+def test_a_new_track_is_made_even_when_the_chain_will_not_load(tmp_path, monkeypatch):
+    import hiremarco.studio.logic as logic_mod
+
+    monkeypatch.setattr(logic_mod, "NEW_TRACK_SETTLE", 0)
+    monkeypatch.setenv("HIREMARCO_STATE", str(tmp_path))
+    rules_path = tmp_path / "RULES.md"
+    rules_path.write_text("send: logic -> * ; the session ; until 2099-01-01\n")
+
+    def broken(name):
+        raise RuntimeError("menu did not open")
+
+    logic = Logic(conn=gate.connect(":memory:"), run_script=lambda s: None, rules_path=rules_path,
+                  preset_dir=_performances(tmp_path), load_preset=broken)
+    assert "did not load" in logic.do(Command("new_track"))
+    empty = tmp_path / "none"
+    empty.mkdir()
+    logic = Logic(conn=gate.connect(":memory:"), run_script=lambda s: None, rules_path=rules_path, preset_dir=empty)
+    assert logic.do(Command("new_track")) == "new track (no 'my chain console' preset saved)"

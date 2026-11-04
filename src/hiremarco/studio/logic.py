@@ -36,12 +36,17 @@ KEYMAP: dict[str, tuple[str, tuple[str, ...]]] = {
     "record": ("r", ()),
     "go_to_start": ("code:36", ()),                              # return
     "new_audio_track": ("a", ("option", "command")),
+    "duplicate_track": ("d", ("command",)),                       # New Track With Duplicate Setting, Logic's default
     "go_to_position": ("/", ()),                                 # opens Go to Position
     "set_left_locator": ("l", ("control", "option", "command")),  # custom, assigned 2026-10-28
     "set_right_locator": ("k", ("control", "option", "command")), # custom, assigned 2026-10-28
     "autopunch_on": ("p", ("control", "option", "command")),      # custom (Toggle Autopunch Mode), assigned 2026-10-28
     "record_arm": ("r", ("control",)),                            # Toggle Track Record Enable, Logic's default
 }
+# "create a new track" gets the Owner's console chain (Owner 2026-11-04); "duplicate this track" copies the one he is on.
+NEW_TRACK_PRESET_KEY = "HIREMARCO_NEW_TRACK_PRESET"
+NEW_TRACK_PRESET = "my chain console"   # 005-MY CHAIN CONSOLE!
+NEW_TRACK_SETTLE = 0.8                  # seconds for Logic to draw and select the new track before its Setting menu opens
 MARKERS_PATH_KEY = "HIREMARCO_MARKERS"   # json {"chorus": 33, "verse 2": 17} bars, per session
 
 KNOB_CC = {"tuning": 20, "reverb": 21, "delay": 22}
@@ -138,6 +143,8 @@ def plan(command: Command) -> Plan:
         return Plan([p("go_to_start")])
     if a == "new_track":
         return Plan([p("new_audio_track"), p("record_arm")])
+    if a == "duplicate_track":  # the selected track's channel strip on a new track, armed like a new one
+        return Plan([p("duplicate_track"), p("record_arm")])
     if a == "new_sound_track":  # a track for a made sound: nothing will be recorded on it, so it is not armed
         return Plan([p("new_audio_track")])
     if a == "arm_track":
@@ -165,6 +172,12 @@ def plan(command: Command) -> Plan:
     raise gate.Refused(f"{a} is not a Logic action")
 
 
+def _load_preset(name: str) -> str:
+    from hiremarco.studio import presets
+
+    return presets.load(name)
+
+
 class Logic:
     def __init__(self, *, dry_run: bool = False, conn: sqlite3.Connection | None = None,
                  run_script: Callable[[str], None] | None = None, knobs: Knobs | None = None,
@@ -184,11 +197,14 @@ class Logic:
         if command.action == "preset":
             return self._preset(command)
         steps = plan(command)
+        chain = self.new_track_chain() if command.action == "new_track" else None
         if self.dry_run:
             self.planned += [_script(press) for press in steps.presses]
             if steps.knob:
                 self.planned.append("midi {} {} {}".format(*steps.knob))
-            return f"dry run: {command.describe()}"
+            if chain:
+                self.planned.append(f"preset {chain}")
+            return f"dry run: {command.describe()}" + (f" with {chain}" if chain else "")
 
         def run() -> str:
             for press in steps.presses:
@@ -200,6 +216,15 @@ class Logic:
             if steps.knob:
                 value = (self.knobs or Knobs()).move(*steps.knob)
                 return f"{command.describe()} ({value})"
+            if command.action == "new_track":
+                if not chain:
+                    return f"{command.describe()} (no {self.new_track_preset()!r} preset saved)"
+                time.sleep(NEW_TRACK_SETTLE)
+                try:
+                    (self.load_preset or _load_preset)(chain)
+                except Exception as exc:  # the track is made either way; say the chain did not load
+                    return f"{command.describe()}; {chain} did not load: {type(exc).__name__}: {str(exc)[-120:]}"
+                return f"{command.describe()} with {chain}"
             return command.describe()
 
         return self._gated(run, command.action, command.describe())
@@ -212,6 +237,16 @@ class Logic:
 
         parts = (position.split() + ["1", "1", "1"])[:4]  # bar, beat, sixteenth, tick: a take's start is exact
         (self.move or (lambda where: _run(["gotoexact", *where.split()])))(" ".join(parts))
+
+    @staticmethod
+    def new_track_preset() -> str:
+        return config.get(NEW_TRACK_PRESET_KEY) or NEW_TRACK_PRESET
+
+    def new_track_chain(self) -> str | None:
+        """The saved Performance a new track starts with: 005-MY CHAIN CONSOLE! unless set otherwise."""
+        from hiremarco.studio import presets
+
+        return presets.match(self.new_track_preset(), presets.list_presets(self.preset_dir))
 
     def _preset(self, command: Command) -> str:
         from hiremarco.studio import presets
