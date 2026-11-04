@@ -238,3 +238,9 @@ def test_a_song_file_gets_the_wave_file_mark_and_loudness_keeps_the_meter():
     assert "'rec','bars','wavefile']" in page and ".mk.wavefile{height:36px}.mk.wavefile svg{width:28px;height:36px}" in page and ">WAV</text>" in page
     route = page[page.index("return 'wavefile';"):]
     assert page.index("return 'wavefile';") < page.index("return 'rec';") and "the final version" in page[page.index("function motifOf"):page.index("return 'wavefile';")]
+
+
+def test_a_running_demo_reads_as_licensed_even_beside_a_buy_button():
+    # Owner 2026-11-03: Shadow Hills in demo says DEMO ACTIVE - 14 DAYS with BUY beside it; BUY alone must not fail it
+    assert "DEMO ACTIVE" in face.INSTRUCTIONS and "A running demo counts as licensed" in face.INSTRUCTIONS
+    assert face._face_line(json.dumps({"plugin": "UAD Shadow Hills Mastering Compressor", "licensed": True, "notice": ""})) == "UAD Shadow Hills Mastering Compressor is licensed."

@@ -30,8 +30,11 @@ INSTRUCTIONS = (
     "that it is not owned, not licensed or not fully working: words or buttons like 'START DEMO', 'BUY', 'INFO' "
     "beside them, 'subscription not active', 'license', 'activate', 'trial', 'demo', 'expired', 'not authorized', "
     "'purchase', 'register', or a banner, overlay, bar or dialog asking the user to sign in, demo or buy, anywhere "
-    "on the window including its bottom edge. A plug-in that simply shows its controls is licensed. Quote the "
-    "notice exactly as printed when there is one; otherwise leave it empty. Do not guess from the plug-in's name."
+    "on the window including its bottom edge. A plug-in that simply shows its controls is licensed. A running demo "
+    "counts as licensed: a window that says 'DEMO ACTIVE', 'demo active', or a number of days left is working for "
+    "now, even with a BUY or INFO button beside those words (Owner 2026-11-03); only 'START DEMO', or BUY with no "
+    "active demo named, is a notice. Quote the notice exactly as printed when there is one; otherwise leave it "
+    "empty. Do not guess from the plug-in's name."
 )
 
 SCHEMA = {
