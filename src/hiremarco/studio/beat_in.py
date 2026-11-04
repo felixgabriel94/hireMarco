@@ -408,6 +408,25 @@ def dismiss_notices() -> str:
     return done.stdout.strip()
 
 
+def dismiss_chooser() -> str:
+    """Logic's "Choose a Project" chooser, which a cold launch puts over the session it was asked to open (live
+    2026-11-04: Marco stopped there): its Cancel is pressed, the session behind it is the one he opened. Returns the
+    window's title when one was dismissed, else ""."""
+    script = (
+        'tell application "System Events" to tell process "Logic Pro"\n'
+        '  set found to ""\n'
+        '  repeat with w in (every window whose title contains "Choose")\n'
+        '    if exists (first button of w whose title is "Cancel") then\n'
+        '      set found to title of w\n'
+        '      click (first button of w whose title is "Cancel")\n'
+        '    end if\n'
+        '  end repeat\n'
+        '  return found\n'
+        'end tell')
+    done = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=15)
+    return done.stdout.strip()
+
+
 def save_question(answer: str = "") -> str:
     """The song Logic is asking about in "Do you want to save the document ...?", or "" when it is not asking.
     With ``answer`` ("Save"), that button is pressed. Live 2026-10-30: an unsaved "Untitled 3" held the setup for
@@ -489,7 +508,8 @@ class BeatLoader:
                  conn=None, rules_path: Path | None = None, today: Callable[[], date] = date.today,
                  wait_s: float = 180.0, wake: Callable[[], None] = wake_display,
                  notices: Callable[[], str] = dismiss_notices, asking: Callable[..., str] = save_question,
-                 jump: Callable[[float], str] | None = None):
+                 jump: Callable[[float], str] | None = None,
+                 chooser: Callable[[], str] = dismiss_chooser):
         self.run, self.front, self.click, self.scroll = run, front, click, scroll
         self.jump = jump or _scroll_to
         self.open_app = open_app or (lambda p: subprocess.run(["open", "-a", "Logic Pro", str(p)], check=True,
@@ -499,6 +519,7 @@ class BeatLoader:
         self.template, self.sessions, self.today = template, sessions, today
         self.conn, self.rules_path, self.wait_s = conn, rules_path, wait_s  # Logic opening cold takes over a minute
         self.wake, self.notices, self.asking = wake, notices, asking
+        self.chooser = chooser
 
     def clear_windows(self) -> None:
         """Every plug-in window closed, so nothing floats over the track headers."""
@@ -614,6 +635,8 @@ class BeatLoader:
             if title.startswith(target.stem):
                 self.sleep(1.0)
                 self.notices()
+                if self.chooser():   # the cold launch's chooser over the session: gone, the session is in front
+                    self.sleep(0.5)
                 return target
             asked = self._save_question()
             if asked:

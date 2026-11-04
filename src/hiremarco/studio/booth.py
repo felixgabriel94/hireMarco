@@ -71,7 +71,7 @@ NOW_LINES = {
     "flex_pass": "Marco tunes the vocal.",
     "record": "Marco rolls a take.",
 }
-WAITING = "Marco is waiting for the next task."
+WAITING = "Marco is ready for the next task."
 AWAKE = 20.0  # seconds after the last exchange in which a sentence needs no "Marco"; the same quiet ends the halo
 LIVE_ON = "Live view's on. The link's on the Mac."
 LIVE_TEXTED = "Live view's on. I texted you the link."
@@ -219,6 +219,7 @@ class Booth:
             return "holding the new session until the take stops"
         self.operating = True   # the halo shows him setting up before Logic is even open
         self._work("started", "new_session")
+        time.sleep(1.2)   # the halo fades in first, then his voice, then Logic (Owner 2026-11-04: he appears before anything)
         self._say("the artist asked for a fresh session with no beat; opening one from the template; say so in a line",
                   {"song": name or ""}, "Opening a fresh session. I'll wait for you.")
         try:

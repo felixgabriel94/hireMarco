@@ -451,7 +451,7 @@ function similar(a,b){if(a.kind==='call'&&b.kind==='call'&&a.key&&a.key===b.key)
 function earBars(n){return Array.from({length:n},(_,k)=>'<i style="animation-delay:'+((k*0.07)%0.9).toFixed(2)+'s;animation-duration:'+(0.8+(k%5)*0.12).toFixed(2)+'s"></i>').join('');}
 function typeInto(el,text){if(!el)return;el.innerHTML=[...text].map(ch=>'<span class="c">'+esc(ch)+'</span>').join('')+'<span class="caret"></span>';const chars=el.querySelectorAll('.c'),caret=el.querySelector('.caret');let i=0;el.classList.add('typing');(function step(){if(i>=chars.length){el.classList.remove('typing');return;}const ch=chars[i];ch.classList.add('on');ch.after(caret);i++;const c=ch.textContent;setTimeout(step,c===' '?55:/[.,]/.test(c)?140:22+Math.random()*26);})();}
 function renderNow(){const n=$('now');n.classList.toggle('flag',!!S.plainKind);n.classList.toggle('fail',S.plainKind==='fail');
- $('nowLbl').textContent=S.plainKind?(S.plainKind==='back'&&S.corr&&S.stages?'Stepped back · to '+S.stages[S.corr.to]:KIND_LABEL[S.plainKind]):'Now';typeNow(S.plain||'Marco is waiting for the next task.');n.style.visibility='visible';}
+ $('nowLbl').textContent=S.plainKind?(S.plainKind==='back'&&S.corr&&S.stages?'Stepped back · to '+S.stages[S.corr.to]:KIND_LABEL[S.plainKind]):'Now';typeNow(S.plain||'Marco is ready for the next task.');n.style.visibility='visible';}
 
 function renderPath(){const p=$('path');if(!S.stages){p.innerHTML='';p.style.visibility='hidden';return;}p.style.visibility='visible';
  p.innerHTML=S.stages.map((s,i)=>{let c='st';if(i===S.stageIdx)c+=' cur';else if(S.corr&&i>S.stageIdx&&i<=S.corr.from)c+=' redo';else if(i<S.stageIdx||(!S.corr&&i<=S.maxIdx))c+=' done';

@@ -277,7 +277,13 @@ def show(*, at: Path | None = None) -> None:
             showing = state.phase(now) > 0.0
             if showing and now - feed["polled"] >= WINDOW_POLL_S:
                 feed["polled"] = now
-                found = front_logic_window(windows())
+                infos = windows()
+                found = front_logic_window(infos)
+                if found != feed.get("found"):   # every switch on the record, for a frame that looks stuck (Owner 2026-11-04)
+                    feed["found"] = found
+                    front = [(i.get("kCGWindowName") or "?", int(i.get("kCGWindowLayer", 0) or 0), i.get("kCGWindowBounds"))
+                             for i in infos if i.get("kCGWindowOwnerName") == "Logic Pro"][:4]
+                    print(f"{time.strftime('%H:%M:%S')} frame {found} of Logic's windows {front}", flush=True)
                 if found is not None:
                     if view.target is None and state.working(now) and not feed.get("born"):
                         state.began_at = now   # the first window of this work: the orb flows into it from the halo

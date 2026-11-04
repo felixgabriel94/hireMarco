@@ -96,7 +96,7 @@ def loader(tmp_path, logic, front="Logic Pro", started=None):
                       click=logic.click, scroll=lambda n: None, go_to_start=lambda: started.append("start") or "ok",
                       sleep=lambda s: None, template=template, sessions=tmp_path / "sessions",
                       conn=gate.connect(":memory:"), rules_path=rules(tmp_path), today=lambda: date(2026, 10, 29),
-                      wait_s=3, wake=lambda: logic.calls.append(["wake"]), notices=lambda: "",
+                      wait_s=3, wake=lambda: logic.calls.append(["wake"]), notices=lambda: "", chooser=lambda: logic.calls.append(["chooser"]) or "",
                       asking=getattr(logic, "asking", lambda answer="": ""))
 
 
@@ -593,3 +593,10 @@ def test_open_a_new_session_by_text_with_no_beat_asks_the_booth_for_a_fresh_one(
     line = handle(inbound(wa, "w1", kind="text", text="Marco open a new session and wait for me."), wa=wa, inbox=tmp_path / "inbox")   # no comma, as the transcriber writes it
     assert "fresh session asked of the booth" in line and "brain" not in line   # acted on before the brain is asked
     assert words == [b"session"] and b"Opening a fresh session" in sent[-1]
+
+
+def test_the_cold_launch_chooser_is_dismissed_once_the_session_shows(tmp_path):
+    # Owner 2026-11-04: he stopped at "Choose a Project"; the session from the template is the one he opened
+    logic = FakeLogic("Session")
+    loader(tmp_path, logic).open_empty()
+    assert ["chooser"] in logic.calls and logic.calls.index(["chooser"]) > logic.calls.index(["wake"])

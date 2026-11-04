@@ -89,7 +89,7 @@ def build(design: str) -> str:
                   "  const dup=[0,1].find(k=>slots[k]&&similar(slots[k],l));if(dup!==undefined)slots[dup]=null;\n  let i=slots.indexOf(null);")
     # Owner 2026-11-03: the Now section is never blank; with nothing running it says he is waiting for the next task
     now_blank = "typeNow(S.plain);n.style.visibility=S.plain?'visible':'hidden';}"
-    now_always = "typeNow(S.plain||'Marco is waiting for the next task.');n.style.visibility='visible';}"
+    now_always = "typeNow(S.plain||'Marco is ready for the next task.');n.style.visibility='visible';}"
     # Owner 2026-11-03: no ellipsis ever. Every header gives the model's whole name its width, nothing on the page
     # shortens text with dots, and an id is shown whole
     trunc = "function midTrunc(s,n){s=String(s);return s.length<=n?s:s.slice(0,Math.ceil(n/2)-1)+'\u2026'+s.slice(-Math.floor(n/2));}"
