@@ -138,6 +138,35 @@ def on_strip(plugin: str, names: list[str]) -> bool:
 
 CHECK_RANGE = (2, 10)   # bars, until the mix print is read: then the loudest eight bars (Owner 2026-11-02)
 CHECK_BARS = 8
+_SPEAKER: list = []   # the booth's voice while it runs this job (Owner 2026-11-04: a few spoken checkpoints, not commentary)
+
+
+class speaking:
+    """``with speaking(booth._say):`` the job's checkpoints are said aloud through the booth for the job's length."""
+
+    def __init__(self, say: Callable[[str, dict, str], None]):
+        self.say = say
+
+    def __enter__(self):
+        _SPEAKER.append(self.say)
+        return self
+
+    def __exit__(self, *exc) -> None:
+        if self.say in _SPEAKER:
+            _SPEAKER.remove(self.say)
+
+
+def checkpoint(moment: str, facts: dict, plain: str) -> None:
+    """One spoken line at a checkpoint, written from this run's facts, the plain line if the writer is late; silent
+    when no booth is speaking for the job. The voice is the look, not the work: a failure here changes nothing."""
+    if not _SPEAKER:
+        return
+    try:
+        _SPEAKER[-1](moment, facts, plain)
+    except Exception:   # noqa: BLE001
+        pass
+
+
 STAGES = ["Balance", "Think", "Build", "Test", "Print", "Check", "Deliver"]   # the path on the live view; the mix is checked, then mastered (Owner 2026-11-04: two jobs, shown as two, in everyday words)
 
 
@@ -714,8 +743,12 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             log(f"   {line}")
 
     emit_analysis(result.audit_mix, result.hearing)
-    for words in events.plain_findings(auditing.findings(result.audit_mix)):
+    found = events.plain_findings(auditing.findings(result.audit_mix))
+    for words in found:
         events.thought(words)
+    checkpoint("the artist's mix is measured and heard, before any of your work on it; say in one short sentence what "
+               "stands out and that the finish comes next; no numbers", {"what_stands_out": found[:2]},
+               "I've checked your balance. Now I'll finish it.")
 
     # 3. the plan, from the deepest brain, judged by the critic
     log("3. the plan")
@@ -996,6 +1029,12 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             # below still decide whether a second pass runs, so the brain's word is the verdict a judge reads
             with events.step("Judge the finished song against the goal", tool="Marco's ears", motif="vu", word="checked") as line:
                 try:
+                    # before and after for the room (Owner 2026-11-04): his mix with Marco's tools off, then the master,
+                    # the same stretch at the same level, so louder cannot pass for better
+                    events.stage("Check", "Marco plays your song before his work, then after, at the same level.")
+                    checkpoint("about to play the loudest part of the song before your work and then after it, at the "
+                               "same level; one short sentence inviting the room to listen", {},
+                               "Here's your song before my work, then after, at the same level.")
                     heard = judge.hear(result.mix, master.path, job="check_ear", what=("the original", "the finished version"))
                     # the marks are Marco's arithmetic, handed over as facts (run 39: the brain read a peak of exactly the
                     # ceiling as over it); the brain judges the sound
@@ -1075,6 +1114,15 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
         "bench": result.bench, "ladder": result.ladder, "judged": result.judged, "meter": result.meter, "trimmed_s": result.trimmed_s,
     }, indent=1, default=str))
     if deliver is not None and result.master is not None and not result.stopped:
+        if result.audit_master is not None and result.plan is not None:
+            met = bool(abs(result.plan.target_lufs - result.audit_master.base.lufs) <= LUFS_TOLERANCE
+                       and result.audit_master.base.true_peak_db - result.plan.ceiling_dbtp <= CEILING_TOLERANCE)
+            checkpoint("the finished song is measured and checked; say where it landed against the goal in plain words "
+                       "and that you are sending it now", {"loudness_lufs": result.audit_master.base.lufs,
+                                                          "true_peak_dbtp": result.audit_master.base.true_peak_db,
+                                                          "goal_lufs": result.plan.target_lufs,
+                                                          "ceiling_dbtp": result.plan.ceiling_dbtp, "marks_met": met},
+                       "It hits the marks. Sending it to you now." if met else "It's done. Sending it to you now.")
         log("7. the delivery")
         events.stage("Deliver", "Done. It hits every mark.")
         went = deliver(result.master, result.caption)

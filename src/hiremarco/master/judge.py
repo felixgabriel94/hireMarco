@@ -27,6 +27,7 @@ from hiremarco.studio.feedback import MODEL as EARS
 from hiremarco.studio.feedback import TENANT, take_wav
 
 BRAIN = "muse-wonder-1.0"
+GAP_S = 0.6   # silence between the two clips the room hears
 EFFORT = "medium"      # a verdict on one decision, not a plan: medium effort answers in seconds, not minutes
 TOKENS = 6000
 SECONDS = 20.0         # of the loudest stretch, enough to hear a tool's absence and short enough for one call
@@ -113,7 +114,8 @@ class Judge:
         clip_a, clip_b, rate = matched_clips(a, b)
         from hiremarco.studio import aloud
 
-        aloud.play(np.concatenate([clip_a, clip_b]), rate)   # the room hears the pair as the ears get it, beside the call
+        gap = np.zeros((int(rate * GAP_S), clip_a.shape[1]), dtype="float32")   # a breath between before and after
+        aloud.play(np.concatenate([clip_a, gap, clip_b]), rate)   # the room hears the pair as the ears get it, beside the call
         question = f"Two clips of the same part of the song: first {what[0]}, then {what[1]}. What differs, and does it help?"
         gate.check_model_call(TENANT, model=EARS, system=EAR_INSTRUCTIONS, prompt=question, joblog=self.client.joblog)
         content = [{"type": "text", "text": question}]

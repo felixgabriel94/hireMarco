@@ -1013,8 +1013,11 @@ class Booth:
 
         def run() -> None:
             self.busy = True
+            from hiremarco.master import job as master_job
+
             try:
-                summary = self.master(words)
+                with master_job.speaking(self._say):   # his few spoken checkpoints through the run (Owner 2026-11-04)
+                    summary = self.master(words)
                 self.log(f"   master: {summary}")
                 self._say("the master is printed and texted; say so in one short line with its loudness",
                           {"result": summary}, "Master's done. It's on your phone.")
