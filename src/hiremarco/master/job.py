@@ -83,6 +83,7 @@ class Result:
     ladder: dict | None = None                            # the loudness ladder on the loudest bars: steps, ceiling, what gave
     judged: list[dict] = field(default_factory=list)      # the ears and the brain on each finished print, against the goal
     meter: dict | None = None                             # the meter on screen against Marco's ears on the same stretch
+    trimmed_s: float = 0.0                                # seconds of silent tail cut off the master
 
     @property
     def caption(self) -> str:
@@ -362,6 +363,38 @@ def emit_analysis(audit, hearing) -> None:
                     metrics=stands[:4], confidence=a.key_confidence if a.key else None)
     except Exception:   # noqa: BLE001  (the trace never stops the work)
         pass
+
+
+TAIL_FLOOR_DB = -45.0    # below this, over TAIL_HOLD_S, the tail is room hiss lifted by the chain, not music (Owner 2026-11-03)
+TAIL_HOLD_S = 2.0
+TAIL_FADE_S = 2.0
+
+
+def trim_tail(path: Path, *, floor_db: float = TAIL_FLOOR_DB, hold_s: float = TAIL_HOLD_S, fade_s: float = TAIL_FADE_S) -> float:
+    """The silent tail cut off a print, in place: a mix that runs past the song's end carries the room's hiss, and the
+    chain lifts it to where a listener hears a fan for a minute (run 39, 2026-11-03). The last tenth of a second that
+    rises above the floor is found; the file ends ``hold_s`` after it with a fade of ``fade_s``. Returns the seconds
+    removed, 0.0 when the tail was already short."""
+    import numpy as np
+
+    info = sf.info(str(path))
+    audio, rate = sf.read(str(path), dtype="float32", always_2d=True)
+    window = max(int(rate * 0.1), 1)
+    n = len(audio) // window
+    if n < 2:
+        return 0.0
+    levels = np.sqrt(np.mean(np.square(audio[: n * window].reshape(n, window, -1)), axis=(1, 2)))
+    loud = np.flatnonzero(20 * np.log10(np.maximum(levels, 1e-9)) > floor_db)
+    if not loud.size:
+        return 0.0
+    end = min(len(audio), (int(loud[-1]) + 1) * window + int(hold_s * rate))
+    if len(audio) - end < rate * 0.5:
+        return 0.0
+    fade = min(int(fade_s * rate), end)
+    kept = audio[:end].copy()
+    kept[end - fade:end] *= np.linspace(1.0, 0.0, fade, dtype="float32")[:, None]
+    sf.write(str(path), kept, rate, subtype=info.subtype, format=info.format)
+    return round((len(audio) - end) / rate, 2)
 
 
 PAYOFF_SECONDS = 40.0    # the finished song plays this long through the meter on screen; the file's same stretch is the check
@@ -933,6 +966,13 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
             line["summary"] = "Saved."
             line["metrics"] = [("Length", f"{master.seconds:.0f}", "s")]
         result.master = master.path
+        with events.step("Trim the silent tail", motif="rec") as line:
+            cut = trim_tail(master.path)
+            result.trimmed_s = cut
+            line["summary"] = f"Cut {cut:.0f} seconds of hiss off the end." if cut else "The end was already clean."
+            if cut:
+                line["metrics"] = [("Cut", f"{cut:.1f}", "s")]
+        log(f"   the tail: {cut:.1f} s trimmed" if cut else "   the tail: nothing to trim")
         events.stage("Check", "Marco is checking what actually came out.")
         with events.step("Measure what came out", tool="Marco's ears", motif="vu", word="checked") as line:
             result.audit_master = auditing.audit_file(master.path)
@@ -1027,7 +1067,7 @@ def _run(job: Job, result: Result, bounces: Path, room: set[str], *, strip, boun
         "deltas": deltas.as_dict() if deltas else None, "references": [r.base.name for r in refs],
         "hearing": result.hearing, "hearing_master": result.hearing_master,
         "manifest": result.manifest, "verdict": (result.verdict.__dict__ if result.verdict is not None else None),
-        "bench": result.bench, "ladder": result.ladder, "judged": result.judged, "meter": result.meter,
+        "bench": result.bench, "ladder": result.ladder, "judged": result.judged, "meter": result.meter, "trimmed_s": result.trimmed_s,
     }, indent=1, default=str))
     if deliver is not None and result.master is not None and not result.stopped:
         log("7. the delivery")

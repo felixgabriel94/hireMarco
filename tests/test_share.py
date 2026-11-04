@@ -50,4 +50,6 @@ def test_the_link_serves_a_branded_page_the_file_and_the_tie_until_it_dies(tmp_p
 def test_the_link_goes_through_the_tunnel_when_there_is_one(monkeypatch):
     monkeypatch.setattr(config, "get", lambda key, default=None: "https://marco.example.ngrok-free.dev/llm/v1" if key == "CALL_RELAY_URL" else default)
     assert share.base_url() == "https://marco.example.ngrok-free.dev"
+    monkeypatch.setattr(config, "get", lambda key, default=None: {"SHARE_URL": "https://quiet.trycloudflare.com/", "CALL_RELAY_URL": "https://x/llm/v1"}.get(key, default))
+    assert share.base_url() == "https://quiet.trycloudflare.com"   # the links' own tunnel wins
     assert share.link("abc").endswith("/share/abc")

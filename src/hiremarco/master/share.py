@@ -117,9 +117,12 @@ def card(title: str, width: int = 1200, height: int = 630) -> bytes:
     except OSError:
         pass
     d.text((116, 68), "hireMarco", font=_font(30), fill=(255, 255, 255), anchor="lm")
-    _mark(d, width // 2 - 110, 150, 220, 11)
-    d.text((width / 2, 455), title, font=_font(50), fill=(255, 255, 255), anchor="mm")
-    d.text((width / 2, 520), "MASTER", font=_font(24, mono=True), fill=(138, 138, 138), anchor="mm")
+    # card C (Owner 2026-11-03): the mark at the left, the song's name beside it, MASTER under the name, a quiet line
+    _mark(d, 80, 230, 170, 9)
+    d.text((300, 290), title, font=_font(58), fill=(255, 255, 255), anchor="lm")
+    d.text((300, 360), "MASTER", font=_font(26, mono=True), fill=(138, 138, 138), anchor="lm")
+    d.line([(80, 470), (width - 80, 470)], fill=(40, 40, 40), width=2)
+    d.text((80, 520), "Mastered by Marco", font=_font(26), fill=(138, 138, 138), anchor="lm")
     out = io.BytesIO()
     im.convert("RGB").save(out, format="PNG", optimize=True)
     return out.getvalue()
@@ -138,7 +141,11 @@ def _font(size: int, mono: bool = False):
 
 
 def base_url() -> str | None:
-    """Where the phone reaches this Mac: the tunnel's address when the call relay has one, else the home network."""
+    """Where the phone reaches this Mac: the links' own tunnel when one is set (SHARE_URL, a tunnel with no warning
+    page in front, Owner 2026-11-03), else the call relay's tunnel, else the home network."""
+    own = config.get("SHARE_URL")
+    if own:
+        return own.rstrip("/")
     relay = config.get("CALL_RELAY_URL")
     if relay:
         return relay.split("/llm/")[0].rstrip("/")

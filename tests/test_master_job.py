@@ -616,3 +616,43 @@ def test_the_payoff_takes_the_rooms_meter_when_the_plan_named_none(tmp_path, mon
     assert played == ["Loudness Meter"] and result.meter["agree"] is True
     assert ("remove", "Loudness Meter") in strip.log   # on for the payoff, off after: no stray for the next run
     assert result.judged[0]["decision"] == "done"
+
+
+def test_the_silent_tail_is_cut_off_the_master_with_a_fade(tmp_path):
+    # run 39 (2026-11-03): the print ran 77 s past the song and the chain lifted the room's hiss into a fan sound
+    import numpy as np
+    import soundfile as sf
+
+    rate = 48000
+    t = np.linspace(0, 10, rate * 10, dtype="float32")
+    music = 0.3 * np.sin(2 * np.pi * 220 * t[: rate * 4])          # four seconds of tone
+    hiss = 0.002 * np.random.default_rng(1).standard_normal(rate * 6).astype("float32")   # six seconds of hiss, about -54 dBFS
+    path = tmp_path / "m.wav"
+    sf.write(str(path), np.column_stack([np.concatenate([music, hiss])] * 2), rate, subtype="PCM_24")
+    cut = jobs.trim_tail(path)
+    audio, _ = sf.read(str(path), dtype="float32", always_2d=True)
+    assert 3.5 < cut < 4.5 and abs(len(audio) / rate - (4.0 + jobs.TAIL_HOLD_S)) < 0.15
+    assert abs(float(audio[-1, 0])) < 1e-3 and sf.info(str(path)).subtype == "PCM_24"   # faded to nothing, still 24-bit
+    assert jobs.trim_tail(path) == 0.0   # already clean: left alone
+    sf.write(str(path), np.column_stack([music] * 2), rate, subtype="PCM_24")
+    assert jobs.trim_tail(path) == 0.0   # no tail at all
+
+
+def test_the_job_trims_the_tail_before_it_measures_the_master(tmp_path, monkeypatch):
+    from hiremarco import config
+
+    monkeypatch.setattr(config, "STATE_DIR", tmp_path / "state")
+    trimmed = []
+    monkeypatch.setattr(jobs, "trim_tail", lambda path, **k: trimmed.append(path.name) or 3.0)
+    strip, bouncer, channel = FakeStrip(), FakeBouncer(tmp_path, [-30.0, -20.0, -12.0]), FakeChannel()
+    plan = MasterPlan([{"role": "limiter", "plugin": "Pro-L 2", "why": "6 dB short"}], -12.0, -1.0, "A clean mix.", "demo")
+    monkeypatch.setattr(planning, "roles_for", lambda *a, **k: plan)
+    monkeypatch.setattr(planning, "settings_for", lambda *a, **k: Settings([], ""))
+    job = jobs.Job("song", 90, tmp_path, today="2026-11-02")
+    result = jobs.run(job, strip=strip, bouncer=bouncer, channel=channel, locators=lambda a, b: setattr(bouncer, "end", b),
+                      toggle_cycle=lambda: None, select_track=lambda: None, room={"Pro-L 2"}, log=lambda s: None)
+    assert trimmed == ["song - master 2026-11-02.wav"] and result.trimmed_s == 3.0
+    rows = _events(tmp_path)
+    trim = next(r for r in rows if r["kind"] == "tool_completed" and r.get("summary", "").startswith("Cut 3 seconds"))
+    check = next(i for i, r in enumerate(rows) if r.get("plain") == "Marco is checking what actually came out.")
+    assert rows.index(trim) < check and json.loads(result.record.read_text())["trimmed_s"] == 3.0
