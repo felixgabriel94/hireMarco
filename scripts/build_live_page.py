@@ -81,7 +81,7 @@ def build(design: str) -> str:
                     # off the header's own letters, in the page's unscaled pixels
                     "cur.querySelectorAll('.st.ear').forEach(st=>{const sl=st.parentElement;sl.classList.add('ear');const w=sl.querySelector('.sh .w'),b=sl.querySelector('.sh b'),bars=st.querySelector('.bars');if(!w||!b||!bars)return;"
                     "const u=($('stage').getBoundingClientRect().width/DIMS[layout][0])||1;const s0=st.getBoundingClientRect().left;const wf=parseFloat(getComputedStyle(w).fontSize)||18,bf=parseFloat(getComputedStyle(b).fontSize)||24;"
-                    "const left=(w.getBoundingClientRect().left-s0)/u+wf*0.85;const right=(b.getBoundingClientRect().right-s0)/u-bf*0.66*6;bars.style.marginLeft=left+'px';bars.style.width=Math.max(120,right-left)+'px';});tick();}")
+                    "const left=(w.getBoundingClientRect().left-s0)/u+wf*0.85;const right=(b.getBoundingClientRect().right-s0)/u-bf*0.66*6;bars.style.marginLeft=left+'px';bars.style.width=Math.max(120,right-left)+'px';});fitText(cur);tick();}")
     # Owner 2026-11-03: no redundancies. A new line whose words mostly match a line already in a slot replaces that line,
     # so the two slots never say the same thing; a lone moment sits in the centre by the design's own layout
     place = "for(const l of S.lines){if(l.seen)continue;l.seen=true;l.placedAt=++uidN;\n  let i=slots.indexOf(null);"
@@ -110,6 +110,10 @@ def build(design: str) -> str:
                ".ear .bars i{flex:1;display:block;height:.3em;border-radius:6px;background:#fff;animation:ear 1.1s ease-in-out infinite}"   # white (Owner 2026-11-03)
                ".sl .sh{grid-template-columns:auto max-content auto 1fr}.sl .sh b{overflow:visible;text-overflow:clip}.sl .sh .sc{justify-self:end}"   # the model's whole name, no ellipsis
                "*{text-overflow:clip!important}"   # no ellipsis anywhere (Owner 2026-11-03)
+               # a moment's text wraps to two lines at most and shrinks to fit, never into the models column; the stream itself
+               # clips at its edge with no dots (Owner 2026-11-03: everything fits, nothing crosses over)
+               ".sl .st{white-space:normal;max-height:2.35em;overflow:hidden;text-wrap:pretty}.sl .st.ear{max-height:none}"
+               "#cur.stream,.sl{overflow:hidden;min-width:0;max-width:100%}.sl .sh{overflow:hidden}"
                "@keyframes ear{0%,100%{height:.22em;opacity:.55}50%{height:1em;opacity:1}}"
                ".big.typing .c,.st.typing .c{opacity:0}.big .c.on,.st .c.on{opacity:1}"
                ".big .caret,.st .caret{display:inline-block;width:.42em;height:.9em;margin-left:.1em;vertical-align:-.08em;background:var(--accent)}\n")
