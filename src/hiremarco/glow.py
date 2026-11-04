@@ -24,11 +24,11 @@ from hiremarco import events
 ACCENT_OKLCH = (0.72, 0.185, 264.0)   # trace/design.html --accent, the one home of the brand blue
 RADIUS = 14.0
 BREATH_S = 4.0         # one slow breath
-ALPHA_LOW, ALPHA_HIGH = 0.45, 0.95
+ALPHA_LOW, ALPHA_HIGH = 0.55, 0.92
 PULSE_S = 0.7          # a landed event: a quick rise that fades
 # stroke width and share of the alpha, wide and faint to narrow and fuller, with no hard core: an aura that fades
 # both ways from the edge, air, not a line (Owner 2026-11-03)
-LAYERS = ((56.0, 0.05), (40.0, 0.08), (28.0, 0.12), (18.0, 0.18), (11.0, 0.26), (6.0, 0.34))
+LAYERS = ((56.0, 0.08), (40.0, 0.12), (28.0, 0.18), (18.0, 0.27), (11.0, 0.38), (6.0, 0.48))   # a third stronger (Owner 2026-11-04)
 MAX_LAYER = 20  # the window server's layer up to which a Logic window counts: a modal panel ("Choose a Project") is 8, a
                 # loading banner higher; menus and tooltips sit above 20
 DRIFT_S = 6.0          # one lap of the brighter stretch around the frame
