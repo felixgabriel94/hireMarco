@@ -141,11 +141,8 @@ def _font(size: int, mono: bool = False):
 
 
 def base_url() -> str | None:
-    """Where the phone reaches this Mac: the links' own tunnel when one is set (SHARE_URL, a tunnel with no warning
-    page in front, Owner 2026-11-03), else the call relay's tunnel, else the home network."""
-    own = config.get("SHARE_URL")
-    if own:
-        return own.rstrip("/")
+    """Where the phone reaches this Mac's /share: the call relay's tunnel, else the home network. SHARE_URL, when set,
+    is the public address that stands for /share (hiremarco.ai/m, or a tunnel's host plus /share) and link() uses it."""
     relay = config.get("CALL_RELAY_URL")
     if relay:
         return relay.split("/llm/")[0].rstrip("/")
@@ -156,6 +153,11 @@ def base_url() -> str | None:
 
 
 def link(share_id: str) -> str:
+    """The address the Owner gets: under SHARE_URL when one is set (hiremarco.ai/m, which the website passes through
+    to this server's /share), else this server's own /share on the tunnel."""
+    own = config.get("SHARE_URL")
+    if own:
+        return f"{own.rstrip('/')}/{share_id}"
     base = base_url()
     if not base:
         raise RuntimeError("no address the phone can reach: no tunnel and no home network")
@@ -166,7 +168,12 @@ def page_html(record: dict, share_id: str, base: str) -> str:
     """The player, minimal and centred (Owner 2026-11-03): the brand once, the mark, the song's name once, MASTER, the
     waveform to drag, the time, back, one play-and-pause button, forward, and Download the WAV. Nothing else."""
     title, name = _esc(record["title"]), _esc(record["name"])
-    here = f"{base}/share/{share_id}"
+    # the page's own pieces are reached by paths beside the page, so they go wherever the page came through (the
+    # website's /m passthrough or this server's /share); the card's picture must be a whole address, under SHARE_URL
+    # when one is set, else this server's
+    here = share_id
+    public = (config.get("SHARE_URL") or "").rstrip("/")
+    card_url = f"{public}/{share_id}/card.png" if public else f"{base}/share/{share_id}/card.png"
     peaks_json = json.dumps(record.get("peaks") or [])
     seconds = json.dumps(record.get("seconds") or 0)
     return f"""<!doctype html>
@@ -175,7 +182,7 @@ def page_html(record: dict, share_id: str, base: str) -> str:
 <meta name="theme-color" content="#000000">
 <meta property="og:title" content="{title}">
 <meta property="og:description" content="Master, by Marco at hireMarco.">
-<meta property="og:image" content="{here}/card.png">
+<meta property="og:image" content="{card_url}">
 <meta property="og:type" content="music.song">
 <title>{title}</title>
 <style>

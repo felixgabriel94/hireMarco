@@ -24,11 +24,15 @@ def test_the_link_serves_a_branded_page_the_file_and_the_tie_until_it_dies(tmp_p
     page = client.get(f"/share/{share_id}")
     assert page.status_code == 200 and "background: #000" in page.text and "hireMarco" in page.text
     assert page.text.split("<body>")[1].count("menos mal se siente bien V2") == 1 and "-11.0 LUFS" not in page.text and ">MASTER<" in page.text
-    assert f'src="http://testserver/share/{share_id}/file"' in page.text and 'download="song - master 2026-11-03.wav"' in page.text
+    assert f'src="{share_id}/file"' in page.text and 'download="song - master 2026-11-03.wav"' in page.text   # beside the page, whichever door it came through
     assert client.get(f"/share/{share_id}/tie.png").headers["content-type"] == "image/png"
     art = client.get(f"/share/{share_id}/cover.png")
     assert art.headers["content-type"] == "image/png" and art.content[:8] == b"\x89PNG\r\n\x1a\n" and len(art.content) > 2000
     assert f'property="og:image" content="http://testserver/share/{share_id}/card.png"' in page.text
+    monkeypatch.setattr(config, "get", lambda key, default=None: "https://hiremarco.ai/m/" if key == "SHARE_URL" else default)
+    branded = client.get(f"/share/{share_id}").text
+    assert f'property="og:image" content="https://hiremarco.ai/m/{share_id}/card.png"' in branded and share.link(share_id) == f"https://hiremarco.ai/m/{share_id}"
+    monkeypatch.setattr(config, "get", lambda key, default=None: default)
     assert client.get(f"/share/{share_id}/card.png").headers["content-type"] == "image/png" and "[hidden] { display: none !important; }" in page.text
     assert 'id="wave"' in page.text and "pointerdown" in page.text and "const peaks = [" in page.text and '"MASTER"' not in page.text
     record = share.lookup(share_id)
@@ -50,6 +54,6 @@ def test_the_link_serves_a_branded_page_the_file_and_the_tie_until_it_dies(tmp_p
 def test_the_link_goes_through_the_tunnel_when_there_is_one(monkeypatch):
     monkeypatch.setattr(config, "get", lambda key, default=None: "https://marco.example.ngrok-free.dev/llm/v1" if key == "CALL_RELAY_URL" else default)
     assert share.base_url() == "https://marco.example.ngrok-free.dev"
-    monkeypatch.setattr(config, "get", lambda key, default=None: {"SHARE_URL": "https://quiet.trycloudflare.com/", "CALL_RELAY_URL": "https://x/llm/v1"}.get(key, default))
-    assert share.base_url() == "https://quiet.trycloudflare.com"   # the links' own tunnel wins
+    monkeypatch.setattr(config, "get", lambda key, default=None: {"SHARE_URL": "https://quiet.trycloudflare.com/share/", "CALL_RELAY_URL": "https://x/llm/v1"}.get(key, default))
+    assert share.link("abc") == "https://quiet.trycloudflare.com/share/abc" and share.base_url() == "https://x"   # the public address stands for /share
     assert share.link("abc").endswith("/share/abc")
