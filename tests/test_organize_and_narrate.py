@@ -106,3 +106,39 @@ def test_stacks_are_opened_before_the_survey_and_a_closed_one_is_said(monkeypatc
                                  apply_plan=lambda p: [1, 2], log=lambda line: None)
     assert order == ["open", "survey"]
     assert line == "2 of 3 tracks renamed and read back; 1 stack stayed closed"
+
+
+def test_the_ready_text_brings_the_live_view_text_behind_it(monkeypatch):
+    # Owner 2026-11-04: "Session's ready" comes with the live view card and its link, so he can watch from anywhere
+    quiet(monkeypatch)
+    sent = []
+    b, said = booth_with(lambda p: "unused")
+    b.text_owner = lambda body, quote=None: sent.append(("text", body)) or "wamid.x"
+    b.send_link = lambda body, url: sent.append(("link", body, url))
+    b.live = lambda: "http://192.168.5.196:8800/live"
+    b.open_song = lambda: "Made Up Song 2026-11-04.logicx is open, a copy of Made Up Song.logicx"
+    b.organize = lambda: "12 of 14 tracks renamed and read back"
+    done = b.song_session(then_organize=True)
+    assert sent == [("text", "Session's labeled and ready."), ("link", "Live now. Join in. 👨🏻‍💻", "http://192.168.5.196:8800/live")]
+    assert done.endswith("live view texted")
+    sent.clear()
+    b.copy_open = False
+    assert "live view texted" in b.song_session()
+    assert sent[0] == ("text", "Session's ready.") and sent[1][0] == "link"
+
+
+def test_no_live_view_text_where_links_are_not_texted_or_it_is_turned_off(monkeypatch):
+    quiet(monkeypatch)
+    sent = []
+    b, said = booth_with(lambda p: "unused")
+    b.text_owner = lambda body, quote=None: sent.append(body) or "wamid.x"
+    b.live = lambda: "http://192.168.5.196:8800/live"
+    b.open_song = lambda: "a copy is open"
+    b.send_link = None
+    b.song_session()
+    assert sent == ["Session's ready."]
+    sent.clear()
+    b.send_link = lambda body, url: sent.append(url)
+    monkeypatch.setattr(config, "get", lambda k, *a: "off" if k == "HIREMARCO_READY_LIVE" else None)
+    b.song_session()
+    assert sent == ["Session's ready."]

@@ -110,6 +110,7 @@ WAITING = "Marco is on standby."
 AWAKE = 20.0  # seconds after the last exchange in which a sentence needs no "Marco"; the same quiet ends the halo
 LIVE_ON = "Live view's on. The link's on the Mac."
 LIVE_TEXTED = "Live view's on. I texted you the link."
+LIVE_LINE = "Live now. Join in. 👨🏻‍💻"   # the live view text: one short line, the card says the rest (Owner 2026-11-03)
 STOPPED = "Stopped. Everything's held until you clear it from the desk."
 # Lines Marco says often, made once at the start so they play the moment they are needed.
 STOCK = ["Rolling", *HEARD, *AFTER_TAKE, DISMISSED, LIVE_ON, LIVE_TEXTED, NOTED, LISTENING, DIALING, MISSED, FAILED, STOPPED, "Here's how it goes.", "What key are we in?", "Put it back.",
@@ -347,12 +348,12 @@ class Booth:
             self._say("some track stacks would not open, so the tracks inside them are not labeled; say so plainly",
                       {"done": done}, "I labeled the tracks I could see. Some stacks wouldn't open.")
             sent = self._text("I labeled the tracks I could see, but some stacks wouldn't open, so the tracks inside "
-                              "them still have their old names.")
+                              "them still have their old names.") + self._live_after_ready()
             self._result()
             return f"organized in part: {done}; {sent}"
         self._say("every track in his session is labeled; say the session is labeled and ready, in one short line",
                   {"done": done}, "Your session's labeled and ready.")
-        sent = self._text("Session's labeled and ready.")
+        sent = self._text("Session's labeled and ready.") + self._live_after_ready()
         self._result()
         return f"organized: {done}; {sent}"
 
@@ -389,7 +390,7 @@ class Booth:
         self._say("Logic now shows his song, ready to work on; say it is up, in plain words, with no name or file name",
                   {}, "Your song's up in Logic.")
         pad.stop(2.0)
-        sent = self._text("Session's ready.")
+        sent = self._text("Session's ready.") + self._live_after_ready()
         self._result()
         return f"{opened}; {sent}"
 
@@ -488,6 +489,20 @@ class Booth:
         line = random.choice(fresh)
         self.recent_answers.append(line)
         return line
+
+    def _live_after_ready(self) -> str:
+        """The live view text right behind "Session's ready." (Owner 2026-11-04: the ready text comes with the live view
+        card and its link, so he can watch from wherever he is). Only where links are texted; HIREMARCO_READY_LIVE=off
+        turns it off. A live view that won't start costs nothing: the ready text has already gone."""
+        if self.live is None or self.send_link is None or (config.get("HIREMARCO_READY_LIVE") or "on") != "on":
+            return ""
+        try:
+            link = self.live()
+        except Exception as exc:
+            self.log(f"   (live view not started: {type(exc).__name__})")
+            return ""
+        self.log(f"   live view: {link}")
+        return f"; live view {self._deliver(LIVE_LINE, link)}"
 
     def _deliver(self, body: str, url: str) -> str:
         """Links go to the artist's phone as a message with a button when Marco can send one; else the Mac."""
@@ -1631,7 +1646,7 @@ class Booth:
                 return "no live view in this booth"
             link = self.live()
             self.log(f"   live view: {link}")
-            where = self._deliver("Live now. Join in. 👨🏻‍💻", link)   # one short line in Marco's voice; the card says the rest (Owner 2026-11-03)
+            where = self._deliver(LIVE_LINE, link)
             self._say("live view on", {"link": "texted to the artist's phone" if where == "texted"
                                        else "on the Mac's screen, copied"}, LIVE_TEXTED if where == "texted" else LIVE_ON)
             return f"live view on, link {where}"
