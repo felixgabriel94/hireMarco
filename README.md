@@ -4,7 +4,7 @@
 shows him in one role, built in ten days for one artist's world. hireMarco is
 built to run the whole operation, business and personal.
 
-Here he works for an artist. He lives in WhatsApp, which the
+Here he works for an artist as an engineer. He lives in WhatsApp, which the
 Meta glasses read aloud and answer by voice, and he runs the technical side
 of a recording session so the artist can stay on the mic: "Marco, take me to
 the chorus. New track. Record." He reads the email that matters, offers to
