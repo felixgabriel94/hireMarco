@@ -82,8 +82,21 @@ def test_posters_are_wide_jpegs_with_the_brand():
     from PIL import Image
     import io
 
-    for data in (share.poster("menos mal se siente bien V2"), share.live_poster()):
+    for data in (share.poster("Some Other Song V2"), share.live_poster()):
         assert data[:3] == b"\xff\xd8\xff"
         im = Image.open(io.BytesIO(data))
         assert im.size == (1200, 630)
         assert len(data) < 300_000
+
+
+def test_the_master_picture_carries_the_songs_own_cover():
+    # Owner 2026-11-04: the master comes with the cover Muse Image painted, sharp in WhatsApp
+    import io
+
+    from PIL import Image
+
+    with_cover = Image.open(io.BytesIO(share.poster("Menos Mal Se Siente Bien 2026-11-04")))
+    assert with_cover.format == "JPEG" and with_cover.size == (2400, 1260)  # the same card, twice the pixels
+    assert len(share.poster("menos mal se siente bien V2")) < 1_000_000
+    plain = Image.open(io.BytesIO(share.poster("Some Other Song")))
+    assert plain.size == (1200, 630)

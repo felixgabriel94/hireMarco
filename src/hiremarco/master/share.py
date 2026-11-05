@@ -184,6 +184,9 @@ def poster(title: str, width: int = 1200, height: int = 630) -> bytes:
 
     from PIL import Image, ImageDraw
 
+    art = cover_art(title)
+    if art is not None:
+        return _cover_poster(title, art)
     im = Image.new("RGBA", (width, height), (0, 0, 0, 255))
     d = ImageDraw.Draw(im)
     _brand(im, d)
@@ -193,6 +196,49 @@ def poster(title: str, width: int = 1200, height: int = 630) -> bytes:
     d.line([(80, 470), (width - 80, 470)], fill=(40, 40, 40), width=2)
     d.text((80, 520), "Mastered by Marco", font=_font(26), fill=(138, 138, 138), anchor="lm")
     return _jpeg(im)
+
+
+def _cover_poster(title: str, art: Path, k: int = 2) -> bytes:
+    """The master's picture when the song has its own cover (Owner 2026-11-04: the master comes with the cover Muse
+    Image painted): the same card, the cover large on the left in place of the wave mark, the name, MASTER and the
+    foot line beside it. Drawn at twice the card's size, so WhatsApp's own downscale (about 1600 wide) stays sharp;
+    JPEG at quality 95, far under WhatsApp's 5 MB for a picture."""
+    from PIL import Image, ImageDraw
+
+    W, H = 1200 * k, 630 * k
+    im = Image.new("RGBA", (W, H), (0, 0, 0, 255))
+    d = ImageDraw.Draw(im)
+    try:
+        tie = Image.open(LOGO).convert("RGBA").resize((56 * k, 56 * k), Image.LANCZOS)
+        im.alpha_composite(tie, (48 * k, 40 * k))
+    except OSError:
+        pass
+    d.text((116 * k, 68 * k), "hireMarco", font=_font(30 * k), fill=(255, 255, 255), anchor="lm")
+    side = 450 * k
+    pic = Image.open(art).convert("RGB")
+    edge = min(pic.size)
+    pic = pic.crop(((pic.width - edge) // 2, (pic.height - edge) // 2, (pic.width + edge) // 2, (pic.height + edge) // 2))
+    im.paste(pic.resize((side, side), Image.LANCZOS), (80 * k, 120 * k))
+    d.rectangle([80 * k - 2 * k, 120 * k - 2 * k, 80 * k + side + 2 * k - 1, 120 * k + side + 2 * k - 1],
+                outline=(52, 52, 52), width=2 * k)   # a black cover on a black card still reads as a square
+    x, room = 590 * k, (1200 - 590 - 60) * k
+    lines, size = [title], 58
+    while size > 40 and d.textlength(title, font=_font(size * k)) > room:
+        size -= 2
+    if d.textlength(title, font=_font(size * k)) > room:   # a long name goes on two lines, never shrunk past reading
+        words = title.split()
+        cut = max(range(1, len(words)), key=lambda i: -abs(len(" ".join(words[:i])) - len(" ".join(words[i:]))), default=1)
+        lines, size = [" ".join(words[:cut]), " ".join(words[cut:])], 52
+        while size > 34 and max(d.textlength(t, font=_font(size * k)) for t in lines) > room:
+            size -= 2
+    top = 300 - (len(lines) - 1) * size * 0.6
+    for i, text in enumerate(lines):
+        d.text((x, int((top + i * size * 1.15) * k)), text, font=_font(size * k), fill=(255, 255, 255), anchor="lm")
+    d.text((x, int((top + (len(lines) - 1) * size * 1.15 + 70) * k)), "MASTER", font=_font(26 * k, mono=True),
+           fill=(138, 138, 138), anchor="lm")
+    d.line([(x, 470 * k), (W - 60 * k, 470 * k)], fill=(40, 40, 40), width=2 * k)
+    d.text((x, 520 * k), "Mastered by Marco", font=_font(26 * k), fill=(138, 138, 138), anchor="lm")
+    return _jpeg(im, quality=95)
 
 
 def live_poster(width: int = 1200, height: int = 630) -> bytes:
@@ -228,11 +274,11 @@ def _brand(im, d) -> None:
     d.text((116, 68), "hireMarco", font=_font(30), fill=(255, 255, 255), anchor="lm")
 
 
-def _jpeg(im) -> bytes:
+def _jpeg(im, quality: int = 92) -> bytes:
     import io
 
     out = io.BytesIO()
-    im.convert("RGB").save(out, format="JPEG", quality=92, optimize=True)
+    im.convert("RGB").save(out, format="JPEG", quality=quality, optimize=True)
     return out.getvalue()
 
 
